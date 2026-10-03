@@ -1,0 +1,26 @@
+rules_version = '2';
+// Only people listed in a trip's "members" can read or change it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function me() { return request.auth.token.email.lower(); }
+    function isMember(tripId) {
+      return me() in get(/databases/$(database)/documents/trips/$(tripId)).data.members;
+    }
+
+    match /trips/{tripId} {
+      allow read: if signedIn() && me() in resource.data.members;
+      allow create: if signedIn() && request.resource.data.owner == me()
+                    && request.resource.data.members == [me()];
+      // Members can edit the trip and invite people, but can't remove the owner.
+      allow update: if signedIn() && me() in resource.data.members
+                    && request.resource.data.owner == resource.data.owner
+                    && resource.data.owner in request.resource.data.members;
+      allow delete: if signedIn() && me() == resource.data.owner;
+
+      match /{sub}/{docId} {
+        allow read, write: if signedIn() && sub in ['items', 'activity', 'presence'] && isMember(tripId);
+      }
+    }
+  }
+}

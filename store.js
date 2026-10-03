@@ -1,0 +1,220 @@
+// Data layer. Two interchangeable backends with the same API:
+//  - Firebase (Google sign-in + Firestore realtime) when window.FIREBASE_CONFIG is set
+//  - Demo (localStorage + BroadcastChannel) otherwise, so the app can be tried with no setup.
+
+const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+
+export async function createStore() {
+  if (window.FIREBASE_CONFIG) return firebaseStore(window.FIREBASE_CONFIG);
+  return demoStore();
+}
+
+/* ------------------------------------------------------------------ Firebase */
+async function firebaseStore(config) {
+  const appMod = await import(FB + "firebase-app.js");
+  const authMod = await import(FB + "firebase-auth.js");
+  const fs = await import(FB + "firebase-firestore.js");
+
+  const app = appMod.initializeApp(config);
+  const auth = authMod.getAuth(app);
+  const db = fs.initializeFirestore(app, {
+    ignoreUndefinedProperties: true,
+    localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }),
+  });
+  // Local testing only: point at the Firebase emulators.
+  if (window.FIREBASE_EMULATORS) {
+    authMod.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    fs.connectFirestoreEmulator(db, "127.0.0.1", 8080);
+  }
+
+  const snapToObj = (d) => ({ id: d.id, ...d.data() });
+  const tripRef = (id) => fs.doc(db, "trips", id);
+  const sub = (tripId, name) => fs.collection(db, "trips", tripId, name);
+
+  return {
+    mode: "firebase",
+    onUser(cb) {
+      return authMod.onAuthStateChanged(auth, (u) =>
+        cb(u ? { email: u.email.toLowerCase(), name: u.displayName || u.email.split("@")[0], photo: u.photoURL } : null)
+      );
+    },
+    async signIn() {
+      const provider = new authMod.GoogleAuthProvider();
+      if (window.FIREBASE_EMULATORS && window.TEST_GOOGLE_USER) {
+        // Emulator accepts an unsigned Google ID token; lets automated tests sign in without a popup.
+        const u = window.TEST_GOOGLE_USER;
+        const tok = JSON.stringify({ sub: u.email, email: u.email, email_verified: true, name: u.name });
+        return authMod.signInWithCredential(auth, authMod.GoogleAuthProvider.credential(tok));
+      }
+      try {
+        await authMod.signInWithPopup(auth, provider);
+      } catch (e) {
+        if (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment") {
+          await authMod.signInWithRedirect(auth, provider);
+        } else throw e;
+      }
+    },
+    signOut: () => authMod.signOut(auth),
+
+    watchTrips(email, cb, onErr) {
+      const q = fs.query(fs.collection(db, "trips"), fs.where("members", "array-contains", email));
+      return fs.onSnapshot(q, (s) => cb(s.docs.map(snapToObj)), onErr);
+    },
+    async createTrip(data) {
+      const ref = await fs.addDoc(fs.collection(db, "trips"), data);
+      return ref.id;
+    },
+    updateTrip: (id, patch) => fs.updateDoc(tripRef(id), patch),
+    async deleteTrip(id) {
+      for (const name of ["items", "activity", "presence"]) {
+        const s = await fs.getDocs(sub(id, name));
+        await Promise.all(s.docs.map((d) => fs.deleteDoc(d.ref)));
+      }
+      await fs.deleteDoc(tripRef(id));
+    },
+    // Read-modify-write on the trip doc so two people changing days at once don't overwrite each other.
+    txTrip(id, fn) {
+      return fs.runTransaction(db, async (tx) => {
+        const snap = await tx.get(tripRef(id));
+        const patch = fn({ id, ...snap.data() });
+        if (patch) tx.update(tripRef(id), patch);
+      });
+    },
+    watchTrip: (id, cb, onErr) => fs.onSnapshot(tripRef(id), (d) => cb(d.exists() ? snapToObj(d) : null), onErr),
+    watchItems: (id, cb) => fs.onSnapshot(sub(id, "items"), (s) => cb(s.docs.map(snapToObj))),
+    watchActivity: (id, cb) =>
+      fs.onSnapshot(fs.query(sub(id, "activity"), fs.orderBy("at", "desc"), fs.limit(200)), (s) => cb(s.docs.map(snapToObj))),
+    watchPresence: (id, cb) => fs.onSnapshot(sub(id, "presence"), (s) => cb(s.docs.map(snapToObj))),
+
+    async addItem(tripId, data) {
+      const ref = await fs.addDoc(sub(tripId, "items"), data);
+      return ref.id;
+    },
+    updateItem: (tripId, itemId, patch) => fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), patch),
+    deleteItem: (tripId, itemId) => fs.deleteDoc(fs.doc(db, "trips", tripId, "items", itemId)),
+    async batchUpdateItems(tripId, updates) {
+      const b = fs.writeBatch(db);
+      for (const [itemId, patch] of updates) b.update(fs.doc(db, "trips", tripId, "items", itemId), patch);
+      await b.commit();
+    },
+    log: (tripId, entry) => fs.addDoc(sub(tripId, "activity"), entry),
+    heartbeat: (tripId, me) =>
+      fs.setDoc(fs.doc(db, "trips", tripId, "presence", me.email), { email: me.email, name: me.name, at: Date.now() }),
+  };
+}
+
+/* ---------------------------------------------------------------------- Demo */
+function demoStore() {
+  const KEY = "tripplanner-demo-v1";
+  const chan = "BroadcastChannel" in window ? new BroadcastChannel(KEY) : null;
+  const listeners = new Set();
+  const load = () => {
+    try {
+      return JSON.parse(localStorage.getItem(KEY)) || { trips: {}, items: {}, activity: {}, presence: {} };
+    } catch {
+      return { trips: {}, items: {}, activity: {}, presence: {} };
+    }
+  };
+  let state = load();
+  const save = () => {
+    localStorage.setItem(KEY, JSON.stringify(state));
+    chan?.postMessage("changed");
+    emit();
+  };
+  const emit = () => listeners.forEach((fn) => fn());
+  const reload = () => {
+    state = load();
+    emit();
+  };
+  chan?.addEventListener("message", reload);
+  window.addEventListener("storage", (e) => e.key === KEY && reload());
+  const listen = (fn) => {
+    const run = () => fn();
+    listeners.add(run);
+    queueMicrotask(run);
+    return () => listeners.delete(run);
+  };
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  const tripItems = (tripId) => (state.items[tripId] ||= {});
+
+  // Each tab can pretend to be a different person, to try out joint editing.
+  const nameKey = "tripplanner-demo-user";
+  let user = JSON.parse(sessionStorage.getItem(nameKey) || "null");
+  const userCbs = new Set();
+
+  return {
+    mode: "demo",
+    onUser(cb) {
+      userCbs.add(cb);
+      queueMicrotask(() => cb(user));
+      return () => userCbs.delete(cb);
+    },
+    async signIn(name) {
+      name = (name || "").trim() || "Me";
+      user = { email: name.toLowerCase().replace(/[^a-z0-9]+/g, ".") + "@demo", name };
+      sessionStorage.setItem(nameKey, JSON.stringify(user));
+      userCbs.forEach((cb) => cb(user));
+    },
+    async signOut() {
+      user = null;
+      sessionStorage.removeItem(nameKey);
+      userCbs.forEach((cb) => cb(null));
+    },
+    watchTrips(email, cb) {
+      return listen(() => cb(Object.values(state.trips).filter((t) => t.members.includes(email))));
+    },
+    async createTrip(data) {
+      const id = uid();
+      state.trips[id] = { id, ...data };
+      save();
+      return id;
+    },
+    async updateTrip(id, patch) {
+      Object.assign(state.trips[id], patch);
+      save();
+    },
+    async deleteTrip(id) {
+      delete state.trips[id];
+      delete state.items[id];
+      delete state.activity[id];
+      save();
+    },
+    async txTrip(id, fn) {
+      state = load();
+      const patch = fn(structuredClone(state.trips[id]));
+      if (patch) Object.assign(state.trips[id], patch);
+      save();
+    },
+    watchTrip: (id, cb) => listen(() => cb(state.trips[id] ? structuredClone(state.trips[id]) : null)),
+    watchItems: (id, cb) => listen(() => cb(Object.values(tripItems(id)).map((x) => structuredClone(x)))),
+    watchActivity: (id, cb) => listen(() => cb([...(state.activity[id] || [])].sort((a, b) => b.at - a.at).slice(0, 200))),
+    watchPresence: (id, cb) => listen(() => cb(Object.values(state.presence[id] || {}))),
+    async addItem(tripId, data) {
+      const id = uid();
+      tripItems(tripId)[id] = { id, ...data };
+      save();
+      return id;
+    },
+    async updateItem(tripId, itemId, patch) {
+      Object.assign(tripItems(tripId)[itemId], patch);
+      save();
+    },
+    async deleteItem(tripId, itemId) {
+      delete tripItems(tripId)[itemId];
+      save();
+    },
+    async batchUpdateItems(tripId, updates) {
+      for (const [itemId, patch] of updates) Object.assign(tripItems(tripId)[itemId], patch);
+      save();
+    },
+    async log(tripId, entry) {
+      (state.activity[tripId] ||= []).push({ id: uid(), ...entry });
+      save();
+    },
+    async heartbeat(tripId, me) {
+      state = load();
+      (state.presence[tripId] ||= {})[me.email] = { email: me.email, name: me.name, at: Date.now() };
+      save();
+    },
+  };
+}
