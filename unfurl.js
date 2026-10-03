@@ -110,6 +110,33 @@ async function viaProxy(url) {
   };
 }
 
+// Instagram's public embed page shows the full caption without a login.
+async function viaInstagramEmbed(url) {
+  const code = url.match(/instagram\.com\/(?:[\w.]+\/)?(?:p|reel|reels|tv)\/([\w-]+)/i)?.[1];
+  if (!code) throw new Error("not a post");
+  const r = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(`https://www.instagram.com/p/${code}/embed/captioned/`), { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error("embed " + r.status);
+  const doc = new DOMParser().parseFromString(await r.text(), "text/html");
+  const capEl = doc.querySelector(".Caption");
+  capEl?.querySelectorAll(".CaptionUsername, .CaptionComments").forEach((e) => e.remove());
+  const caption = (capEl?.innerText || capEl?.textContent || "").replace(/\u00a0/g, " ").trim();
+  const user = doc.querySelector(".UsernameText, .Username")?.textContent?.trim() || "";
+  const image = doc.querySelector("img.EmbeddedMediaImage")?.getAttribute("src") || "";
+  if (!caption && !image) throw new Error("embed empty");
+  return { title: caption.split(/[\n.!#📍|]/u)[0].trim().slice(0, 90) || (user ? `Post by ${user}` : ""), description: caption, image, siteName: user ? `Instagram · ${user}` : "Instagram", url, raw: true };
+}
+
+// Free reader that returns a page's text; helps with pages that hide their content from link previews.
+async function viaReader(url) {
+  const r = await fetch("https://r.jina.ai/" + url, { headers: { Accept: "text/plain" }, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error("reader " + r.status);
+  const text = await r.text();
+  const title = text.match(/^Title:\s*(.+)$/m)?.[1] || "";
+  const body = (text.split(/Markdown Content:\s*/)[1] || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\n{3,}/g, "\n\n").trim();
+  if (!title && !body) throw new Error("reader empty");
+  return { title, description: body.slice(0, 1500), image: "", siteName: "", url };
+}
+
 export async function unfurl(url) {
   const src = sourceOf(url);
   const base = { url, source: src, title: "", description: "", image: "", siteName: "", location: "" };
@@ -117,9 +144,13 @@ export async function unfurl(url) {
     const g = parseGoogleMaps(url);
     if (g) return { ...base, ...g, ok: true };
   }
-  for (const fn of [viaMicrolink, viaProxy]) {
+  const order = src === "instagram" ? [viaInstagramEmbed, viaMicrolink, viaProxy, viaReader] : [viaMicrolink, viaProxy, viaReader];
+  for (const fn of order) {
     try {
-      const m = tidy(await fn(url), src);
+      const got = await fn(url);
+      const m = got.raw ? got : tidy(got, src);
+      // A social post without a readable title or caption isn't useful yet: try the next reader.
+      if ((src === "instagram" || src === "facebook") && !m.title && !(m.description || "").trim()) continue;
       if (m.title || m.image || m.description) {
         const out = { ...base, ...m, url, ok: true };
         out.location ||= guessLocation(m.description) || guessLocation(m.title);

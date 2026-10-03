@@ -74,6 +74,14 @@ const VEG_TIPS = [
 ];
 export const vegTip = (dest) => VEG_TIPS.find(([re]) => re.test(dest || ""))?.[1] || "";
 
+// How big the destination is: a whole country, a region, or a city/town. Decides how far apart places can be.
+export function placeScale(place) {
+  const t = `${place?.description || ""} ${(place?.extract || "").slice(0, 220)}`;
+  if (/\b(country|nation|sovereign state|kingdom|republic) (in|of|located)|\bis an? (\w+ ){0,4}(country|nation)\b|island country|archipelag/i.test(t)) return "country";
+  if (/\b(region|state|province|county|prefecture|territory|island|coast|peninsula|district) (of|in)\b|\bis an? (\w+ ){0,4}(region|state|province|island)\b/i.test(t)) return "region";
+  return "city";
+}
+
 export function chooseMode(p, trip) {
   if (p.pace === "dense" || p.pace === "slow") return p.pace;
   const desc = `${trip.destination || ""} ${trip.place?.description || ""} ${trip.place?.extract || ""}`;
@@ -104,7 +112,32 @@ const near = (c, list) => {
 };
 
 // Builds the sample plan. Returns [{listing | null, kind, dayIndex | null, time, title?, note}].
+// Multi-city trips (a country or region): give each city a block of consecutive days and plan each block
+// from that city's own listings, so a day never mixes Rome and Florence. At most one city per two days.
 export function buildSample(trip, listings, p = profileOf(trip)) {
+  const n = trip.days.length;
+  const cities = [...new Set(listings.map((l) => l.city).filter(Boolean))].slice(0, Math.max(1, Math.floor(n / 2)));
+  if (cities.length < 2) return buildCity(trip, listings.filter((l) => !l.city || l.city === cities[0]), p);
+  const weight = cities.map((c) => listings.filter((l) => l.city === c && (l.type === "see" || l.type === "do")).length || 1);
+  const total = weight.reduce((a, b) => a + b, 0);
+  const share = weight.map((w) => Math.max(1, Math.round((w / total) * n)));
+  while (share.reduce((a, b) => a + b, 0) > n) share[share.indexOf(Math.max(...share))]--;
+  while (share.reduce((a, b) => a + b, 0) < n) share[share.indexOf(Math.min(...share))]++;
+  let start = 0, mode = "dense";
+  const plan = [], bases = [];
+  cities.forEach((c, k) => {
+    const days = trip.days.slice(start, start + share[k]);
+    // Splurges once per trip: food and experience in the first city, stay wherever the best property is (first city).
+    const r = buildCity({ ...trip, days }, listings.filter((l) => l.city === c), { ...p, splurges: p.splurges && k === 0 });
+    mode = k === 0 ? r.mode : mode;
+    r.plan.forEach((x) => plan.push({ ...x, dayIndex: x.dayIndex == null ? null : x.dayIndex + start }));
+    days.forEach((_, i) => bases.push({ dayIndex: start + i, base: c }));
+    start += share[k];
+  });
+  return { mode, plan, bases };
+}
+
+function buildCity(trip, listings, p) {
   const mode = chooseMode(p, trip);
   const n = trip.days.length;
   const per = mode === "dense" ? 3 : 2;

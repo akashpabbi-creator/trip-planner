@@ -5,7 +5,7 @@ import { vegLevel } from "./profile.js";
 
 const CAT_RULES = [
   ["stay", /\b(hotel|resort|villa|homestay|hostel|airbnb|guest ?house|haveli|lodge|stay|retreat|booking\.com|agoda|camp(site)?)\b/i],
-  ["food", /\b(restaurant|cafe|café|coffee|bakery|bar|pub|brewery|food|eat|brunch|breakfast|lunch|dinner|thali|dosa|street food|dessert|ice cream|zomato|swiggy|kitchen|bistro|eatery|dhaba)\b/i],
+  ["food", /\b(restaurant|cafe|café|coffee|bakery|bar|pub|brewery|food|eat|brunch|breakfast|lunch|dinner|thali|dosa|street food|dessert|ice cream|zomato|swiggy|kitchen|bistro|eatery|dhaba|osteria|trattoria|taverna|pizzeria|pizza|gelato|gelateria|bacaro|cicchetti|tapas|brasserie|izakaya|deli|panini|food hall|patisserie|boulangerie|creperie|noodles?|dumplings?|thali|mess|canteen)\b/i],
   ["nature", /\b(beach|waterfall|falls|lake|trek|trail|hike|peak|hill|valley|forest|national park|wildlife|safari|viewpoint|sunrise point|island|river|garden|cave)\b/i],
   ["shopping", /\b(market|bazaar|shop|shopping|boutique|mall|souk|flea)\b/i],
   ["activity", /\b(tour|class|workshop|kayak|scuba|snorkel|dive|surf|paraglid|rafting|cruise|boat|show|concert|experience|activity|tasting|spa|massage|zipline|balloon)\b/i],
@@ -88,11 +88,19 @@ export function readLink(m, trip) {
       location: extra.location || "",
     };
   };
-  if (listed.length >= 2)
-    return listed.map((x) => ({ ...one(x.name, `${x.name} ${x.detail} ${m.title}`, { listed: true, fallback: categoryOf(all) }), fromList: true }));
+  if (listed.length >= 2) {
+    // "Best spots in Florence", "📍 Florence": the town the list is about, so each place is found in the right city.
+    const head = `${m.title || ""}\n${String(m.description || "").split("\n")[0]}`;
+    const town = (head.match(/📍\s*([^\n#|•,]{3,40})/u) || head.match(/\b(?:in|around|of|across)\s+((?:[A-Z][\p{L}'’-]+)(?:\s(?:[A-Z][\p{L}'’-]+))?)/u) || [])[1]?.trim() || "";
+    // Each place is judged on its own line; the list's heading ("best cafes in…") only breaks ties.
+    return listed.map((x) => ({ ...one(x.name, `${x.name} ${x.detail}`, { listed: true, fallback: categoryOf(head, "sight"), location: town ? `${x.name}, ${town}` : "" }), description: x.detail, fromList: true }));
+  }
   // Website titles are often "Name | Tagline" or "Name - Site": keep the name.
   const name = fromPost || m.source === "maps" ? m.title : String(m.title || "").split(/\s[|–—-]\s|\s·\s/)[0].replace(/\s+(guide|review|blog|official site|website)$/i, "").trim();
-  const item = one(name || m.title || "Saved link", all, { location: m.location });
+  // The rest of such a title is often where it is ("Osteria X | Cannaregio, Venice").
+  const tail = fromPost || m.source === "maps" ? "" : String(m.title || "").split(/\s[|–—-]\s|\s·\s/).slice(1).join(", ").trim();
+  const tailLoc = tail && tail.length < 60 && !/\b(official|home|menu|book|reserv|tripadvisor|review|blog|restaurant guide|website|instagram|facebook)\b/i.test(tail) ? tail : "";
+  const item = one(name || m.title || "Saved link", all, { location: m.location || (tailLoc ? `${name}, ${tailLoc}` : "") });
   if (Number.isFinite(m.lat)) Object.assign(item, { lat: m.lat, lng: m.lng });
   return [item];
 }

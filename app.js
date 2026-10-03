@@ -4,7 +4,7 @@ import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js"
 import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather } from "./discover.js";
 import { topPicks, reviewPlan, testKey, extractLink, checkVeg } from "./ai.js";
-import { DEFAULT_PROFILE, profileOf, profileText, buildSample, vegTip, chooseMode, vegOk, vegLevel } from "./profile.js";
+import { DEFAULT_PROFILE, profileOf, profileText, buildSample, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
 const CATEGORIES = {
@@ -601,7 +601,11 @@ async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.
   if (!listings.length) return toast("The travel guide hasn't loaded for this destination yet.");
   const empty = new Set(t.days.filter((d) => !dayItems(d.id).length).map((d) => d.id));
   if (!empty.size && !auto) return toast("Every day already has plans. Clear a day to fill it with a sample.");
-  const { mode, plan } = buildSample(t, listings, profileOf(t));
+  const { mode, plan, bases = [] } = buildSample(t, listings, profileOf(t));
+  // Multi-city: name the town you're staying in on each empty day.
+  const setBases = bases.filter((b) => empty.has(t.days[b.dayIndex]?.id) && !t.days[b.dayIndex].base);
+  if (setBases.length)
+    await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = setBases.find((x) => x.dayIndex === i); return b && !d.base ? { ...d, base: b.base } : d; }), ...stampMe() }));
   const orders = {};
   const updates = [];
   let added = 0, placed = 0;
@@ -1338,7 +1342,7 @@ async function addLink(raw) {
         ...(p.veg ? { veg: p.veg } : {}), ...(p.vegSource ? { vegSource: p.vegSource } : {}),
         fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
       };
-      if (!has(data) && (data.location || places.length > 1)) {
+      if (!has(data)) {
         const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
         if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
       }
@@ -1373,7 +1377,10 @@ const SLOT = { sunrise: ["06:00", true], morning: ["10:00"], lunch: ["13:00"], a
 async function placeIdea(it) {
   const t = S.trip;
   if (!t.days.length || ["stay", "transport", "other"].includes(it.category)) return null;
-  if (has(it) && has(t.place) && km(it, t.place) > 150) return { far: true };
+  // "Far" depends on the destination: a city trip keeps to ~150 km, a region ~400 km, a country trip covers the whole country.
+  const farKm = { city: 150, region: 400, country: 2000 }[placeScale(t.place)];
+  const nearOther = has(it) && S.items.some((x) => x.id !== it.id && has(x) && km(it, x) < 60);
+  if (has(it) && has(t.place) && km(it, t.place) > farKm && !nearOther) return { far: true };
   const maxMin = (PACE_H[t.prefs?.pace] || 9) * 60;
   const isRest = (x) => x.rest;
   const guidePick = (x) => x.suggestedBy && !x.mustDo && !x.rest && !/splurge/i.test(x.notes || "");
@@ -1386,14 +1393,23 @@ async function placeIdea(it) {
     const near = has(it) ? pts.map((x) => [km(it, x), x]).sort((a, b) => a[0] - b[0])[0] : null;
     return { d, i, list, busy, dist, near };
   });
-  const byDist = [...days].sort((a, b) => (a.dist ?? 5) - (b.dist ?? 5) || a.busy - b.busy);
+  // Days whose "staying in" town matches the place come first (multi-city trips), then the nearest days.
+  const where = `${it.location || ""} ${it.title || ""} ${it.description || ""}`.toLowerCase();
+  const baseHit = (x) => !!x.d.base && where.includes(x.d.base.split(",")[0].trim().toLowerCase());
+  const byDist = [...days].sort((a, b) => baseHit(b) - baseHit(a) || (a.dist ?? 5) - (b.dist ?? 5) || a.busy - b.busy);
   const nearTxt = (x) => (x.near && x.near[0] < 5 ? `near ${x.near[1].title}` : "");
   const writes = [];
   let target = null, order = null, time = "", swapped = null;
 
-  if (it.category === "food") {
+  // Gelato, coffee and bakeries are a quick stop, not a meal.
+  const snack = it.category === "food" && /gelat|ice cream|dessert|coffee|espresso|bakery|patisser|pastry|tea room|juice/i.test(`${it.title} ${it.description || ""}`);
+  const extra = snack && (Number(it.durationMin) || 75) > 45 ? { durationMin: 45 } : {};
+  it = { ...it, ...extra };
+  if (it.category === "food" && !snack) {
     const want = /lunch|morning|afternoon/.test(it.bestTime) ? ["13:00"] : /evening|night|sunset/.test(it.bestTime) ? ["20:00"] : ["13:00", "20:00"];
-    for (const x of byDist) {
+    // Only swap a meal on a day that's in the same area (or the same "staying in" town).
+    const sameArea = (x) => baseHit(x) || x.dist == null || x.dist < 15;
+    for (const x of byDist.filter(sameArea)) {
       const meal = x.list.find((y) => guidePick(y) && y.category === "food" && want.includes(y.time));
       if (meal) {
         target = x; order = meal.order; time = meal.time; swapped = meal;
@@ -1410,11 +1426,18 @@ async function placeIdea(it) {
       const out = target.list.filter((y) => guidePick(y) && y.category !== "food" && !y.time).sort((a, b) => (b.durationMin || 60) - (a.durationMin || 60))[0];
       if (out) (swapped = out), writes.push([out.id, { dayId: null, order: 0, ...stampMe() }]);
     }
-    const [slot, fixed] = SLOT[it.bestTime] || SLOT.afternoon;
+    let [slot, fixed] = SLOT[it.bestTime] || SLOT.afternoon;
+    // A restaurant with no meal slot to take over becomes that day's missing lunch or dinner.
+    if (it.category === "food" && !snack) {
+      const hasMeal = (h) => target.list.some((y) => y.category === "food" && y.time === h);
+      const pick = /lunch|morning|afternoon/.test(it.bestTime) ? ["13:00", "20:00"] : ["20:00", "13:00"];
+      const free = pick.find((h) => !hasMeal(h));
+      if (free) (slot = free), (fixed = true);
+    }
     order = orderForTime(target.d.id, slot);
     time = fixed ? slot : "";
   }
-  writes.push([it.id, { dayId: target.d.id, order, time, ...stampMe() }]);
+  writes.push([it.id, { dayId: target.d.id, order, time, ...extra, ...stampMe() }]);
   await S.store.batchUpdateItems(S.tripId, writes);
   await new Promise((r) => setTimeout(r, 120));
   const why = [nearTxt(target), swapped && `in place of ${swapped.title}`].filter(Boolean);

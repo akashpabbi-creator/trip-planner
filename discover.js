@@ -23,6 +23,7 @@ export async function fetchPlace(dest) {
       if (j.type === "disambiguation" || !j.extract) continue;
       return {
         title: j.title,
+        description: j.description || "",
         extract: j.extract,
         image: j.originalimage?.source || j.thumbnail?.source || "",
         url: j.content_urls?.desktop?.page || "",
@@ -162,6 +163,15 @@ export async function fetchGuide(dest) {
     for (const t of [...new Set(districts)].slice(0, 4)) {
       const p = await wvPage(t).catch(() => null);
       if (p) listings = listings.concat(parseListings(p.text));
+    }
+  }
+  // Countries and regions keep listings on their city pages: read the top cities from the "Cities" section.
+  if (listings.length < 15) {
+    const sec = page.text.match(/==\s*(?:Cities|Cities and towns|Towns)\s*==([\s\S]*?)\n==[^=]/i);
+    const cities = sec ? [...sec[1].matchAll(/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/g)].map((x) => x[1].trim()).filter((t) => !/^(File|Image|Category):/i.test(t)) : [];
+    for (const t of [...new Set(cities)].slice(0, 3)) {
+      const p = await wvPage(t).catch(() => null);
+      if (p) listings = listings.concat(parseListings(p.text).map((l) => ({ ...l, city: p.title, address: l.address ? `${l.address}, ${p.title}` : p.title })));
     }
   }
   // Prefer well-described listings with a location.
