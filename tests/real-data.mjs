@@ -29,11 +29,15 @@ const fail = (msg) => { fails++; console.log("  ❌ " + msg); };
 const ok = (msg) => console.log("  ✅ " + msg);
 
 for (const c of CASES) {
+  // One trip at a time, like a person using the app; Wikimedia rate-limits bursts.
+  if (c !== CASES[0]) await new Promise((r) => setTimeout(r, 20000));
   console.log(`\n=== ${c.destination}, ${c.days} days`);
   const trip = { destination: c.destination, startDate: "", currency: "INR", days: Array.from({ length: c.days }, (_, i) => ({ id: "d" + i })) };
   const d = await loadDestination(trip);
   Object.assign(trip, { place: d.place, guide: d.guide });
   const L = d.guide.listings;
+  const famous = [...L].filter((l) => l.type === "see").sort((a, b) => (b.fame || 0) - (a.fame || 0)).slice(0, 8);
+  console.log("  best-known sights: " + famous.map((l) => `${l.name} (${l.fame || 0})`).join(", "));
   console.log(`  requests so far: ${calls}`);
   if (!L.length) { fail("the travel guide returned nothing"); continue; }
   console.log(`  guide: ${L.length} listings from ${d.guide.source}; cities: ${[...new Set(L.map((l) => l.city).filter(Boolean))].join(", ") || "-"}`);

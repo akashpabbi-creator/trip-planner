@@ -76,6 +76,7 @@ export function readLink(m, trip) {
   const fromPost = /instagram|facebook|youtube|tiktok/.test(m.source || "");
   const fromList = fromPost || /blog|guide|best|top \d|things to do|places to|where to/i.test(all) ? listedPlaces(m.description) : [];
   // Article headings from the full page beat a short preview's list.
+  if (m.places) m.places = m.places.filter((x) => !/permanently closed|\bclosed\b.*\b(down|now)\b/i.test(`${x.name} ${x.detail.slice(0, 80)}`));
   const listed = (m.places?.length || 0) >= 2 && m.places.length >= fromList.length ? m.places : fromList;
   const one = (name, text, extra = {}) => {
     const category = m.source === "maps" && !extra.listed ? categoryOf(text, "sight") : categoryOf(text, extra.fallback || "sight");

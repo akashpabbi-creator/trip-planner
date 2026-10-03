@@ -88,7 +88,7 @@ const TYPE_CAT = { see: "sight", do: "activity", eat: "food", drink: "food", sle
 // airports, stations and airlines, which are not things to visit.
 const SECTION_TYPE = { see: "see", do: "do", eat: "eat", drink: "drink", sleep: "sleep", buy: "buy", shop: "buy", "eat and drink": "eat" };
 const SKIP_SECTION = /^(get in|get around|connect|stay safe|stay healthy|cope|go next|understand|talk|respect|by \w+)/i;
-const NOT_A_SIGHT = /\b(station|festival|airport|aeroporto|air ?lines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stop|metro station|coach|ferry terminal|car rental|car hire|rent-a-car|taxi|parking|tourist information|post office|hospital|pharmacy|police|consulate|embassy|atm)\b/i;
+const NOT_A_SIGHT = /permanently closed|\b(station|festival|festa|notte bianca|white night|camping|campsite|airport|aeroporto|air ?lines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stop|metro station|coach|ferry terminal|car rental|car hire|rent-a-car|taxi|parking|tourist information|post office|hospital|pharmacy|police|consulate|embassy|atm)\b/i;
 export function parseListings(wikitext) {
   const out = [];
   const heads = [...wikitext.matchAll(/^==([^=].*?)==\s*$/gm)].map((h) => ({ at: h.index, name: h[1].trim().toLowerCase() }));
@@ -172,7 +172,7 @@ async function getJson(url) {
   for (let k = 0; k < 3; k++) {
     const r = await fetch(url);
     if (r.status === 429 && k < 2) {
-      await new Promise((ok) => setTimeout(ok, Math.min(15, Number(r.headers.get("retry-after")) || 3) * 1000));
+      await new Promise((ok) => setTimeout(ok, Math.min(30, Number(r.headers.get("retry-after")) || 3) * 1000));
       continue;
     }
     if (!r.ok) throw new Error("HTTP " + r.status);
@@ -231,7 +231,15 @@ async function addFame(listings) {
     for (const [id, e] of Object.entries(j?.entities || {})) fame[id] = Object.keys(e.sitelinks || {}).length;
     await new Promise((ok) => setTimeout(ok, 800)); // Wikidata rate-limits bursts
   }
-  for (const l of listings) l.fame = fame[l.wikidata] || 0;
+  // Listings without a Wikidata id: look them up by their English Wikipedia title instead.
+  const byTitle = {};
+  const names = [...new Set(listings.filter((l) => !fame[l.wikidata] && (l.type === "see" || l.type === "do")).map((l) => l.name.replace(/^the\s+/i, "")))].slice(0, 100);
+  for (let i = 0; i < names.length; i += 50) {
+    const j = await getJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&sites=enwiki&normalize=1&titles=${encodeURIComponent(names.slice(i, i + 50).join("|"))}&props=sitelinks&format=json&origin=*`).catch(() => null);
+    for (const e of Object.values(j?.entities || {})) if (e.sitelinks?.enwiki) byTitle[e.sitelinks.enwiki.title.toLowerCase()] = Object.keys(e.sitelinks).length;
+    await new Promise((ok) => setTimeout(ok, 800));
+  }
+  for (const l of listings) l.fame = fame[l.wikidata] || byTitle[l.name.replace(/^the\s+/i, "").toLowerCase()] || 0;
 }
 export async function fetchGuide(dest) {
   let page = null;
