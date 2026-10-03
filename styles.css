@@ -336,3 +336,8 @@ dialog label input, dialog label select, dialog label textarea { color: var(--in
 label.row { display: flex; gap: 8px; align-items: center; }
 .veg-tag { background: var(--accent-soft); color: var(--good); }
 .nonveg-tag { background: var(--bad-bg); color: var(--bad); }
+.proposal .day { margin: 10px 0; padding: 10px 12px; }
+.prop-list { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.prop-list li { line-height: 1.35; }
+.proposal .day-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.check.info { background: var(--accent-soft); color: var(--ink); }

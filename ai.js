@@ -90,3 +90,30 @@ Return ONLY a JSON array in a \`\`\`json block, one entry per place in the same 
   const arr = parseJson(text);
   return Array.isArray(arr) ? arr : [];
 }
+
+// Drafts the whole trip day by day from our preferences, grounded in Google Search. The app's rules check it
+// (profile.js checkDraft) before it is shown as a proposal.
+export async function planTrip(key, trip, prefs, { dates = [], saved = [], guide = [], cities = [] } = {}) {
+  const n = trip.days.length;
+  const prompt = `You are an expert travel planner. Plan a ${n}-day trip to ${trip.destination} for a couple${trip.startDate ? `, day 1 is ${trip.startDate}` : ""}${trip.budget ? `, total budget ${trip.budget} ${trip.currency || ""} for two` : ""}.
+Our preferences and hard rules:
+${prefs}
+Rules for the plan:
+- Use Google Search for real, currently open, well-reviewed places. Every place must be a real named place you can give an address for.
+- Pace: 3 sights or activities a day in cities, 2 a day for beach, hill or nature stays. Group each day by area to keep travel short.
+- Every day has lunch (13:00) and dinner (20:00) at places that serve good vegetarian dishes (they do not need to be pure vegetarian). Do NOT add a rest block, the app adds one at 15:00; keep 15:00-16:30 free.
+- Exactly one splurge each: one food splurge dinner, one experience splurge (a tour, guide, ticket or class worth paying for), one stay splurge (in "stays").
+- Include one market visit in the trip.
+- Never use airports, stations, airlines, bus or ferry terminals, car rental or taxis as stops.
+${cities.length > 1 || n >= 5 ? `- If this is a country or region, pick the best 1 city per 2-3 days (e.g. ${cities.join(", ") || "the top cities"}), move between cities at most every 2 days, and set "base" for each day.` : `- Set "base" to the town you sleep in.`}
+- Check opening days: ${dates.length ? dates.map((d, i) => `day ${i + 1} is a ${d}`).join(", ") : "avoid places closed on the day you use them"}.
+${saved.length ? `- We saved these places; put each on the best day (keep the name exactly): ${JSON.stringify(saved)}` : ""}
+${guide.length ? `- Travel guide places you may use: ${JSON.stringify(guide.slice(0, 40))}` : ""}
+Return ONLY a JSON object in a \`\`\`json block:
+{"summary": "2 sentences on the shape of the trip", "days": [{"day": 1, "base": "city", "theme": "3-5 words", "items": [{"name": string, "category": "sight"|"activity"|"food"|"shopping"|"nature", "time": "HH:MM", "durationMin": number, "address": "street and area", "approxCost": number in ${trip.currency || "INR"} for two or null, "why": "one sentence", "closedDays": "e.g. Mondays" or "", "bookAhead": true|false, "veg": "yes"|"no"|"" (food only), "vegNote": "what to order, up to 10 words", "splurge": "food"|"experience"|"", "market": true|false}]}], "stays": [{"name": string, "base": "city", "address": string, "approxCost": number per night or null, "why": string, "splurge": true|false}]}
+Exactly ${n} days.`;
+  const { text } = await call(key, prompt, { search: true });
+  const out = parseJson(text);
+  if (!Array.isArray(out.days)) throw new Error("Unexpected AI answer");
+  return out;
+}

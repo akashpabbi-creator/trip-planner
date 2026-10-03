@@ -161,6 +161,21 @@ async function wvPage(title) {
   const j = await r.json();
   return j.parse ? { title: j.parse.title, text: j.parse.wikitext["*"] } : null;
 }
+// Bumped when the guide reader changes enough that saved guides should be read again.
+export const GUIDE_V = 2;
+// Most-known first ("Cities" sections list the capital, then A–Z): ranked by how many Wikipedias have the page.
+async function byFame(titles) {
+  try {
+    const r = await fetch(`https://www.wikidata.org/w/api.php?action=wbgetentities&sites=enwiki&titles=${encodeURIComponent(titles.slice(0, 40).join("|"))}&props=sitelinks&format=json&origin=*`);
+    const j = await r.json();
+    const n = {};
+    for (const e of Object.values(j.entities || {})) if (e.sitelinks?.enwiki) n[e.sitelinks.enwiki.title] = Object.keys(e.sitelinks).length;
+    if (!Object.keys(n).length) return titles;
+    return [...titles].sort((a, b) => (n[b] || 0) - (n[a] || 0));
+  } catch {
+    return titles;
+  }
+}
 export async function fetchGuide(dest) {
   let page = null;
   for (const q of variants(dest)) if ((page = await wvPage(q).catch(() => null))) break;
@@ -178,7 +193,7 @@ export async function fetchGuide(dest) {
   if (listings.length < 15) {
     const sec = page.text.match(/==\s*(?:Cities|Cities and towns|Towns)\s*==([\s\S]*?)\n==[^=]/i);
     const cities = sec ? [...sec[1].matchAll(/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/g)].map((x) => x[1].trim()).filter((t) => !/^(File|Image|Category):/i.test(t)) : [];
-    for (const t of [...new Set(cities)].slice(0, 3)) {
+    for (const t of (await byFame([...new Set(cities)])).slice(0, 3)) {
       const p = await wvPage(t).catch(() => null);
       if (!p) continue;
       let got = parseListings(p.text);
@@ -198,7 +213,7 @@ export async function fetchGuide(dest) {
   const seen = new Set();
   listings = listings.filter((l) => !seen.has(l.name) && seen.add(l.name)).sort((a, b) => score(b) - score(a));
   const per = {};
-  listings = listings.filter((l) => (per[l.type] = (per[l.type] || 0) + 1) <= 12);
+  listings = listings.filter((l) => (per[(l.city || "") + l.type] = (per[(l.city || "") + l.type] || 0) + 1) <= 12);
   return { listings, source: "https://en.wikivoyage.org/wiki/" + encodeURIComponent(page.title.replace(/ /g, "_")) };
 }
 
@@ -216,5 +231,5 @@ export async function loadDestination(trip) {
     lat != null ? fetchWeather(lat, lng, trip.startDate, trip.days.length).catch(() => null) : null,
     fetchGuide(dest).catch(() => ({ listings: [], source: "" })),
   ]);
-  return { place: place ? { ...place, lat, lng, for: dest } : { title: dest, lat, lng, for: dest }, weather, guide: { ...guide, for: dest, at: Date.now() } };
+  return { place: place ? { ...place, lat, lng, for: dest } : { title: dest, lat, lng, for: dest }, weather, guide: { ...guide, for: dest, at: Date.now(), v: GUIDE_V } };
 }

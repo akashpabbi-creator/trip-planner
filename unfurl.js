@@ -135,7 +135,9 @@ const NOT_PLACE = /^(where|how|why|what|when|faq|frequently|conclusion|final|tip
 // Each "## Roscioli" or "### 3. Da Enzo al 29 – Trastevere" heading of an article, with the paragraph under it.
 function headingPlaces(md) {
   const out = [];
-  const parts = md.split(/^#{2,4}\s+/m).slice(1);
+  // Articles often group places under area headings ("## Trastevere", then "### Da Enzo"): use the deepest level that has several.
+  const levels = [4, 3, 2].find((n) => (md.match(new RegExp(`^#{${n}}\\s`, "gm")) || []).length >= 3) || 2;
+  const parts = md.split(new RegExp(`^#{${levels}}\\s+`, "m")).slice(1);
   for (const p of parts) {
     const [head, ...rest] = p.split("\n");
     const name = head.replace(/[*_`#]/g, "").replace(/^\s*(?:#?\d{1,2}[.):]?|[-•])\s*/, "").trim();

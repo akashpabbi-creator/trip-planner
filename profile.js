@@ -194,3 +194,90 @@ function buildCity(trip, listings, p) {
   of("see", "do").slice(0, 3).map(take).forEach((l) => put(l, null, "", "Backup option"));
   return { mode, plan: out };
 }
+
+/* ------------------------------------------------------- Gemini's draft */
+const TRANSPORT = /\b(airport|aeroporto|airlines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stand|metro station|ferry terminal|car rental|car hire|taxi)\b/i;
+const TYPE_OF = { food: "eat", sight: "see", activity: "do", shopping: "buy", nature: "see", stay: "sleep" };
+const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(t || ""); return m ? +m[1] * 60 + +m[2] : null; };
+// Checks Gemini's plan against our rules and turns it into the same shape as buildSample, with a note for each fix.
+// dates: weekday names per day ("Monday"), when the trip has a start date.
+export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listings = []) {
+  const mode = chooseMode(p, trip);
+  const per = mode === "dense" ? 3 : 2;
+  const plan = [], bases = [], notes = [], seen = new Set();
+  let total = 0;
+  const splurge = { food: 0, experience: 0, stay: 0 };
+  let market = false;
+  const drafted = new Set((draft.days || []).flatMap((d) => (d.items || []).map((x) => String(x?.name || "").trim().toLowerCase())));
+  const listing = (x, cat) => ({
+    name: String(x.name).trim().slice(0, 140), content: x.why || "", address: x.address || "", category: cat, type: TYPE_OF[cat] || "see",
+    price: x.approxCost ? String(x.approxCost) : "", hours: x.closedDays ? `Closed ${x.closedDays}` : "", ai: true,
+    durationMin: Number(x.durationMin) || 0, cost: Number(x.approxCost) || 0, ...(cat === "food" && x.veg ? { veg: x.veg === "no" ? "no" : "yes" } : {}),
+    vegNote: x.vegNote || "", bookAhead: !!x.bookAhead,
+  });
+  (draft.days || []).slice(0, trip.days.length).forEach((d, k) => {
+    const i = Number.isInteger(d.day) && d.day >= 1 && d.day <= trip.days.length ? d.day - 1 : k;
+    if (d.base) bases.push({ dayIndex: i, base: String(d.base).slice(0, 60) });
+    let anchors = 0;
+    const from = plan.length;
+    const items = (d.items || []).filter((x) => x?.name).sort((a, b) => (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600));
+    for (const x of items) {
+      const cat = TYPE_OF[x.category] ? x.category : "sight";
+      const key = String(x.name).trim().toLowerCase();
+      if (seen.has(key)) continue;
+      if (TRANSPORT.test(x.name)) { notes.push(`Left out “${x.name}” on day ${i + 1}: it's a transport hub, not a stop.`); continue; }
+      const l = listing(x, cat);
+      if (cat === "food" && vegLevel(l) === "no") { notes.push(`Left out “${x.name}” on day ${i + 1}: few vegetarian options.`); continue; }
+      const day = dates[i];
+      if (day && x.closedDays && new RegExp(day.slice(0, 3), "i").test(x.closedDays)) { notes.push(`“${x.name}” is closed on ${day}s, so it went to Ideas.`); plan.push({ listing: l, dayIndex: null, time: "", note: `Closed ${x.closedDays}` }); seen.add(key); continue; }
+      const t = toMin(x.time);
+      // The 15:00–16:30 rest block stays free.
+      const time = p.rest && t != null && t >= 900 && t < 990 ? "16:30" : x.time && t != null ? x.time.slice(0, 5).padStart(5, "0") : "";
+      if (cat !== "food") {
+        if (anchors >= per + 1) { notes.push(`Day ${i + 1} was too full, so “${x.name}” went to Ideas.`); plan.push({ listing: l, dayIndex: null, time: "", note: "Backup option" }); seen.add(key); continue; }
+        anchors++;
+      }
+      seen.add(key);
+      if (x.splurge === "food" || x.splurge === "experience") splurge[x.splurge]++;
+      if (x.market || MARKET.test(`${x.name} ${x.why || ""}`)) market = true;
+      total += l.cost;
+      const note = [x.splurge === "food" ? "Food splurge. Book ahead and ask for the vegetarian menu." : x.splurge === "experience" ? "Experience splurge" : x.market ? "Market visit" : "", x.bookAhead && x.splurge !== "food" ? "Book ahead" : "", x.vegNote && cat === "food" ? `Veg: ${x.vegNote}` : ""].filter(Boolean).join(" · ");
+      plan.push({ listing: l, dayIndex: i, time, note });
+    }
+    if (p.rest) plan.push({ listing: null, kind: "rest", dayIndex: i, time: "15:00", note: mode === "slow" ? "Unscheduled afternoon. Pool, nap or a long coffee." : "Rest and recharge at the hotel or a cafe. The hottest, busiest part of the day." });
+    // Keep the day in time order, so the rest block sits between lunch and the afternoon.
+    const mine = plan.splice(from).sort((a, b) => (a.dayIndex == null) - (b.dayIndex == null) || (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600));
+    plan.push(...mine);
+    // A missing lunch or dinner comes from the travel guide's places with vegetarian options in that town.
+    const meals = mine.filter((x) => x.dayIndex === i && x.listing?.category === "food").map((x) => toMin(x.time) ?? 0);
+    const base = bases.find((b) => b.dayIndex === i)?.base || "";
+    const pick = () => {
+      const pool = listings.filter((l) => l.type === "eat" && vegOk(l) && !seen.has(l.name.toLowerCase()) && !drafted.has(l.name.toLowerCase()) && (!l.city || !base || l.city.toLowerCase() === base.toLowerCase()));
+      const l = pool.sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes"))[0];
+      if (l) seen.add(l.name.toLowerCase());
+      return l;
+    };
+    const fill = [];
+    for (const [has, time, label] of [[meals.some((m) => m >= 690 && m < 900), "13:00", "Lunch"], [meals.some((m) => m >= 1080), "20:00", "Dinner"]]) {
+      if (has) continue;
+      const l = pick();
+      if (l) fill.push({ listing: l, dayIndex: i, time, note: `${label} from the travel guide` });
+      else notes.push(`Day ${i + 1} has no ${label.toLowerCase()} yet.`);
+    }
+    if (fill.length) {
+      plan.splice(from, plan.length - from, ...[...plan.slice(from), ...fill].sort((a, b) => (a.dayIndex == null) - (b.dayIndex == null) || (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600)));
+    }
+    if (anchors < Math.max(1, per - 1)) notes.push(`Day ${i + 1} is light (${anchors} stop${anchors === 1 ? "" : "s"}), which leaves room for your own finds.`);
+  });
+  for (const s of draft.stays || []) {
+    if (!s?.name || seen.has(s.name.toLowerCase())) continue;
+    seen.add(s.name.toLowerCase());
+    if (s.splurge) splurge.stay++;
+    plan.push({ listing: listing({ ...s, why: [s.why, s.base && `In ${s.base}`].filter(Boolean).join(" · ") }, "stay"), dayIndex: null, time: "", note: s.splurge ? "Stay splurge: one special property or night" : "Stay option" });
+  }
+  if (p.splurges) for (const [k, v] of Object.entries(splurge)) if (!v) notes.push(`No ${k} splurge in this draft.`);
+  if (!market) notes.push("No market visit in this draft.");
+  const budget = Number(trip.budget) || 0;
+  if (budget && total > budget) notes.push(`The stops alone come to about ${total} ${trip.currency || ""}, over the ${budget} budget.`);
+  return { mode, plan, bases, notes, total };
+}
