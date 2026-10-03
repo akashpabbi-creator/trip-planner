@@ -77,6 +77,8 @@ export const vegTip = (dest) => VEG_TIPS.find(([re]) => re.test(dest || ""))?.[1
 
 // How big the destination is: a whole country, a region, or a city/town. Decides how far apart places can be.
 export function placeScale(place) {
+  // Wikipedia's short description is the clearest signal ("City in Kansai, Japan", "State of India").
+  if (/^(city|town|capital|municipality|village|commune|metropolis|ward)\b/i.test(place?.description || "")) return "city";
   const t = `${place?.description || ""} ${(place?.extract || "").slice(0, 220)}`;
   if (/\b(country|nation|sovereign state|kingdom|republic) (in|of|located)|\bis an? (\w+ ){0,4}(country|nation)\b|island country|archipelag/i.test(t)) return "country";
   if (/\b(region|state|province|county|prefecture|territory|island|coast|peninsula|district) (of|in)\b|\bis an? (\w+ ){0,4}(region|state|province|island)\b/i.test(t)) return "region";
@@ -128,11 +130,12 @@ export function buildSample(trip, listings, p = profileOf(trip)) {
   while (share.reduce((a, b) => a + b, 0) > n) share[share.indexOf(Math.max(...share))]--;
   while (share.reduce((a, b) => a + b, 0) < n) share[share.indexOf(Math.min(...share))]++;
   let start = 0, mode = "dense";
+  const used = new Set();
   const plan = [], bases = [];
   cities.forEach((c, k) => {
     const days = trip.days.slice(start, start + share[k]);
     // Splurges once per trip: food and experience in the first city, stay wherever the best property is (first city).
-    const r = buildCity({ ...trip, days, base: c }, listings.filter((l) => l.city === c), { ...p, splurges: p.splurges && k === 0, moreEats: listings.filter((l) => l.city !== c && l.type === "eat") });
+    const r = buildCity({ ...trip, days, base: c }, listings.filter((l) => l.city === c), { ...p, splurges: p.splurges && k === 0, used, moreEats: listings.filter((l) => l.city !== c && l.type === "eat") });
     mode = k === 0 ? r.mode : mode;
     r.plan.forEach((x) => plan.push({ ...x, dayIndex: x.dayIndex == null ? null : x.dayIndex + start }));
     days.forEach((_, i) => bases.push({ dayIndex: start + i, base: c }));
@@ -145,7 +148,7 @@ function buildCity(trip, listings, p) {
   const mode = chooseMode(p, trip);
   const n = trip.days.length;
   const per = mode === "dense" ? 3 : 2;
-  const used = new Set();
+  const used = p.used || new Set(); // shared across a multi-city trip, so no place appears twice
   const take = (l) => (l && !used.has(l.name) ? (used.add(l.name), l) : null);
   const of = (...types) => listings.filter((l) => types.includes(l.type) && !used.has(l.name));
   const out = [];
@@ -154,7 +157,10 @@ function buildCity(trip, listings, p) {
   // Splurges first, so they are reserved.
   // Places with clear vegetarian dishes first, then places with no signal; meat-only places are left out.
   // Gelato, cafes and bakeries are snacks, not lunch or dinner. Other towns' places are a last resort.
-  const eats = of("eat").filter((l) => vegOk(l) && !SNACK.test(l.name)).sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes")).concat((p.moreEats || []).filter((l) => vegOk(l) && !SNACK.test(l.name)));
+  const eats = of("eat").filter((l) => vegOk(l) && !SNACK.test(l.name)).sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes"));
+  const moreEats = (p.moreEats || []).filter((l) => vegOk(l) && !SNACK.test(l.name));
+  // This town's places first; another town's only once this one has run out.
+  const meal = (c, list) => take(near(c, list.filter((l) => !used.has(l.name)))) || take(near(c, moreEats.filter((l) => !used.has(l.name))));
   let foodSplurge = null, staySplurge = null, expSplurge = null;
   if (p.splurges) {
     foodSplurge = take([...eats].sort((a, b) => (POSH.test(text(b)) - POSH.test(text(a))) || ((priceNum(b) || 0) - (priceNum(a) || 0)))[0]);
@@ -186,11 +192,11 @@ function buildCity(trip, listings, p) {
     // Beach and hill towns have few listed sights: an unhurried half-day outdoors is the plan.
     if (!g.length && mode === "slow") out.push({ listing: { name: `Beach and outdoor time in ${trip.base || trip.destination}`, type: "do", category: "nature", content: "Free time on the nearest beach or trail. Swap in anything you've saved.", address: trip.base || trip.destination }, dayIndex: i, time: "10:00", note: "Slow morning" });
     morning.forEach((l) => put(l, i, "", l === expSplurge ? "Experience splurge" : l === market ? "Market visit" : ""));
-    put(take(near(c, streetFood.filter((l) => !used.has(l.name)))), i, "13:00", "Lunch: local and good value");
+    put(meal(c, streetFood), i, "13:00", "Lunch: local and good value");
     if (p.rest) out.push({ listing: null, kind: "rest", dayIndex: i, time: "15:00", note: mode === "slow" ? "Unscheduled afternoon. Pool, nap or a long coffee." : "Rest and recharge at the hotel or a cafe. The hottest, busiest part of the day." });
     afternoon.forEach((l) => put(l, i, "", l === expSplurge ? "Experience splurge" : l === market ? "Market visit" : ""));
     if (i === splurgeDay && foodSplurge) put(foodSplurge, i, "20:00", "Food splurge. Book ahead and ask for the vegetarian menu.");
-    else put(take(near(c, (i % 2 ? otherFood : streetFood).filter((l) => !used.has(l.name)))), i, "20:00", "Dinner");
+    else put(meal(c, i % 2 ? otherFood : streetFood), i, "20:00", "Dinner");
   }
   if (foodSplurge && !out.some((x) => x.listing === foodSplurge)) put(foodSplurge, null, "", "Food splurge. Book ahead and ask for the vegetarian menu.");
 

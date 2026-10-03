@@ -183,10 +183,16 @@ async function getJson(url) {
 async function wvPages(titles) {
   const out = [];
   for (let i = 0; i < titles.length; i += 20) {
-    const j = await getJson(WVQ + encodeURIComponent(titles.slice(i, i + 20).join("|"))).catch(() => null);
-    for (const pg of j?.query?.pages || []) {
-      const text = pg.revisions?.[0]?.slots?.main?.content;
-      if (text) out.push({ title: pg.title, text });
+    // Large pages come back a few at a time: follow the continuation until every page is in.
+    let cont = "";
+    for (let n = 0; n < 10; n++) {
+      const j = await getJson(WVQ + encodeURIComponent(titles.slice(i, i + 20).join("|")) + cont).catch(() => null);
+      for (const pg of j?.query?.pages || []) {
+        const text = pg.revisions?.[0]?.slots?.main?.content;
+        if (text && !out.some((o) => o.title === pg.title)) out.push({ title: pg.title, text });
+      }
+      if (!j?.continue) break;
+      cont = "&" + new URLSearchParams(j.continue).toString();
     }
   }
   return out;
