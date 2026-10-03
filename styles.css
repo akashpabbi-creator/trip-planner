@@ -328,3 +328,10 @@ dialog label input, dialog label select, dialog label textarea { color: var(--in
   .itin-doc { box-shadow: none; padding: 0; }
   .itin-day { break-inside: avoid; }
 }
+
+/* preferences card */
+.prefs-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.prefs-list { list-style: none; margin: 6px 0 8px; padding: 0; display: grid; gap: 4px; }
+.veg-tip { background: var(--accent-soft); border-radius: 10px; padding: 8px 10px; margin: 6px 0 10px; }
+label.row { display: flex; gap: 8px; align-items: center; }
+.nonveg { color: var(--bad); font-weight: 600; }

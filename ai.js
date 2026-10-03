@@ -42,8 +42,9 @@ export async function testKey(key) {
 }
 
 // Top-rated places for the destination, grounded in Google Search so ratings are real.
-export async function topPicks(key, trip) {
-  const prompt = `You are a travel researcher. For a trip to ${trip.destination}${trip.startDate ? ` starting ${trip.startDate}` : ""} for ${trip.days.length} days, budget ${trip.budget || "not set"} ${trip.currency || ""} for ${trip.members?.length || 2} people.
+export async function topPicks(key, trip, prefs = "") {
+  const prompt = `You are a travel researcher.${prefs ? `
+Our preferences (follow them: only vegetarian-friendly restaurants that fit them, stays that fit them):\n${prefs}\n` : ""} For a trip to ${trip.destination}${trip.startDate ? ` starting ${trip.startDate}` : ""} for ${trip.days.length} days, budget ${trip.budget || "not set"} ${trip.currency || ""} for ${trip.members?.length || 2} people.
 Use Google Search to find currently top-rated, well-reviewed places (Google Maps / TripAdvisor ratings). Return ONLY a JSON array in a \`\`\`json block, no other text, with 24 items: 7 sightseeing ("sight"), 4 activities ("activity"), 7 restaurants/cafes ("food"), 4 places to stay across price levels ("stay"), 2 nature spots ("nature").
 Each item: {"name": string, "category": "sight"|"activity"|"food"|"stay"|"nature", "rating": number (e.g. 4.6), "reviews": number or null, "priceLevel": "$"|"$$"|"$$$"|"$$$$"|null, "approxCost": number in ${trip.currency || "local currency"} for two people or null, "area": neighbourhood, "why": one short sentence on why it's loved, "durationMin": typical visit length in minutes, "address": street address or area for maps}.`;
   const { text } = await call(key, prompt, { search: true });
@@ -53,8 +54,9 @@ Each item: {"name": string, "category": "sight"|"activity"|"food"|"stay"|"nature
 }
 
 // Reviews the plan and returns suggestions the app can apply.
-export async function reviewPlan(key, snapshot) {
-  const prompt = `You are an expert travel planner reviewing a couple's shared trip plan. Be specific and practical.
+export async function reviewPlan(key, snapshot, prefs = "") {
+  const prompt = `You are an expert travel planner reviewing a couple's shared trip plan. Be specific and practical.${prefs ? `
+Their preferences and hard rules (flag anything in the plan that breaks them):\n${prefs}` : ""}
 Consider: realistic pacing, opening hours and best time of day for each place (e.g. sunsets, markets, dinners in the evening), geographic grouping, the best way to travel each leg (walk, public transport, taxi, train, rental car, flight) for comfort and cost, must-dos from either traveller, balance between what each person added, budget, weather, and anything missing (e.g. meals, rest, check-in times, airport transfers).
 Here is the plan as JSON:
 ${JSON.stringify(snapshot)}

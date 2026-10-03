@@ -131,6 +131,8 @@ function bestOrder(list) {
 // ctx: { trip, items, dayItems(dayId), ideas(), who(email), money(n) }
 // Returns suggestions: { id, kind, level: 'fix'|'tip'|'info', title, detail, changes: [...] }
 // change: { type: 'item', id, patch } | { type: 'order', dayId, ids: [...] }
+const isRest = (it) => it.rest || /\b(rest|break|free time|buffer|siesta|nap|downtime|recharge)\b/i.test(it.title || "");
+
 export function analyse(ctx) {
   const { trip, dayItems, ideas, who, money } = ctx;
   const prefs = trip.prefs || {};
@@ -140,7 +142,7 @@ export function analyse(ctx) {
   const days = trip.days.map((d, i) => ({ d, i, items: dayItems(d.id) }));
   const loadOf = (items, d) => {
     let t = 0;
-    items.forEach((it, k) => (t += (Number(it.durationMin) || 60) + (k ? Number(it.travel?.minutes) || 0 : 0)));
+    items.forEach((it, k) => (t += (isRest(it) ? 0 : Number(it.durationMin) || 60) + (k ? Number(it.travel?.minutes) || 0 : 0)));
     const start = toMin(d.startTime) ?? toMin(prefs.dayStart) ?? 9 * 60;
     return { busy: t, end: start + t };
   };
@@ -253,6 +255,18 @@ export function analyse(ctx) {
     }
   }
 
+  // 6b. Our rule: every day gets a rest or buffer block.
+  if (ctx.profile?.rest !== false)
+    for (const { d, i, items } of days) {
+      if (items.length < 3 || items.some(isRest)) continue;
+      out.push({
+        id: `rest-${d.id}`, kind: "rest", level: "fix",
+        title: `Day ${i + 1} has no rest block`,
+        detail: "Your rule is a break every day. This adds a 90-minute rest at 3 pm; move it if another time suits the day better.",
+        changes: [{ type: "add", item: { title: "Rest & recharge", category: "other", dayId: d.id, time: "15:00", durationMin: 90, cost: 0, rest: true, mustDo: false, notes: "Rest and recharge at the hotel or a cafe.", location: "", description: "", image: "", url: "", siteName: "" } }],
+      });
+    }
+
   // 7. Must-dos that aren't on a day.
   for (const it of ideas().filter((x) => x.mustDo)) {
     const target = bestDayFor(it, days, loadOf, maxMin);
@@ -297,6 +311,14 @@ export function analyse(ctx) {
   if (budget && ctx.total > budget) {
     const big = ctx.items.filter((x) => trip.days.some((dd) => dd.id === x.dayId) && !x.mustDo && Number(x.cost)).sort((a, b) => b.cost - a.cost).slice(0, 3);
     out.push({ id: "budget", kind: "budget", level: "fix", title: `Over budget by ${money(ctx.total - budget)}`, detail: big.length ? "Biggest optional costs: " + big.map((x) => `${x.title} (${money(x.cost)})`).join(", ") + "." : "Look at stays and transport, which are usually the biggest costs.", changes: [] });
+  }
+
+  // 11. Our rule: one splurge each in food, stay and experience.
+  if (ctx.profile?.splurges && ctx.items.length >= 5) {
+    const tagged = (re) => ctx.items.some((x) => re.test(`${x.notes || ""} ${x.title}`) && /splurge/i.test(x.notes || ""));
+    const missing = [["food", /food/i], ["stay", /stay/i], ["experience", /experience/i]].filter(([, re]) => !tagged(re)).map(([k]) => k);
+    if (missing.length)
+      out.push({ id: "splurge", kind: "splurge", level: "info", title: `No ${missing.join(", ")} splurge picked yet`, detail: "You like one deliberate splurge each in food, stay and experience. To mark one, open a stop and write “Food splurge” (or “Stay splurge”, “Experience splurge”) in its notes.", changes: [] });
   }
 
   const order = { fix: 0, tip: 1, info: 2 };

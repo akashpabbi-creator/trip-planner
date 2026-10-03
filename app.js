@@ -3,6 +3,7 @@ import { unfurl, extractUrl, sourceOf } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode } from "./smart.js";
 import { loadDestination, fetchWeather } from "./discover.js";
 import { topPicks, reviewPlan, testKey } from "./ai.js";
+import { DEFAULT_PROFILE, profileOf, profileText, buildSample, vegTip, chooseMode, vegOk } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
 const CATEGORIES = {
@@ -582,10 +583,41 @@ function aiToItem(p) {
   };
 }
 async function addStarter(tripId, listings) {
-  const pick = (type, n) => listings.filter((l) => l.type === type).slice(0, n);
-  const chosen = [...pick("see", 4), ...pick("do", 2), ...pick("eat", 2), ...pick("drink", 1), ...pick("sleep", 2)];
-  for (const l of chosen) await S.store.addItem(tripId, guideToItem(l));
-  if (chosen.length) await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `loaded ${chosen.length} starter ideas for ${S.trip?.destination || "the trip"} from the travel guide` });
+  await buildSampleItinerary(tripId, listings, { auto: true });
+}
+// Fills empty days with a sample plan built from our preferences (profile.js), and puts stays and backups in Ideas.
+async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.listings || [], { auto = false } = {}) {
+  const t = S.trip;
+  if (!listings.length) return toast("The travel guide hasn't loaded for this destination yet.");
+  const empty = new Set(t.days.filter((d) => !dayItems(d.id).length).map((d) => d.id));
+  if (!empty.size && !auto) return toast("Every day already has plans. Clear a day to fill it with a sample.");
+  const { mode, plan } = buildSample(t, listings, profileOf(t));
+  const orders = {};
+  const updates = [];
+  let added = 0, placed = 0;
+  for (const x of plan) {
+    const day = x.dayIndex != null ? t.days[x.dayIndex] : null;
+    const dayId = day && empty.has(day.id) ? day.id : null;
+    if (x.dayIndex != null && !dayId) continue;
+    const order = dayId ? (orders[dayId] = (orders[dayId] || 0) + 1) : 0;
+    const placing = { dayId, order, time: x.time || "" };
+    if (x.kind === "rest") {
+      await S.store.addItem(tripId, { title: "Rest & recharge", description: "", image: "", siteName: "", location: "", url: "", category: "other", durationMin: 90, cost: 0, mustDo: false, rest: true, notes: x.note, suggestedBy: "plan", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...placing, ...stampMe() });
+      added++;
+      continue;
+    }
+    const have = inTrip(x.listing.name);
+    if (have) {
+      if (dayId && !have.dayId) updates.push([have.id, { ...placing, notes: [x.note, have.notes].filter(Boolean).join(" · "), mustDo: have.mustDo || /(food|experience) splurge/i.test(x.note || ""), ...stampMe() }]), placed++;
+      continue;
+    }
+    const it = guideToItem(x.listing);
+    await S.store.addItem(tripId, { ...it, ...placing, notes: [x.note, it.notes].filter(Boolean).join(" · "), mustDo: /(food|experience) splurge/i.test(x.note || "") });
+    added++;
+  }
+  if (updates.length) await S.store.batchUpdateItems(tripId, updates);
+  if (added + placed) await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `built a sample ${mode === "slow" ? "slow-paced" : "full"} itinerary for ${t.destination || "the trip"} from our preferences (${added + placed} stops)` });
+  if (!auto) toast(added + placed ? `Sample itinerary added: ${mode === "slow" ? "slow pace, 1–2 anchors a day" : "full days, 3 anchors a day"}, with a rest block each day.` : "Nothing new to add from the travel guide.");
 }
 const inTrip = (name) => S.items.find((i) => i.title.trim().toLowerCase() === String(name).trim().toLowerCase());
 const mapsQ = (loc) => {
@@ -606,6 +638,7 @@ function discoverCard(x, src, idx) {
         ${x.priceLevel ? `<span>${esc(x.priceLevel)}</span>` : ""}
         ${x.price ? `<span>${esc(x.price)}</span>` : ""}
         ${x.area ? `<span>📍 ${esc(x.area)}</span>` : ""}
+        ${x.category === "food" && x.content && !vegOk(x) ? `<span class="nonveg">Mostly meat or fish</span>` : ""}
       </div>
       <p class="d-desc">${esc((x.why || x.content || x.address || "").slice(0, 180))}</p>
       <div class="d-act">
@@ -623,11 +656,13 @@ function viewDiscover() {
   const filters = [["all", "All"], ["sight", "🏛️ Sights"], ["activity", "🎟️ Do"], ["food", "🍜 Eat & drink"], ["stay", "🛏️ Stay"], ["nature", "🌿 Nature"], ["shopping", "🛍️ Shop"]];
   const ok = (x) => f === "all" || x.category === f;
   const picks = (t.aiPicks?.for === t.destination ? t.aiPicks.items : []).map((x, i) => [x, i]).filter(([x]) => ok(x));
-  const guide = (t.guide?.for === t.destination ? t.guide.listings : []).map((x, i) => [x, i]).filter(([x]) => ok(x));
+  const guide = (t.guide?.for === t.destination ? t.guide.listings : []).map((x, i) => [x, i]).filter(([x]) => ok(x))
+    .sort(([a], [b]) => (a.category === "food" && !vegOk(a)) - (b.category === "food" && !vegOk(b)));
   const w = t.weather?.days || [];
   return `<div class="discover">
     ${w.length ? `<div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${d.icon}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div>
       <p class="muted small">${t.weather.kind === "forecast" ? "Weather forecast for your dates." : "Weather on the same dates last year, as a guide. The forecast appears about two weeks before you go."}</p>` : ""}
+    ${prefsCard()}
     <div class="chips">${filters.map(([k, l]) => `<button class="chip ${f === k ? "on" : ""}" data-action="discFilter" data-id="${k}">${l}</button>`).join("")}</div>
 
     <section class="d-sec">
@@ -644,6 +679,40 @@ function viewDiscover() {
       ${t.guide?.source ? `<p class="muted small">From <a href="${esc(t.guide.source)}" target="_blank" rel="noopener">Wikivoyage</a>, the free travel guide.</p>` : ""}
     </section>
   </div>`;
+}
+
+function prefsCard() {
+  const t = S.trip, p = profileOf(t);
+  const mode = chooseMode(p, t);
+  const tip = vegTip(t.destination);
+  const anyEmpty = t.days.some((d) => !dayItems(d.id).length);
+  return `<section class="d-sec prefs-card">
+    <div class="d-head"><h3>💚 Planned around your preferences</h3><button class="btn-s" data-action="editProfile">Edit</button></div>
+    <ul class="prefs-list small">
+      <li>🥚 ${esc(p.diet)}</li>
+      <li>${mode === "slow" ? "🌴 Slow pace: 1–2 anchors a day" : "🏙️ Full days: 3 anchors a day"}${p.pace === "auto" ? " (picked for this destination)" : ""}</li>
+      ${p.rest ? "<li>☕ A rest block every afternoon</li>" : ""}
+      ${p.splurges ? "<li>✨ One splurge each: food, stay, experience</li>" : ""}
+      <li>🍜 Street food and markets, plus one notable restaurant</li>
+    </ul>
+    ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
+    ${anyEmpty ? `<button class="primary btn-s" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
+  </section>`;
+}
+function editProfile() {
+  const p = profileOf(S.trip);
+  const ta = (name, label) => `<label>${label}<textarea name="${name}" rows="2">${esc(p[name])}</textarea></label>`;
+  openModal(`<h3>💚 Our preferences</h3>
+    <p class="muted small">Used for the sample itinerary, Gemini's picks and reviews, and the plan checks. Both of you can change these.</p>
+    <label>Pace<select name="pace">${[["auto", "Pick per destination (cities full, beaches and hills slow)"], ["dense", "Full days"], ["slow", "Slow"]].map(([v, l]) => `<option value="${v}" ${p.pace === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    ${ta("diet", "Food we eat")}${ta("food", "Where we like to eat")}${ta("stays", "Stays")}${ta("interests", "Interests")}
+    <label class="row"><input type="checkbox" name="rest" ${p.rest ? "checked" : ""}> A rest block every day</label>
+    <label class="row"><input type="checkbox" name="splurges" ${p.splurges ? "checked" : ""}> One splurge each in food, stay and experience</label>`,
+    async (f) => {
+      const next = { ...p, pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges };
+      await S.store.txTrip(S.tripId, () => ({ profile: next, ...stampMe() }));
+      await log("updated the trip preferences");
+    });
 }
 
 /* ---------------------------------------------------------------------- AI */
@@ -678,7 +747,7 @@ async function runAiPicks() {
   S.aiBusy = "picks";
   render();
   try {
-    const items = await topPicks(S.trip.ai.key, S.trip);
+    const items = await topPicks(S.trip.ai.key, S.trip, profileText(profileOf(S.trip)));
     await S.store.updateTrip(S.tripId, { aiPicks: { for: S.trip.destination, at: Date.now(), items } });
     await log(`asked Gemini for top-rated places (${items.length} found)`);
   } catch (e) {
@@ -698,7 +767,7 @@ function planSnapshot() {
   });
   return {
     destination: t.destination, startDate: t.startDate || undefined, currency: t.currency, budget: t.budget || undefined,
-    plannedTotal: costs().total, travellers: t.members.map(nameOf), prefs: t.prefs || {},
+    plannedTotal: costs().total, travellers: t.members.map(nameOf), prefs: t.prefs || {}, preferences: profileText(profileOf(t)),
     days: t.days.map((d, i) => ({
       day: i + 1, date: dayDate(i)?.toDateString(), title: d.title || undefined, stayingIn: d.base || undefined,
       weather: t.weather?.days?.[i] ? `${t.weather.days[i].max}/${t.weather.days[i].min}°C${t.weather.kind === "typical" ? " (typical)" : ""}` : undefined,
@@ -711,7 +780,7 @@ async function runAiReview() {
   S.aiBusy = "review";
   render();
   try {
-    const r = await reviewPlan(S.trip.ai.key, planSnapshot());
+    const r = await reviewPlan(S.trip.ai.key, planSnapshot(), profileText(profileOf(S.trip)));
     await S.store.updateTrip(S.tripId, { aiReview: { at: Date.now(), by: S.me.email, ...r, applied: [] } });
     await log("asked Gemini to review the plan");
   } catch (e) {
@@ -772,7 +841,7 @@ function viewAiReview() {
 
 /* -------------------------------------------------------------- smart plan */
 function smartAll() {
-  return analyse({ trip: S.trip, items: S.items, dayItems, ideas, who, money, total: costs().total });
+  return analyse({ trip: S.trip, items: S.items, dayItems, ideas, who, money, total: costs().total, profile: profileOf(S.trip) });
 }
 function smartList() {
   let dismissed = new Set();
@@ -785,7 +854,7 @@ function viewSmart() {
   const hidden = smartAll().length - list.length;
   const fixes = list.filter((x) => x.level === "fix" && x.changes.length);
   const sel = (key, opts, val) => `<select data-pref="${key}">${opts.map(([v, l]) => `<option value="${v}" ${v === val ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  const icon = { route: "🗺️", car: "🚙", legs: "🚇", load: "⚖️", must: "⭐", fill: "📅", spread: "📍", hop: "🚆", fair: "🤝", budget: "💰", locate: "🔎", leg: "🚶" };
+  const icon = { rest: "☕", splurge: "✨", route: "🗺️", car: "🚙", legs: "🚇", load: "⚖️", must: "⭐", fill: "📅", spread: "📍", hop: "🚆", fair: "🤝", budget: "💰", locate: "🔎", leg: "🚶" };
   return `<div class="smart">
     ${viewAiReview()}
     <h3 class="sec-h">⚙️ Quick checks</h3>
@@ -831,6 +900,15 @@ async function runAnalyse() {
     render();
   }
 }
+// Order for a new stop with a fixed time: just before the first later fixed-time stop of the day.
+function orderForTime(dayId, time) {
+  if (!dayId) return 0;
+  const t = toMin(time);
+  const list = dayItems(dayId);
+  const k = t == null ? -1 : list.findIndex((x) => toMin(x.time) != null && toMin(x.time) > t);
+  if (k < 0) return nextOrder(dayId);
+  return k === 0 ? list[0].order - 1 : (list[k - 1].order + list[k].order) / 2;
+}
 async function applySuggestions(ids) {
   const all = smartAll().filter((x) => ids.includes(x.id) && x.changes.length);
   if (!all.length) return;
@@ -839,6 +917,7 @@ async function applySuggestions(ids) {
   for (const sug of all)
     for (const c of sug.changes) {
       if (c.type === "order") c.ids.forEach((id, k) => merge(id, { order: k + 1 }));
+      else if (c.type === "add") await S.store.addItem(S.tripId, { ...c.item, order: orderForTime(c.item.dayId, c.item.time), suggestedBy: "plan", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe() });
       else if (c.type === "item") {
         const patch = { ...c.patch };
         if (patch.order === 1e6) patch.order = nextOrder(patch.dayId) + updates.size;
@@ -909,6 +988,7 @@ async function newTrip() {
       members: [S.me.email],
       memberNames: { [S.me.email]: S.me.name },
       ai: S.trips.find((x) => x.ai?.key)?.ai || null,
+      profile: S.trips.find((x) => x.profile)?.profile || { ...DEFAULT_PROFILE },
       createdAt: now,
       ...stampMe(),
     });
@@ -1294,6 +1374,8 @@ document.addEventListener("click", async (e) => {
         S.discFilter = id;
         return render();
       case "refreshDest": return ensureDestination(true);
+      case "buildSample": return buildSampleItinerary();
+      case "editProfile": return editProfile();
       case "discAdd": {
         const list = b.dataset.src === "ai" ? S.trip.aiPicks.items : S.trip.guide.listings;
         const x = list[+id];

@@ -13,6 +13,7 @@ A free, private web app for planning a trip together. Both of you edit the same 
 - **Changes log.** A timeline of every change with the time and who made it.
 - **Plan check.** Warns about must-dos that aren't scheduled yet, days that run too late, impossible timings and going over budget.
 - **✨ Smart plan.** One button reviews the whole plan and suggests fixes you can apply with one tap: a shorter order for each day's stops, the best way to get between stops (walk, public transport, taxi, train, or hiring a car for the day), overloaded days and where to move things, unscheduled must-dos and the best day for them, empty days to fill with nearby ideas, long moves between towns, whether both of your picks made it in, and what to cut when over budget. Set your pace (relaxed, balanced, packed), how you like to get around and how late you want to finish. It runs in the browser using free OpenStreetMap lookups, so it costs nothing and needs no AI key. Travel times are estimates; the Directions link gives exact times and fares.
+- **Your preferences built in.** Each trip starts from your Trip Sheet preferences: vegetarian food (eggs fine), street food and markets plus one notable restaurant, a rest block every afternoon, and one splurge each in food, stay and experience. The pace is picked per destination: full days in big cities, slow days at beaches and hills. When a trip opens, its empty days are filled with a sample itinerary built from the travel guide around these rules, and stays and backup options go to Ideas. Edit the preferences under Discover; the Smart checks and Gemini follow them too.
 - **Discover.** Opening a trip loads a cover photo and short description of the destination (Wikipedia), the weather for your dates (Open-Meteo: a forecast close to the trip, otherwise last year's weather on the same dates) and the travel guide's picks for sights, things to do, food, drinks and places to stay (Wikivoyage). A starter set is added to Ideas automatically. With a free Gemini key, "Top rated, picked by Gemini" adds Google-rated restaurants, sights and hotels.
 - **Gemini review.** In the Smart tab, Gemini reads the whole plan and suggests changes (timing, opening hours, what to add, how to get around). Most come with an Apply button. "Copy plan for Claude" copies the plan so you can ask Claude for a review instead.
 - **Itinerary.** A clean day-by-day itinerary you can print, save as PDF or copy as text.
@@ -72,5 +73,6 @@ Leave `config.js` as is and open `index.html` through any local web server (`pyt
 - `smart.js`: the Smart plan engine
 - `discover.js`: destination photo, weather and travel guide picks
 - `ai.js`: Gemini top picks and plan review
+- `profile.js`: your travel preferences and the sample itinerary
 - `firestore.rules`: privacy rules to paste into Firebase
 - `manifest.webmanifest`, `sw.js`, `icons/`: installable app + share target
