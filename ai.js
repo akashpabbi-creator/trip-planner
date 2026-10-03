@@ -10,7 +10,7 @@ async function call(key, prompt, { json = false, search = false, model } = {}) {
     const body = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.4, ...(json ? { responseMimeType: "application/json" } : {}) },
-      ...(search ? { tools: [{ google_search: {} }] } : {}),
+      ...(search ? { tools: [{ google_search: {} }, ...(search === "url" ? [{ url_context: {} }] : [])] } : {}),
     };
     try {
       const r = await fetch(URL_(m, key), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -66,4 +66,16 @@ Give 4 to 10 suggestions, most important first. Use only itemIds that appear in 
   const { text } = await call(key, prompt, { json: true });
   const out = parseJson(text);
   return { summary: out.summary || "", suggestions: Array.isArray(out.suggestions) ? out.suggestions : [] };
+}
+
+// Reads a shared link (the page itself, plus the preview we already have) and lists the places in it.
+export async function extractLink(key, url, preview, trip, prefs = "") {
+  const prompt = `We are planning a trip to ${trip.destination || "a destination"} and saved this link for ideas: ${url}
+Preview we could read: ${JSON.stringify({ title: preview.title, caption: preview.description, site: preview.siteName }).slice(0, 2500)}
+${prefs ? "Our preferences:\n" + prefs + "\n" : ""}Read the page (or, if it can't be opened, use the preview and Google Search) and list every specific place it recommends that we could visit, eat at or stay at.
+Return ONLY a JSON object in a \`\`\`json block: {"places": [{"name": string, "category": "sight"|"activity"|"food"|"stay"|"shopping"|"nature", "address": street address or area, "durationMin": typical visit minutes, "approxCost": number in ${trip.currency || "INR"} for two people or null, "bestTime": "sunrise"|"morning"|"lunch"|"afternoon"|"sunset"|"evening"|"night"|"", "hours": opening hours and closed days or "", "vegetarian": "yes"|"some"|"no"|"" (food only), "why": one sentence from the post on why it's recommended}]}
+Only real, named places, at most 10. If the link is about one place, return just that place.`;
+  const { text } = await call(key, prompt, { search: "url" });
+  const out = parseJson(text);
+  return Array.isArray(out.places) ? out.places.filter((x) => x && x.name).slice(0, 10) : [];
 }

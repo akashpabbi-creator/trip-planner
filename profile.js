@@ -11,6 +11,7 @@ export const DEFAULT_PROFILE = {
   interests: "Food, markets, cafes and bars; local life and shopping; history, architecture and museums; nature, hikes and scenic drives.",
   rest: true, // a rest or buffer block every day
   splurges: true, // one splurge each in food, stay and experience
+  autoPlace: true, // places from shared links go straight onto the best day
   earlyStarts: "Happy to start very early when the hour transforms the experience (sunrise, markets, empty temples). At most two early starts a trip.",
   flights: "Avoid red-eye and very early flights unless they save more than 10%.",
 };

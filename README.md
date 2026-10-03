@@ -5,6 +5,7 @@ A free, private web app for planning a trip together. Both of you edit the same 
 ## What it does
 
 - **Save inspiration from anywhere.** Paste a link (Instagram, Facebook, Google Maps, blogs, hotel sites). The app pulls the title, photo, description and, where it can, the location. On Android you can install the app and use **Share → Trips** straight from Instagram or Chrome.
+- **Links go straight into the plan.** The app reads each shared link: the places it mentions (a caption listing five cafés becomes five stops), what kind of place each is, opening hours, prices, whether a restaurant is vegetarian, and the best time to go (sunrise, sunset, evening). Each place goes onto the day it fits best: near what is already planned, with room left, at the right time of day. A restaurant takes over a travel-guide meal slot, and on a full day a travel-guide pick moves back to Ideas, so your own finds always win. With a Gemini key, Gemini reads the page itself for better results. You can switch this off under Discover → Edit preferences.
 - **Ideas → days.** Saved links land in *Ideas*. Drop them onto days, reorder with ↑/↓ (moving past the end of a day hops to the next day), set fixed times or let the app estimate them.
 - **Grow or shrink the trip.** Go from 2 to 5 days (or back). Removing a day sends its stops back to Ideas, so nothing is lost.
 - **Getting around.** Between every two stops you can record how you'll travel (walk, metro/bus/train, own car, rental car, taxi, ferry, flight), how long it takes and what it costs, with a one-tap Google Maps directions link.
@@ -74,5 +75,6 @@ Leave `config.js` as is and open `index.html` through any local web server (`pyt
 - `discover.js`: destination photo, weather and travel guide picks
 - `ai.js`: Gemini top picks and plan review
 - `profile.js`: your travel preferences and the sample itinerary
+- `linkinfo.js`: reads places, hours, prices and best times from shared links
 - `firestore.rules`: privacy rules to paste into Firebase
 - `manifest.webmanifest`, `sw.js`, `icons/`: installable app + share target

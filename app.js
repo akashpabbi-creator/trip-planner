@@ -1,8 +1,9 @@
 import { createStore } from "./store.js";
 import { unfurl, extractUrl, sourceOf } from "./unfurl.js";
-import { analyse, locateAll, km, has, recommendMode } from "./smart.js";
+import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
+import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather } from "./discover.js";
-import { topPicks, reviewPlan, testKey } from "./ai.js";
+import { topPicks, reviewPlan, testKey, extractLink } from "./ai.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, vegTip, chooseMode, vegOk } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -358,10 +359,10 @@ function viewAddLink() {
   return `<div class="add-link">
     <span class="al-ic">🔗</span>
     <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link from Instagram, Maps or any site" ${S.busy ? "disabled" : ""}>
-    <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Reading…" : "Save"}</button>
+    <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
     <button class="icon" data-action="pasteLink" title="Paste from clipboard">📋</button>
     <button class="icon" data-action="newItem" title="Add a place without a link">＋</button>
-  </div>`;
+  </div>${typeof S.busy === "string" ? `<p class="muted small busy-line">⏳ ${esc(S.busy)}</p>` : ""}`;
 }
 
 function card(it, opts = {}) {
@@ -616,6 +617,9 @@ async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.
     added++;
   }
   if (updates.length) await S.store.batchUpdateItems(tripId, updates);
+  // Your own saved links come first: put them on days too, taking over guide picks where needed.
+  await new Promise((r) => setTimeout(r, 300));
+  for (const it of ideas().filter((x) => !x.suggestedBy && !x.mustDo)) if ((await placeIdea(it))?.dayIndex != null) placed++;
   if (added + placed) await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `built a sample ${mode === "slow" ? "slow-paced" : "full"} itinerary for ${t.destination || "the trip"} from our preferences (${added + placed} stops)` });
   if (!auto) toast(added + placed ? `Sample itinerary added: ${mode === "slow" ? "slow pace, 1–2 anchors a day" : "full days, 3 anchors a day"}, with a rest block each day.` : "Nothing new to add from the travel guide.");
 }
@@ -694,6 +698,7 @@ function prefsCard() {
       ${p.rest ? "<li>☕ A rest block every afternoon</li>" : ""}
       ${p.splurges ? "<li>✨ One splurge each: food, stay, experience</li>" : ""}
       <li>🍜 Street food and markets, plus one notable restaurant</li>
+      ${p.autoPlace !== false ? "<li>🔗 Places from your shared links go straight onto the best day</li>" : ""}
     </ul>
     ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
     ${anyEmpty ? `<button class="primary btn-s" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
@@ -707,9 +712,10 @@ function editProfile() {
     <label>Pace<select name="pace">${[["auto", "Pick per destination (cities full, beaches and hills slow)"], ["dense", "Full days"], ["slow", "Slow"]].map(([v, l]) => `<option value="${v}" ${p.pace === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
     ${ta("diet", "Food we eat")}${ta("food", "Where we like to eat")}${ta("stays", "Stays")}${ta("interests", "Interests")}
     <label class="row"><input type="checkbox" name="rest" ${p.rest ? "checked" : ""}> A rest block every day</label>
-    <label class="row"><input type="checkbox" name="splurges" ${p.splurges ? "checked" : ""}> One splurge each in food, stay and experience</label>`,
+    <label class="row"><input type="checkbox" name="splurges" ${p.splurges ? "checked" : ""}> One splurge each in food, stay and experience</label>
+    <label class="row"><input type="checkbox" name="autoPlace" ${p.autoPlace !== false ? "checked" : ""}> Put places from shared links straight onto the best day</label>`,
     async (f) => {
-      const next = { ...p, pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges };
+      const next = { ...p, pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges, autoPlace: !!f.autoPlace };
       await S.store.txTrip(S.tripId, () => ({ profile: next, ...stampMe() }));
       await log("updated the trip preferences");
     });
@@ -905,7 +911,8 @@ function orderForTime(dayId, time) {
   if (!dayId) return 0;
   const t = toMin(time);
   const list = dayItems(dayId);
-  const k = t == null ? -1 : list.findIndex((x) => toMin(x.time) != null && toMin(x.time) > t);
+  const sch = schedule(dayId);
+  const k = t == null ? -1 : sch.findIndex((x) => x.start > t || (toMin(x.it.time) != null && toMin(x.it.time) > t));
   if (k < 0) return nextOrder(dayId);
   return k === 0 ? list[0].order - 1 : (list[k - 1].order + list[k].order) / 2;
 }
@@ -1243,36 +1250,126 @@ async function addLink(raw) {
   const url = extractUrl(raw);
   if (!url) return toast("That doesn't look like a link.");
   if (S.items.some((i) => i.url === url)) return toast("You've already saved that link.");
-  S.busy = true;
+  S.busy = "Reading the link…";
   render();
   try {
     const m = await unfurl(url);
+    const t = S.trip;
+    let places = readLink(m, t);
+    let viaAi = false;
+    if (t.ai?.key) {
+      S.busy = "Gemini is reading the page…";
+      render();
+      try {
+        const found = await extractLink(t.ai.key, url, m, t, profileText(profileOf(t)));
+        if (found.length) {
+          places = found.map((p) => ({
+            title: String(p.name).slice(0, 140), category: CATEGORIES[p.category] ? p.category : "sight",
+            location: [p.address, t.destination].filter(Boolean).join(", "), durationMin: Number(p.durationMin) || 90,
+            cost: Number(p.approxCost) || 0, bestTime: p.bestTime || "",
+            notes: [p.hours, p.category === "food" && { yes: "Vegetarian friendly", some: "Some vegetarian dishes", no: "Mostly meat or fish: check the vegetarian options" }[p.vegetarian], p.bestTime && `Best at ${p.bestTime}`].filter(Boolean).join(" · "),
+            description: p.why || (found.length === 1 ? m.description || "" : ""), image: found.length === 1 ? m.image || "" : "", siteName: m.siteName || "", url,
+          }));
+          viaAi = true;
+        }
+      } catch (e) {
+        console.warn("gemini link", e.message);
+      }
+    }
     const now = Date.now();
-    const cat = m.source === "maps" ? "sight" : /hotel|resort|villa|airbnb|booking\.com|hostel/i.test(m.title + m.siteName + url) ? "stay" : /restaurant|cafe|café|bar|food|eat|brunch|zomato|dinner/i.test(m.title + m.description) ? "food" : "sight";
-    const data = {
-      title: (m.title || "Saved link").slice(0, 140),
-      description: (m.description || "").slice(0, 600),
-      image: m.image || "",
-      siteName: m.siteName || "",
-      location: m.location || "",
-      ...(Number.isFinite(m.lat) ? { lat: m.lat, lng: m.lng } : {}),
-      url,
-      category: cat,
-      dayId: null, order: 0, time: "", durationMin: 60, cost: 0, mustDo: false, notes: "",
-      addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
-    };
-    const id = await S.store.addItem(S.tripId, data);
-    await log(`saved a link: “${data.title}”`);
+    const placedOn = [];
+    let firstId = null;
+    S.busy = places.length > 1 ? `Adding ${places.length} places to the plan…` : "Adding it to the plan…";
+    render();
+    for (const p of places) {
+      const data = {
+        title: p.title || "Saved link", description: p.description || "", image: p.image || "", siteName: p.siteName || "",
+        location: p.location || "", ...(Number.isFinite(p.lat) ? { lat: p.lat, lng: p.lng } : {}),
+        url: p.url || url, category: p.category || "sight", dayId: null, order: 0, time: "",
+        durationMin: p.durationMin || 60, cost: p.cost || 0, mustDo: false, notes: p.notes || "", bestTime: p.bestTime || "",
+        fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
+      };
+      if (!has(data) && (data.location || places.length > 1)) {
+        const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
+        if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
+      }
+      const id = await S.store.addItem(S.tripId, data);
+      firstId ||= id;
+      const where = profileOf(t).autoPlace !== false ? await placeIdea({ ...data, id }) : null;
+      placedOn.push([data.title, where]);
+    }
+    await log(places.length > 1 ? `saved a link with ${places.length} places: ${places.map((p) => "“" + p.title + "”").join(", ")}` : `saved a link: “${places[0].title}”`);
     await touchTrip();
     const input = document.getElementById("linkInput");
     if (input) input.value = "";
-    if (S.tab !== "ideas" && S.tab !== "plan") S.tab = "ideas";
-    toast(m.ok ? "Saved to Ideas." : "Saved. Couldn't read the page, so add a name and location.", 3500);
-    if (!m.ok || !m.location) editItem(id);
+    const days = placedOn.filter(([, w]) => w?.dayIndex != null);
+    const msg = days.length
+      ? days.length === 1 && placedOn.length === 1
+        ? `Added “${days[0][0]}” to Day ${days[0][1].dayIndex + 1}${days[0][1].why ? ` ${days[0][1].why}` : ""}.`
+        : `Added ${days.length === placedOn.length ? (days.length === 2 ? "both" : "all " + days.length) : days.length + " of " + placedOn.length} places to the plan (${[...new Set(days.map(([, w]) => "Day " + (w.dayIndex + 1)))].sort().join(", ")})${days.length < placedOn.length ? ". The rest are in Ideas" : ""}.`
+      : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : m.ok ? "Saved to Ideas." : "Saved. Couldn't read the page, so add a name and location.";
+    toast(msg + (viaAi ? " Read by Gemini." : ""), 5000);
+    if (S.tab !== "ideas" && S.tab !== "plan") S.tab = days.length ? "plan" : "ideas";
+    if (places.length === 1 && (!m.ok || !places[0].location) && !viaAi && !days.length) editItem(firstId);
   } finally {
     S.busy = false;
     render();
   }
+}
+
+// Puts a new stop on the best day: near what's already there, with room, at the right time of day.
+// A restaurant takes over a travel-guide meal slot; on a full day a travel-guide pick goes back to Ideas.
+const PACE_H = { relaxed: 7, balanced: 9, packed: 11 };
+const SLOT = { sunrise: ["06:00", true], morning: ["10:00"], lunch: ["13:00"], afternoon: ["16:30"], sunset: ["17:30", true], evening: ["18:30"], night: ["21:00"] };
+async function placeIdea(it) {
+  const t = S.trip;
+  if (!t.days.length || ["stay", "transport", "other"].includes(it.category)) return null;
+  if (has(it) && has(t.place) && km(it, t.place) > 150) return { far: true };
+  const maxMin = (PACE_H[t.prefs?.pace] || 9) * 60;
+  const isRest = (x) => x.rest;
+  const guidePick = (x) => x.suggestedBy && !x.mustDo && !x.rest && !/splurge/i.test(x.notes || "");
+  const days = t.days.map((d, i) => {
+    const list = dayItems(d.id).filter((x) => x.id !== it.id);
+    const pts = list.filter(has);
+    const c = pts.length ? { lat: pts.reduce((a, x) => a + x.lat, 0) / pts.length, lng: pts.reduce((a, x) => a + x.lng, 0) / pts.length } : null;
+    const busy = list.filter((x) => !isRest(x)).reduce((a, x) => a + (Number(x.durationMin) || 60) + (Number(x.travel?.minutes) || 0), 0);
+    const dist = has(it) && c ? km(it, c) : null;
+    const near = has(it) ? pts.map((x) => [km(it, x), x]).sort((a, b) => a[0] - b[0])[0] : null;
+    return { d, i, list, busy, dist, near };
+  });
+  const byDist = [...days].sort((a, b) => (a.dist ?? 5) - (b.dist ?? 5) || a.busy - b.busy);
+  const nearTxt = (x) => (x.near && x.near[0] < 5 ? `near ${x.near[1].title}` : "");
+  const writes = [];
+  let target = null, order = null, time = "", swapped = null;
+
+  if (it.category === "food") {
+    const want = /lunch|morning|afternoon/.test(it.bestTime) ? ["13:00"] : /evening|night|sunset/.test(it.bestTime) ? ["20:00"] : ["13:00", "20:00"];
+    for (const x of byDist) {
+      const meal = x.list.find((y) => guidePick(y) && y.category === "food" && want.includes(y.time));
+      if (meal) {
+        target = x; order = meal.order; time = meal.time; swapped = meal;
+        writes.push([meal.id, { dayId: null, order: 0, time: "", ...stampMe() }]);
+        break;
+      }
+    }
+  }
+  if (!target) {
+    const need = Number(it.durationMin) || 60;
+    const room = byDist.filter((x) => maxMin - x.busy >= need);
+    target = room[0] || byDist[0];
+    if (!room.length) {
+      const out = target.list.filter((y) => guidePick(y) && y.category !== "food" && !y.time).sort((a, b) => (b.durationMin || 60) - (a.durationMin || 60))[0];
+      if (out) (swapped = out), writes.push([out.id, { dayId: null, order: 0, ...stampMe() }]);
+    }
+    const [slot, fixed] = SLOT[it.bestTime] || SLOT.afternoon;
+    order = orderForTime(target.d.id, slot);
+    time = fixed ? slot : "";
+  }
+  writes.push([it.id, { dayId: target.d.id, order, time, ...stampMe() }]);
+  await S.store.batchUpdateItems(S.tripId, writes);
+  await new Promise((r) => setTimeout(r, 120));
+  const why = [nearTxt(target), swapped && `in place of ${swapped.title}`].filter(Boolean);
+  return { dayIndex: target.i, why: why.length ? `(${why.join(", ")})` : "" };
 }
 
 // Links shared to the installed app from another app (Android share sheet) arrive as URL params.
