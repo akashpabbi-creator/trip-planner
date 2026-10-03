@@ -16,16 +16,15 @@ await show("WV Kyoto", WV + "Kyoto");
 // City fame signals for Italy's Cities list
 const cities = ["Rome", "Bologna", "Florence", "Genoa", "Milan", "Naples", "Palermo", "Turin", "Venice"];
 for (const c of cities) {
+  await new Promise((r) => setTimeout(r, 1500));
   const pv = await fetch(`https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikivoyage/all-access/user/${c}/monthly/20250101/20251231`, { headers: UA }).then((r) => r.json()).catch(() => null);
   const views = (pv?.items || []).reduce((s, i) => s + i.views, 0);
   const pw = await fetch(`https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/${c}/monthly/20250101/20251231`, { headers: UA }).then((r) => r.json()).catch(() => null);
   console.log(`fame ${c}: wikivoyage views ${views}, wikipedia views ${(pw?.items || []).reduce((s, i) => s + i.views, 0)}`);
 }
 const L = "https://luggageandlife.com/where-to-eat-in-rome/";
-await show("direct", L, { headers: { "User-Agent": "Mozilla/5.0" } });
-await show("wp-json", "https://luggageandlife.com/wp-json/wp/v2/posts?slug=where-to-eat-in-rome&_fields=title,content");
-await show("jina", "https://r.jina.ai/" + L, { headers: { Accept: "text/plain" } });
-await show("wayback avail", "https://archive.org/wayback/available?url=" + encodeURIComponent(L));
-await show("wayback raw", "https://web.archive.org/web/2025id_/" + L);
-await show("jina via wayback", "https://r.jina.ai/https://web.archive.org/web/2025/" + L, { headers: { Accept: "text/plain" } });
-await show("microlink", "https://api.microlink.io/?url=" + encodeURIComponent(L));
+const WP = "https://luggageandlife.com/wp-json/wp/v2/posts?slug=where-to-eat-in-rome&_fields=title,content";
+for (const [n, f] of [["allorigins raw", (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u)], ["allorigins get", (u) => "https://api.allorigins.win/get?url=" + encodeURIComponent(u)], ["codetabs", (u) => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u)], ["corsproxy.io", (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u)], ["cors.lol", (u) => "https://api.cors.lol/?url=" + encodeURIComponent(u)]]) {
+  await show(n + " page", f(L), { headers: { Origin: "https://akashpabbi-creator.github.io" } });
+  await show(n + " wp-json", f(WP), { headers: { Origin: "https://akashpabbi-creator.github.io" } });
+}

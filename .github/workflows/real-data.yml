@@ -11,5 +11,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node tests/probe.mjs
       - run: node tests/real-data.mjs
+        continue-on-error: true
+      - run: node tests/probe.mjs

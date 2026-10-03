@@ -7,7 +7,13 @@ import { readLink } from "../linkinfo.js";
 
 // Wikimedia asks scripts to identify themselves; browsers send their own headers.
 const realFetch = globalThis.fetch;
-globalThis.fetch = (u, o = {}) => realFetch(u, { ...o, headers: { "User-Agent": "trip-planner-tests/1.0 (github.com/akashpabbi-creator/trip-planner)", ...(o.headers || {}) } });
+let calls = 0;
+globalThis.fetch = async (u, o = {}) => {
+  calls++;
+  const r = await realFetch(u, { ...o, headers: { "User-Agent": "trip-planner-tests/1.0 (github.com/akashpabbi-creator/trip-planner)", ...(o.headers || {}) } });
+  if (!r.ok) console.log(`  ⚠️ HTTP ${r.status} ${r.headers.get("retry-after") ? "retry-after " + r.headers.get("retry-after") + " " : ""}${String(u).slice(0, 140)}`);
+  return r;
+};
 
 const TRANSPORT = /\b(airport|aeroporto|airlines?|airways|wizz|ryanair|easyjet|indigo|terminal|railway|train station|stazione|termini|bus station|bus stand|metro station|ferry|car rental|car hire|taxi|shinkansen)\b/i;
 const CASES = [
@@ -28,6 +34,7 @@ for (const c of CASES) {
   const d = await loadDestination(trip);
   Object.assign(trip, { place: d.place, guide: d.guide });
   const L = d.guide.listings;
+  console.log(`  requests so far: ${calls}`);
   if (!L.length) { fail("the travel guide returned nothing"); continue; }
   console.log(`  guide: ${L.length} listings from ${d.guide.source}; cities: ${[...new Set(L.map((l) => l.city).filter(Boolean))].join(", ") || "-"}`);
   const bad = L.filter((l) => TRANSPORT.test(l.name));
