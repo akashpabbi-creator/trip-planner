@@ -217,7 +217,11 @@ const sights = (ls) => ls.filter((l) => l.type === "see" || l.type === "do").len
 async function cityListings(page) {
   let got = parseListings(page.text);
   if (sights(got) < 25) {
-    const ds = linksIn(page.text, new RegExp("^" + page.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/")).slice(0, 20);
+    const own = linksIn(page.text, new RegExp("^" + page.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/"));
+    // The Districts section can name separate articles too: Rome's lists Vatican City, where St. Peter's is.
+    const sec = page.text.match(/==\s*Districts\s*==([\s\S]*?)\n==[^=]/i)?.[1] || "";
+    const named = linksIn(sec, /^(?!(File|Image|Category|Wikipedia):)/i).filter((t) => !own.includes(t) && !/phrasebook/i.test(t));
+    const ds = [...own.slice(0, 20), ...named.slice(0, 3)];
     for (const d of await wvPages(ds)) got = got.concat(parseListings(d.text));
   }
   return got;
