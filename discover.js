@@ -229,7 +229,7 @@ async function cityListings(page) {
 }
 // How well known each place is: the number of Wikipedia languages with an article on it (via the listing's Wikidata id).
 async function addFame(listings) {
-  const ids = [...new Set(listings.map((l) => l.wikidata).filter((x) => /^Q\d+$/.test(x || "")))].slice(0, 200);
+  const ids = [...new Set(listings.map((l) => l.wikidata).filter((x) => /^Q\d+$/.test(x || "")))].slice(0, 300);
   const fame = {};
   for (let i = 0; i < ids.length; i += 50) {
     const j = await getJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${ids.slice(i, i + 50).join("|")}&props=sitelinks&format=json&origin=*`).catch(() => null);
@@ -238,7 +238,7 @@ async function addFame(listings) {
   }
   // Listings without a Wikidata id: look them up by their English Wikipedia title instead.
   const byTitle = {};
-  const names = [...new Set(listings.filter((l) => !fame[l.wikidata] && (l.type === "see" || l.type === "do")).map((l) => l.name.replace(/^the\s+/i, "")))].slice(0, 100);
+  const names = [...new Set(listings.filter((l) => !fame[l.wikidata] && (l.type === "see" || l.type === "do")).map((l) => l.name.replace(/^the\s+/i, "")))].slice(0, 300);
   for (let i = 0; i < names.length; i += 50) {
     const j = await getJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&sites=enwiki&normalize=1&titles=${encodeURIComponent(names.slice(i, i + 50).join("|"))}&props=sitelinks&format=json&origin=*`).catch(() => null);
     for (const e of Object.values(j?.entities || {})) if (e.sitelinks?.enwiki) byTitle[e.sitelinks.enwiki.title.toLowerCase()] = Object.keys(e.sitelinks).length;
