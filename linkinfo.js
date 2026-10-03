@@ -11,6 +11,7 @@ const CAT_RULES = [
   ["activity", /\b(tour|class|workshop|kayak|scuba|snorkel|dive|surf|paraglid|rafting|cruise|boat|show|concert|experience|activity|tasting|spa|massage|zipline|balloon)\b/i],
   ["sight", /\b(fort|palace|temple|church|mosque|museum|monument|cathedral|ruins|gallery|heritage|old town|tower|castle|shrine|stepwell|tomb)\b/i],
 ];
+const ARTICLE_TITLE = /\b(where to (eat|stay|go)|best [\w ]{2,30} (in|of|around|near)|top \d+|\d+ (best|places|things|cafes|restaurants)|things to do|places to|(travel|food|city|ultimate|complete) guide|guide to|itinerary|must[- ](try|visit|see)|hidden gems)\b/i;
 const MINUTES = { stay: 60, food: 75, nature: 150, shopping: 75, activity: 150, sight: 90, other: 60 };
 
 export function categoryOf(text, fallback = "sight") {
@@ -73,7 +74,9 @@ export function readLink(m, trip) {
     image: m.image || "", siteName: m.siteName || "", url: m.url, description: (m.description || "").slice(0, 600),
   };
   const fromPost = /instagram|facebook|youtube|tiktok/.test(m.source || "");
-  const listed = fromPost || /blog|guide|best|top \d|things to do|places to/i.test(all) ? listedPlaces(m.description) : [];
+  const fromList = fromPost || /blog|guide|best|top \d|things to do|places to|where to/i.test(all) ? listedPlaces(m.description) : [];
+  // Article headings from the full page beat a short preview's list.
+  const listed = (m.places?.length || 0) >= 2 && m.places.length >= fromList.length ? m.places : fromList;
   const one = (name, text, extra = {}) => {
     const category = m.source === "maps" && !extra.listed ? categoryOf(text, "sight") : categoryOf(text, extra.fallback || "sight");
     const cost = costOf(text, trip.currency || "INR");
@@ -102,5 +105,7 @@ export function readLink(m, trip) {
   const tailLoc = tail && tail.length < 60 && !/\b(official|home|menu|book|reserv|tripadvisor|review|blog|restaurant guide|website|instagram|facebook)\b/i.test(tail) ? tail : "";
   const item = one(name || m.title || "Saved link", all, { location: m.location || (tailLoc ? `${name}, ${tailLoc}` : "") });
   if (Number.isFinite(m.lat)) Object.assign(item, { lat: m.lat, lng: m.lng });
+  // A page that couldn't be read, or an article whose places couldn't be found, is not a stop to schedule.
+  if (m.ok === false || (!fromPost && m.source !== "maps" && ARTICLE_TITLE.test(m.title || ""))) item.unread = true;
   return [item];
 }

@@ -84,8 +84,15 @@ export async function fetchWeather(lat, lng, startDate, nDays) {
 const TYPE_CAT = { see: "sight", do: "activity", eat: "food", drink: "food", sleep: "stay", buy: "shopping" };
 
 // Pulls {{see|name=...|...}} style listings out of a Wikivoyage article.
+// Only listings in the See/Do/Eat/Drink/Sleep/Buy sections count: "Get in" and "Get around" hold
+// airports, stations and airlines, which are not things to visit.
+const SECTION_TYPE = { see: "see", do: "do", eat: "eat", drink: "drink", sleep: "sleep", buy: "buy", shop: "buy", "eat and drink": "eat" };
+const SKIP_SECTION = /^(get in|get around|connect|stay safe|stay healthy|cope|go next|understand|talk|respect|by \w+)/i;
+const NOT_A_SIGHT = /\b(airport|aeroporto|air ?lines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stop|metro station|coach|ferry terminal|car rental|car hire|rent-a-car|taxi|parking|tourist information|post office|hospital|pharmacy|police|consulate|embassy|atm)\b/i;
 export function parseListings(wikitext) {
   const out = [];
+  const heads = [...wikitext.matchAll(/^==([^=].*?)==\s*$/gm)].map((h) => ({ at: h.index, name: h[1].trim().toLowerCase() }));
+  const sectionAt = (i) => heads.filter((h) => h.at < i).pop()?.name || "";
   const re = /\{\{\s*(see|do|eat|drink|sleep|buy|listing)\s*\|/gi;
   let m;
   while ((m = re.exec(wikitext))) {
@@ -116,9 +123,11 @@ export function parseListings(wikitext) {
       const eq = p.indexOf("=");
       if (eq > 0) f[p.slice(0, eq).trim().toLowerCase()] = clean(p.slice(eq + 1));
     }
+    const section = sectionAt(m.index);
     let type = m[1].toLowerCase();
-    if (type === "listing") type = (f.type || "see").toLowerCase();
+    if (type === "listing") type = (f.type || SECTION_TYPE[section] || "").toLowerCase();
     if (!TYPE_CAT[type] || !f.name) continue;
+    if (SKIP_SECTION.test(section) || NOT_A_SIGHT.test(f.name)) continue;
     out.push({
       name: f.name.slice(0, 100),
       type,
@@ -171,7 +180,17 @@ export async function fetchGuide(dest) {
     const cities = sec ? [...sec[1].matchAll(/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/g)].map((x) => x[1].trim()).filter((t) => !/^(File|Image|Category):/i.test(t)) : [];
     for (const t of [...new Set(cities)].slice(0, 3)) {
       const p = await wvPage(t).catch(() => null);
-      if (p) listings = listings.concat(parseListings(p.text).map((l) => ({ ...l, city: p.title, address: l.address ? `${l.address}, ${p.title}` : p.title })));
+      if (!p) continue;
+      let got = parseListings(p.text);
+      // Rome, Florence and other big cities keep their sights on district pages ("Rome/Ancient Rome").
+      if (got.length < 10) {
+        const ds = [...new Set([...p.text.matchAll(/\[\[([^\]|#]+\/[^\]|#]+)/g)].map((x) => x[1].trim()).filter((d) => d.startsWith(p.title + "/")))];
+        for (const d of ds.slice(0, 3)) {
+          const dp = await wvPage(d).catch(() => null);
+          if (dp) got = got.concat(parseListings(dp.text));
+        }
+      }
+      listings = listings.concat(got.map((l) => ({ ...l, city: p.title, address: l.address ? `${l.address}, ${p.title}` : p.title })));
     }
   }
   // Prefer well-described listings with a location.

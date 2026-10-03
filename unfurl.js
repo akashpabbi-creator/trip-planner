@@ -126,6 +126,26 @@ async function viaInstagramEmbed(url) {
   return { title: caption.split(/[\n.!#📍|]/u)[0].trim().slice(0, 90) || (user ? `Post by ${user}` : ""), description: caption, image, siteName: user ? `Instagram · ${user}` : "Instagram", url, raw: true };
 }
 
+// Bot checks (Cloudflare and similar) answer link readers with a page of their own; that is not the place.
+export const BLOCKED = /robot challenge|checking (the site|your browser)|site connection (is )?secure|just a moment|attention required|verify (you are|you're) (a )?human|are you a robot|captcha|access denied|enable javascript and cookies|ddos protection|security check|request blocked|403 forbidden|pardon our interruption/i;
+// Guides and listicles ("Where to eat in Rome", "15 best cafes…") list several places; their full text is worth reading.
+export const ARTICLE = /\b(where to (eat|stay|go)|best|top \d+|\d+ (best|places|things|cafes|restaurants)|things to do|places to|guide|itinerary|must[- ](try|visit|see)|hidden gems|bucket list)\b/i;
+const NOT_PLACE = /^(where|how|why|what|when|faq|frequently|conclusion|final|tips?|about|related|comments?|leave a|table of contents|contents|map|getting|budget|share|pin|more|read|book|best time|our|my|the best|top|before you go|practical|summary|overview|introduction|disclosure|you may also|subscribe|follow|search|categories|recent posts|popular|footer)\b/i;
+
+// Each "## Roscioli" or "### 3. Da Enzo al 29 – Trastevere" heading of an article, with the paragraph under it.
+function headingPlaces(md) {
+  const out = [];
+  const parts = md.split(/^#{2,4}\s+/m).slice(1);
+  for (const p of parts) {
+    const [head, ...rest] = p.split("\n");
+    const name = head.replace(/[*_`#]/g, "").replace(/^\s*(?:#?\d{1,2}[.):]?|[-•])\s*/, "").trim();
+    if (name.length < 3 || name.length > 70 || NOT_PLACE.test(name) || /[?]$/.test(name)) continue;
+    const detail = rest.join(" ").replace(/\s+/g, " ").trim().slice(0, 300);
+    out.push({ name, detail });
+  }
+  return out.slice(0, 15);
+}
+
 // Free reader that returns a page's text; helps with pages that hide their content from link previews.
 async function viaReader(url) {
   const r = await fetch("https://r.jina.ai/" + url, { headers: { Accept: "text/plain" }, signal: AbortSignal.timeout(15000) });
@@ -134,7 +154,8 @@ async function viaReader(url) {
   const title = text.match(/^Title:\s*(.+)$/m)?.[1] || "";
   const body = (text.split(/Markdown Content:\s*/)[1] || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\n{3,}/g, "\n\n").trim();
   if (!title && !body) throw new Error("reader empty");
-  return { title, description: body.slice(0, 1500), image: "", siteName: "", url };
+  if (BLOCKED.test(`${title} ${body.slice(0, 400)}`)) throw new Error("reader blocked");
+  return { title, description: body.replace(/^#{1,6}\s*/gm, "").slice(0, 1500), places: headingPlaces(body), image: "", siteName: "", url, raw: true };
 }
 
 export async function unfurl(url) {
@@ -151,8 +172,15 @@ export async function unfurl(url) {
       const m = got.raw ? got : tidy(got, src);
       // A social post without a readable title or caption isn't useful yet: try the next reader.
       if ((src === "instagram" || src === "facebook") && !m.title && !(m.description || "").trim()) continue;
+      // A bot check page instead of the real one: try the next reader.
+      if (BLOCKED.test(`${m.title} ${(m.description || "").slice(0, 400)}`)) continue;
       if (m.title || m.image || m.description) {
         const out = { ...base, ...m, url, ok: true };
+        // An article's preview names only the article: read the full text for the places it lists.
+        if (fn !== viaReader && !out.places && ARTICLE.test(out.title) && !/instagram|facebook|youtube|tiktok/.test(src)) {
+          const full = await viaReader(url).catch(() => null);
+          if (full?.places?.length) out.places = full.places;
+        }
         out.location ||= guessLocation(m.description) || guessLocation(m.title);
         if (src === "maps" && !out.location) out.location = out.title;
         return out;
@@ -165,7 +193,10 @@ export async function unfurl(url) {
   let fallbackTitle = "";
   try {
     const u = new URL(url);
-    fallbackTitle = { instagram: "Instagram post", facebook: "Facebook post", tiktok: "TikTok video" }[src] || u.hostname.replace(/^www\./, "");
+    // "…/where-to-eat-in-rome/" → "Where to eat in Rome", which still says what the link is about.
+    const slug = decodeURIComponent(u.pathname.split("/").filter(Boolean).pop() || "").replace(/\.\w+$/, "").replace(/[-_]+/g, " ").trim();
+    const fromSlug = /[a-z]{3,} [a-z]{2,}/i.test(slug) && !/^\d+$/.test(slug) ? slug.charAt(0).toUpperCase() + slug.slice(1).replace(/\b(rome|italy|florence|venice|paris|london|india|goa|bali|tokyo|japan|[a-z]+(?= (city|town)))\b/gi, (w) => w.charAt(0).toUpperCase() + w.slice(1)) : "";
+    fallbackTitle = { instagram: "Instagram post", facebook: "Facebook post", tiktok: "TikTok video" }[src] || fromSlug || u.hostname.replace(/^www\./, "");
   } catch {}
   return { ...base, title: fallbackTitle, ok: false };
 }

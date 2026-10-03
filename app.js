@@ -1348,7 +1348,7 @@ async function addLink(raw) {
       }
       const id = await S.store.addItem(S.tripId, data);
       firstId ||= id;
-      const where = profileOf(t).autoPlace !== false ? await placeIdea({ ...data, id }) : null;
+      const where = profileOf(t).autoPlace !== false && !p.unread ? await placeIdea({ ...data, id }) : null;
       placedOn.push([data.title, where]);
     }
     await log(places.length > 1 ? `saved a link with ${places.length} places: ${places.map((p) => "“" + p.title + "”").join(", ")}` : `saved a link: “${places[0].title}”`);
@@ -1360,7 +1360,7 @@ async function addLink(raw) {
       ? days.length === 1 && placedOn.length === 1
         ? `Added “${days[0][0]}” to Day ${days[0][1].dayIndex + 1}${days[0][1].why ? ` ${days[0][1].why}` : ""}.`
         : `Added ${days.length === placedOn.length ? (days.length === 2 ? "both" : "all " + days.length) : days.length + " of " + placedOn.length} places to the plan (${[...new Set(days.map(([, w]) => "Day " + (w.dayIndex + 1)))].sort().join(", ")})${days.length < placedOn.length ? ". The rest are in Ideas" : ""}.`
-      : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : m.ok ? "Saved to Ideas." : "Saved. Couldn't read the page, so add a name and location.";
+      : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : m.ok && !places[0]?.unread ? "Saved to Ideas." : `Saved to Ideas. ${m.ok ? "I couldn't find the places in that page" : "That site blocked the link reader"}${t.ai?.key ? "" : ", but connecting Gemini on Discover lets it read pages like this"}.`;
     toast(msg + (viaAi ? " Read by Gemini." : ""), 5000);
     if (S.tab !== "ideas" && S.tab !== "plan") S.tab = days.length ? "plan" : "ideas";
     if (places.length === 1 && (!m.ok || !places[0].location) && !viaAi && !days.length) editItem(firstId);
