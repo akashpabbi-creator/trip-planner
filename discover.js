@@ -88,7 +88,7 @@ const TYPE_CAT = { see: "sight", do: "activity", eat: "food", drink: "food", sle
 // airports, stations and airlines, which are not things to visit.
 const SECTION_TYPE = { see: "see", do: "do", eat: "eat", drink: "drink", sleep: "sleep", buy: "buy", shop: "buy", "eat and drink": "eat" };
 const SKIP_SECTION = /^(get in|get around|connect|stay safe|stay healthy|cope|go next|understand|talk|respect|by \w+)/i;
-const NOT_A_SIGHT = /\b(airport|aeroporto|air ?lines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stop|metro station|coach|ferry terminal|car rental|car hire|rent-a-car|taxi|parking|tourist information|post office|hospital|pharmacy|police|consulate|embassy|atm)\b/i;
+const NOT_A_SIGHT = /\b(station|festival|airport|aeroporto|air ?lines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stop|metro station|coach|ferry terminal|car rental|car hire|rent-a-car|taxi|parking|tourist information|post office|hospital|pharmacy|police|consulate|embassy|atm)\b/i;
 export function parseListings(wikitext) {
   const out = [];
   const heads = [...wikitext.matchAll(/^==([^=].*?)==\s*$/gm)].map((h) => ({ at: h.index, name: h[1].trim().toLowerCase() }));
@@ -165,13 +165,14 @@ async function wvPage(title) {
 
 // Bumped when the guide reader changes enough that saved guides should be read again.
 export const GUIDE_V = 3;
-const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions|pageviews&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
+const WVV = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageviews&redirects=1&format=json&formatversion=2&origin=*&titles=";
+const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
 // Wikimedia answers bursts of requests with 429 and a retry-after: wait it out once.
 async function getJson(url) {
-  for (let k = 0; k < 2; k++) {
+  for (let k = 0; k < 3; k++) {
     const r = await fetch(url);
-    if (r.status === 429 && k === 0) {
-      await new Promise((ok) => setTimeout(ok, Math.min(10, Number(r.headers.get("retry-after")) || 3) * 1000));
+    if (r.status === 429 && k < 2) {
+      await new Promise((ok) => setTimeout(ok, Math.min(15, Number(r.headers.get("retry-after")) || 3) * 1000));
       continue;
     }
     if (!r.ok) throw new Error("HTTP " + r.status);
@@ -185,10 +186,24 @@ async function wvPages(titles) {
     const j = await getJson(WVQ + encodeURIComponent(titles.slice(i, i + 20).join("|"))).catch(() => null);
     for (const pg of j?.query?.pages || []) {
       const text = pg.revisions?.[0]?.slots?.main?.content;
-      if (text) out.push({ title: pg.title, text, views: Object.values(pg.pageviews || {}).reduce((a, b) => a + (b || 0), 0) });
+      if (text) out.push({ title: pg.title, text });
     }
   }
   return out;
+}
+// How often travellers read each guide page in the last 60 days, following the API's continuation.
+async function wvViews(titles) {
+  const views = {};
+  let cont = "";
+  for (let n = 0; n < 6; n++) {
+    const j = await getJson(WVV + encodeURIComponent(titles.join("|")) + cont).catch(() => null);
+    if (!j) break;
+    for (const pg of j.query?.pages || []) if (pg.pageviews) views[pg.title] = Object.values(pg.pageviews).reduce((a, b) => a + (b || 0), 0);
+    for (const r of j.query?.redirects || []) if (views[r.to] != null) views[r.from] = views[r.to];
+    if (!j.continue) break;
+    cont = "&" + new URLSearchParams(j.continue).toString();
+  }
+  return views;
 }
 const linksIn = (text, re) => [...new Set([...text.matchAll(/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/g)].map((x) => x[1].trim().replace(/_/g, " ")).filter((t) => re.test(t)))];
 const sights = (ls) => ls.filter((l) => l.type === "see" || l.type === "do").length;
@@ -208,6 +223,7 @@ async function addFame(listings) {
   for (let i = 0; i < ids.length; i += 50) {
     const j = await getJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${ids.slice(i, i + 50).join("|")}&props=sitelinks&format=json&origin=*`).catch(() => null);
     for (const [id, e] of Object.entries(j?.entities || {})) fame[id] = Object.keys(e.sitelinks || {}).length;
+    await new Promise((ok) => setTimeout(ok, 800)); // Wikidata rate-limits bursts
   }
   for (const l of listings) l.fame = fame[l.wikidata] || 0;
 }
@@ -220,7 +236,9 @@ export async function fetchGuide(dest) {
   const cityNames = sec ? linksIn(sec[1], /^(?!(File|Image|Category):)/i) : [];
   if (cityNames.length >= 2) {
     // Countries and regions: the three cities travellers read about most, each with its own listings.
-    const cities = (await wvPages(cityNames.slice(0, 15))).sort((a, b) => b.views - a.views).slice(0, 3);
+    const views = await wvViews(cityNames.slice(0, 15));
+    const top = cityNames.slice(0, 15).map((t, k) => [t, views[t] ?? -k]).sort((a, b) => b[1] - a[1]).slice(0, 3).map((x) => x[0]);
+    const cities = await wvPages(top);
     for (const c of cities) {
       const got = await cityListings(c);
       listings = listings.concat(got.map((l) => ({ ...l, city: c.title, address: l.address ? `${l.address}, ${c.title}` : c.title })));

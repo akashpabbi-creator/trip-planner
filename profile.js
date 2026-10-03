@@ -51,6 +51,7 @@ const STREET = /\b(street food|market|hawker|stall|food court|night market|local
 const BOUTIQUE = /\b(boutique|design|heritage|historic|villa|resort|luxury|palace|ryokan|lodge)/i;
 const EXPERIENCE = /\b(tour|guide|guided|cruise|boat|safari|tasting|class|workshop|cooking|balloon|trek|dive|snorkel|kayak|show|performance|permit)/i;
 const MARKET = /\b(market|bazaar|souk|night market)/i;
+const SNACK = /\b(gelat\w*|ice cream|bakery|pasticceria|patisserie|sweets?|desserts?)\b/i;
 const NATURE = /\b(park|garden|beach|lake|waterfall|hill|mountain|trail|viewpoint|forest|river|valley|island)/i;
 const SLOW_PLACE = /\b(beach|island|hill station|mountain|national park|valley|lake|resort town|coast|backwaters|vineyard|wine region|countryside|village)/i;
 const CITY_PLACE = /\b(capital|largest city|metropol|megacity|city of|most populous|financial centre|financial center)/i;
@@ -85,7 +86,10 @@ export function placeScale(place) {
 export function chooseMode(p, trip) {
   if (p.pace === "dense" || p.pace === "slow") return p.pace;
   const desc = `${trip.destination || ""} ${trip.place?.description || ""} ${trip.place?.extract || ""}`;
-  if (SLOW_PLACE.test(desc) && !CITY_PLACE.test(desc)) return "slow";
+  const scale = trip.place ? placeScale(trip.place) : "city";
+  // A country is a string of cities; a region like Goa is slow if it's known for beaches or hills, whatever its largest city.
+  if (scale === "country") return "dense";
+  if (SLOW_PLACE.test(desc) && (scale === "region" || !CITY_PLACE.test(desc))) return "slow";
   return "dense";
 }
 
@@ -128,7 +132,7 @@ export function buildSample(trip, listings, p = profileOf(trip)) {
   cities.forEach((c, k) => {
     const days = trip.days.slice(start, start + share[k]);
     // Splurges once per trip: food and experience in the first city, stay wherever the best property is (first city).
-    const r = buildCity({ ...trip, days }, listings.filter((l) => l.city === c), { ...p, splurges: p.splurges && k === 0 });
+    const r = buildCity({ ...trip, days, base: c }, listings.filter((l) => l.city === c), { ...p, splurges: p.splurges && k === 0, moreEats: listings.filter((l) => l.city !== c && l.type === "eat") });
     mode = k === 0 ? r.mode : mode;
     r.plan.forEach((x) => plan.push({ ...x, dayIndex: x.dayIndex == null ? null : x.dayIndex + start }));
     days.forEach((_, i) => bases.push({ dayIndex: start + i, base: c }));
@@ -149,7 +153,8 @@ function buildCity(trip, listings, p) {
 
   // Splurges first, so they are reserved.
   // Places with clear vegetarian dishes first, then places with no signal; meat-only places are left out.
-  const eats = of("eat").filter(vegOk).sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes"));
+  // Gelato, cafes and bakeries are snacks, not lunch or dinner. Other towns' places are a last resort.
+  const eats = of("eat").filter((l) => vegOk(l) && !SNACK.test(l.name)).sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes")).concat((p.moreEats || []).filter((l) => vegOk(l) && !SNACK.test(l.name)));
   let foodSplurge = null, staySplurge = null, expSplurge = null;
   if (p.splurges) {
     foodSplurge = take([...eats].sort((a, b) => (POSH.test(text(b)) - POSH.test(text(a))) || ((priceNum(b) || 0) - (priceNum(a) || 0)))[0]);
@@ -178,6 +183,8 @@ function buildCity(trip, listings, p) {
     const g = groups[i] || [];
     const c = centre(g);
     const morning = g.slice(0, Math.ceil(g.length / 2)), afternoon = g.slice(Math.ceil(g.length / 2));
+    // Beach and hill towns have few listed sights: an unhurried half-day outdoors is the plan.
+    if (!g.length && mode === "slow") out.push({ listing: { name: `Beach and outdoor time in ${trip.base || trip.destination}`, type: "do", category: "nature", content: "Free time on the nearest beach or trail. Swap in anything you've saved.", address: trip.base || trip.destination }, dayIndex: i, time: "10:00", note: "Slow morning" });
     morning.forEach((l) => put(l, i, "", l === expSplurge ? "Experience splurge" : l === market ? "Market visit" : ""));
     put(take(near(c, streetFood.filter((l) => !used.has(l.name)))), i, "13:00", "Lunch: local and good value");
     if (p.rest) out.push({ listing: null, kind: "rest", dayIndex: i, time: "15:00", note: mode === "slow" ? "Unscheduled afternoon. Pool, nap or a long coffee." : "Rest and recharge at the hotel or a cafe. The hottest, busiest part of the day." });
