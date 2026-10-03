@@ -20,7 +20,7 @@ export const profileOf = (trip) => ({ ...DEFAULT_PROFILE, ...(trip?.profile || {
 export function profileText(p) {
   return [
     `Travellers: ${p.travellers} adults (a couple) from ${p.home}.`,
-    `Diet: ${p.diet} Watch for hidden fish sauce, dashi, shrimp paste, lard, gelatin and meat stock.`,
+    `Diet: ${p.diet} Restaurants don't need to be pure vegetarian, but must serve good vegetarian dishes. Watch for hidden fish sauce, dashi, shrimp paste, lard, gelatin and meat stock.`,
     `Food style: ${p.food}`,
     `Stays: ${p.stays}`,
     `Interests: ${p.interests}`,
@@ -33,8 +33,19 @@ export function profileText(p) {
 }
 
 /* --------------------------------------------------------- choosing places */
-const NONVEG = /\b(steak|steakhouse|seafood|fish|bbq|barbe?cue|burgers?|chicken|meat|sushi|pork|butcher|crab|oysters?|lobster|kebabs?|ramen|grill house|churrasc|rib|wings|lamb|beef|duck)\b/i;
-const VEG = /\b(vegetarian|vegan|veg\b|veggie|plant[- ]based|pure veg|jain|dosa|thali|falafel|tofu|udupi)/i;
+// Vegetarian check: a place only has to offer good vegetarian food, it doesn't have to be pure veg.
+// "yes": vegetarian dishes are clearly on offer. "no": the place is built around meat or fish
+// (steakhouse, seafood shack, BBQ, kebab house...). "": no signal either way, which is most places.
+const VEG = /\b(vegetarian|vegan|veg\b|veg options|veggie|plant[- ]based|pure veg|jain|dosa|idli|thali|paneer|dal\b|chaat|falafel|hummus|tofu|udupi|pizza|pasta|risotto|salad|south indian|north indian|gujarati|rajasthani|punjabi|meze|mezze)/i;
+const MEAT_ONLY = /\b(steak ?house|steaks?|seafood|fish market|crab shack|oyster bar|bbq|barbe?cue|smokehouse|butcher|kebab house|kebabs?|fried chicken|rotisserie|churrascaria|rodizio|grill house|shawarma|biryani house|meat ?house|carvery|yakiniku|korean bbq|izakaya|ramen|pho\b|crab|lobster|oysters?)\b/i;
+export function vegLevel(l) {
+  if (l.veg) return l.veg; // already checked (e.g. by Gemini)
+  const t = text(l);
+  if (/\b(no vegetarian|not (?:suitable|good) for vegetarians|meat lovers?)\b/i.test(t)) return "no";
+  if (VEG.test(t)) return "yes";
+  if (MEAT_ONLY.test(t)) return "no";
+  return "";
+}
 const POSH = /\b(fine dining|tasting menu|michelin|chef|degustation|upscale|gourmet|award)/i;
 const STREET = /\b(street food|market|hawker|stall|food court|night market|local|cheap|budget|canteen|warung|dhaba)/i;
 const BOUTIQUE = /\b(boutique|design|heritage|historic|villa|resort|luxury|palace|ryokan|lodge)/i;
@@ -44,12 +55,12 @@ const NATURE = /\b(park|garden|beach|lake|waterfall|hill|mountain|trail|viewpoin
 const SLOW_PLACE = /\b(beach|island|hill station|mountain|national park|valley|lake|resort town|coast|backwaters|vineyard|wine region|countryside|village)/i;
 const CITY_PLACE = /\b(capital|largest city|metropol|megacity|city of|most populous|financial centre|financial center)/i;
 
-const text = (l) => `${l.name} ${l.content || ""} ${l.price || ""}`;
+const text = (l) => `${l.name || l.title || ""} ${l.content || l.description || ""} ${l.price || ""}`;
 const priceNum = (l) => {
   const n = String(l.price || "").replace(/[, ]/g, "").match(/\d+(\.\d+)?/g);
   return n ? Math.max(...n.map(Number)) : null;
 };
-export const vegOk = (l) => VEG.test(text(l)) || !NONVEG.test(text(l));
+export const vegOk = (l) => vegLevel(l) !== "no";
 
 // Destinations where vegetarian food needs a phrase because fish/meat stock is structural.
 const VEG_TIPS = [
@@ -104,7 +115,8 @@ export function buildSample(trip, listings, p = profileOf(trip)) {
   const put = (listing, dayIndex, time, note, extra = {}) => listing && out.push({ listing, dayIndex, time, note, ...extra });
 
   // Splurges first, so they are reserved.
-  const eats = of("eat").filter(vegOk);
+  // Places with clear vegetarian dishes first, then places with no signal; meat-only places are left out.
+  const eats = of("eat").filter(vegOk).sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes"));
   let foodSplurge = null, staySplurge = null, expSplurge = null;
   if (p.splurges) {
     foodSplurge = take([...eats].sort((a, b) => (POSH.test(text(b)) - POSH.test(text(a))) || ((priceNum(b) || 0) - (priceNum(a) || 0)))[0]);

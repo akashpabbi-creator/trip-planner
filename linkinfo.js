@@ -1,6 +1,7 @@
 // Reads a shared link's preview (title, caption, description) and works out what it means for the plan:
 // which places it mentions, what kind of stop each is, how long it takes, what it costs and when to go.
 // Works without AI; with a Gemini key, Gemini reads the page itself for better results (see ai.js).
+import { vegLevel } from "./profile.js";
 
 const CAT_RULES = [
   ["stay", /\b(hotel|resort|villa|homestay|hostel|airbnb|guest ?house|haveli|lodge|stay|retreat|booking\.com|agoda|camp(site)?)\b/i],
@@ -47,7 +48,7 @@ export function hoursOf(text) {
   return [open && "Open " + open[1].replace(/\s+/g, " "), closed && "Closed " + closed[1]].filter(Boolean).join(" · ");
 }
 
-const vegText = (t) => (/\b(pure veg|vegetarian|vegan|jain|plant[- ]based)\b/i.test(t) ? "Vegetarian friendly" : /\b(chicken|mutton|beef|pork|fish|seafood|prawn|steak|bbq|kebab)\b/i.test(t) ? "Mostly meat or fish: check the vegetarian options" : "");
+
 
 // Captions like "5 cafes you must try: 1. Blue Tokai 2. Third Wave…" or "📍 Place A ... 📍 Place B".
 export function listedPlaces(text) {
@@ -78,11 +79,12 @@ export function readLink(m, trip) {
     const cost = costOf(text, trip.currency || "INR");
     const when = bestTimeOf(text);
     const hours = hoursOf(text);
-    const veg = category === "food" ? vegText(text) : "";
+    const veg = category === "food" ? vegLevel({ title: text }) : "";
     return {
       ...base, title: name.slice(0, 140), category,
       durationMin: MINUTES[category] || 60, cost: cost || 0, bestTime: when,
-      notes: [hours, veg, when && `Best at ${when}`].filter(Boolean).join(" · "),
+      notes: [hours, when && `Best at ${when}`].filter(Boolean).join(" · "),
+      ...(veg ? { veg } : {}),
       location: extra.location || "",
     };
   };

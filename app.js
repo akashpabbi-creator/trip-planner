@@ -3,8 +3,8 @@ import { unfurl, extractUrl, sourceOf } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
 import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather } from "./discover.js";
-import { topPicks, reviewPlan, testKey, extractLink } from "./ai.js";
-import { DEFAULT_PROFILE, profileOf, profileText, buildSample, vegTip, chooseMode, vegOk } from "./profile.js";
+import { topPicks, reviewPlan, testKey, extractLink, checkVeg } from "./ai.js";
+import { DEFAULT_PROFILE, profileOf, profileText, buildSample, vegTip, chooseMode, vegOk, vegLevel } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
 const CATEGORIES = {
@@ -45,6 +45,7 @@ const S = {
   busy: false,
   unsubs: [],
   flash: new Set(),
+  vegTried: new Set(),
 };
 const $app = document.getElementById("app");
 const $modal = document.getElementById("modal");
@@ -212,6 +213,11 @@ function openTrip(id) {
       S.items = items;
       render();
       setTimeout(() => { S.flash.clear(); }, 2500);
+      // New restaurants get a vegetarian check from Gemini a few seconds after they appear.
+      if (S.trip?.ai?.key && items.some((x) => x.category === "food" && x.vegSource !== "gemini" && !S.vegTried.has(x.id))) {
+        clearTimeout(S.vegTimer);
+        S.vegTimer = setTimeout(() => verifyVeg({ quiet: true }), 4000);
+      }
     }),
     S.store.watchActivity(id, (a) => { S.activity = a; render(); }),
     S.store.watchPresence(id, (p) => { S.presence = p; renderPresence(); })
@@ -385,9 +391,11 @@ function card(it, opts = {}) {
         ${it.durationMin ? `<span>⏱ ${dur(+it.durationMin)}</span>` : ""}
         ${Number(it.cost) ? `<span>💰 ${money(it.cost)}</span>` : ""}
         ${badge ? `<span class="tag">${badge}</span>` : ""}
+        ${it.category === "food" ? vegTag(it.veg, it.vegNote) : ""}
       </div>
       ${it.description ? `<p class="c-desc">${esc(it.description.slice(0, 220))}${it.description.length > 220 ? "…" : ""}</p>` : ""}
       ${it.notes ? `<p class="c-notes">📝 ${esc(it.notes)}</p>` : ""}
+      ${it.category === "food" && it.vegNote ? `<p class="c-notes">🥗 ${esc(it.vegNote)}</p>` : ""}
       <div class="c-foot">
         <span class="muted small">${it.suggestedBy ? (it.suggestedBy === "ai" ? "Suggested by Gemini" : "Suggested by the travel guide") : `Added by ${esc(who(it.addedBy))}`} ${ago(it.addedAt)}${it.updatedAt && it.updatedAt !== it.addedAt ? ` · edited by ${esc(who(it.updatedBy))} ${ago(it.updatedAt)}` : ""}</span>
         <span class="c-actions">
@@ -570,6 +578,7 @@ function guideToItem(l) {
     location: l.address || l.name, ...(l.lat ? { lat: l.lat, lng: l.lng } : {}), url: l.url || "",
     category: l.category, dayId: null, order: 0, time: "", durationMin: GUIDE_MIN[l.type] || 60, cost: 0, mustDo: false,
     notes: [l.price && "Price: " + l.price, l.hours && "Hours: " + l.hours].filter(Boolean).join(" · "),
+    ...(l.category === "food" && vegLevel(l) ? { veg: vegLevel(l) } : {}),
     suggestedBy: "guide", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
   };
 }
@@ -629,6 +638,12 @@ const mapsQ = (loc) => {
   return encodeURIComponent(d && !loc.toLowerCase().includes(d.split(",")[0].toLowerCase()) ? `${loc}, ${d}` : loc);
 };
 
+function vegTag(level, note = "") {
+  const tip = note ? ` title="${esc(note)}"` : "";
+  if (level === "yes") return `<span class="tag veg-tag"${tip}>🥗 Veg options</span>`;
+  if (level === "no") return `<span class="tag nonveg-tag"${tip}>⚠️ Few veg options</span>`;
+  return "";
+}
 function discoverCard(x, src, idx) {
   const cat = CATEGORIES[x.category] || CATEGORIES.other;
   const there = inTrip(x.name);
@@ -642,7 +657,7 @@ function discoverCard(x, src, idx) {
         ${x.priceLevel ? `<span>${esc(x.priceLevel)}</span>` : ""}
         ${x.price ? `<span>${esc(x.price)}</span>` : ""}
         ${x.area ? `<span>📍 ${esc(x.area)}</span>` : ""}
-        ${x.category === "food" && x.content && !vegOk(x) ? `<span class="nonveg">Mostly meat or fish</span>` : ""}
+        ${x.category === "food" ? vegTag(vegLevel(x)) : ""}
       </div>
       <p class="d-desc">${esc((x.why || x.content || x.address || "").slice(0, 180))}</p>
       <div class="d-act">
@@ -742,6 +757,7 @@ function aiSettings() {
       await S.store.updateTrip(S.tripId, { ai: { key, model }, ...stampMe() });
       await log("connected Gemini");
       toast("Gemini connected.");
+      setTimeout(() => verifyVeg({ quiet: false }), 500);
     });
   $form.querySelector("[data-rmkey]")?.addEventListener("click", async () => {
     $modal.close();
@@ -860,7 +876,7 @@ function viewSmart() {
   const hidden = smartAll().length - list.length;
   const fixes = list.filter((x) => x.level === "fix" && x.changes.length);
   const sel = (key, opts, val) => `<select data-pref="${key}">${opts.map(([v, l]) => `<option value="${v}" ${v === val ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  const icon = { rest: "☕", splurge: "✨", route: "🗺️", car: "🚙", legs: "🚇", load: "⚖️", must: "⭐", fill: "📅", spread: "📍", hop: "🚆", fair: "🤝", budget: "💰", locate: "🔎", leg: "🚶" };
+  const icon = { veg: "🥗", rest: "☕", splurge: "✨", route: "🗺️", car: "🚙", legs: "🚇", load: "⚖️", must: "⭐", fill: "📅", spread: "📍", hop: "🚆", fair: "🤝", budget: "💰", locate: "🔎", leg: "🚶" };
   return `<div class="smart">
     ${viewAiReview()}
     <h3 class="sec-h">⚙️ Quick checks</h3>
@@ -899,11 +915,42 @@ async function runAnalyse() {
     if (found.length) await S.store.batchUpdateItems(S.tripId, found);
     const ok = found.filter(([, p]) => !p.geoFailed).length;
     toast(found.length ? `Found ${ok} of ${found.length} places on the map.` : "All places are already on the map.");
+    if (S.trip.ai?.key) {
+      S.analysing = "Checking vegetarian options…";
+      render();
+      await verifyVeg({ quiet: false });
+    }
   } catch (e) {
     toast("Couldn't look up places: " + e.message);
   } finally {
     S.analysing = null;
     render();
+  }
+}
+// Gemini checks the restaurants in the trip for vegetarian dishes (they don't need to be pure veg).
+async function verifyVeg({ quiet = true } = {}) {
+  const t = S.trip;
+  if (!t.ai?.key || S.vegBusy) return;
+  const todo = S.items.filter((x) => x.category === "food" && x.vegSource !== "gemini" && (!quiet || !S.vegTried.has(x.id))).slice(0, 15);
+  todo.forEach((x) => S.vegTried.add(x.id));
+  if (!todo.length) return quiet ? null : toast("Vegetarian options already checked for every restaurant.");
+  S.vegBusy = true;
+  try {
+    const res = await checkVeg(t.ai.key, t.destination, todo.map((x) => x.title));
+    const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const writes = [];
+    todo.forEach((it, k) => {
+      const r = res.find((x) => norm(x.name) === norm(it.title)) || res[k];
+      if (!r || !["yes", "no", "unknown"].includes(r.veg)) return;
+      writes.push([it.id, { veg: r.veg === "unknown" ? "" : r.veg, vegNote: String(r.note || "").slice(0, 120), vegSource: "gemini", ...stampMe() }]);
+    });
+    if (writes.length) await S.store.batchUpdateItems(S.tripId, writes);
+    const bad = writes.filter(([, p]) => p.veg === "no").length;
+    if (!quiet || bad) toast(`Checked ${writes.length} restaurant${writes.length > 1 ? "s" : ""} for vegetarian food${bad ? `: ${bad} ha${bad > 1 ? "ve" : "s"} few vegetarian options (see Smart)` : ": all have vegetarian options"}.`, 5000);
+  } catch (e) {
+    if (!quiet) toast("Couldn't check vegetarian options: " + e.message);
+  } finally {
+    S.vegBusy = false;
   }
 }
 // Order for a new stop with a fixed time: just before the first later fixed-time stop of the day.
@@ -1267,7 +1314,8 @@ async function addLink(raw) {
             title: String(p.name).slice(0, 140), category: CATEGORIES[p.category] ? p.category : "sight",
             location: [p.address, t.destination].filter(Boolean).join(", "), durationMin: Number(p.durationMin) || 90,
             cost: Number(p.approxCost) || 0, bestTime: p.bestTime || "",
-            notes: [p.hours, p.category === "food" && { yes: "Vegetarian friendly", some: "Some vegetarian dishes", no: "Mostly meat or fish: check the vegetarian options" }[p.vegetarian], p.bestTime && `Best at ${p.bestTime}`].filter(Boolean).join(" · "),
+            notes: [p.hours, p.bestTime && `Best at ${p.bestTime}`].filter(Boolean).join(" · "),
+            ...(p.category === "food" && ["yes", "some", "no"].includes(p.vegetarian) ? { veg: p.vegetarian === "no" ? "no" : "yes", vegSource: "gemini" } : {}),
             description: p.why || (found.length === 1 ? m.description || "" : ""), image: found.length === 1 ? m.image || "" : "", siteName: m.siteName || "", url,
           }));
           viaAi = true;
@@ -1287,6 +1335,7 @@ async function addLink(raw) {
         location: p.location || "", ...(Number.isFinite(p.lat) ? { lat: p.lat, lng: p.lng } : {}),
         url: p.url || url, category: p.category || "sight", dayId: null, order: 0, time: "",
         durationMin: p.durationMin || 60, cost: p.cost || 0, mustDo: false, notes: p.notes || "", bestTime: p.bestTime || "",
+        ...(p.veg ? { veg: p.veg } : {}), ...(p.vegSource ? { vegSource: p.vegSource } : {}),
         fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
       };
       if (!has(data) && (data.location || places.length > 1)) {

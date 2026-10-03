@@ -334,4 +334,5 @@ dialog label input, dialog label select, dialog label textarea { color: var(--in
 .prefs-list { list-style: none; margin: 6px 0 8px; padding: 0; display: grid; gap: 4px; }
 .veg-tip { background: var(--accent-soft); border-radius: 10px; padding: 8px 10px; margin: 6px 0 10px; }
 label.row { display: flex; gap: 8px; align-items: center; }
-.nonveg { color: var(--bad); font-weight: 600; }
+.veg-tag { background: var(--accent-soft); color: var(--good); }
+.nonveg-tag { background: var(--bad-bg); color: var(--bad); }
