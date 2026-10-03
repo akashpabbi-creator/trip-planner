@@ -216,7 +216,8 @@ const sights = (ls) => ls.filter((l) => l.type === "see" || l.type === "do").len
 // A city's own listings, plus its district pages ("Rome/Colosseo") when the main page has few sights.
 async function cityListings(page) {
   let got = parseListings(page.text);
-  if (sights(got) < 25) {
+  // Big cities (a Districts section) keep most sights on their district pages, even when the main page lists a few highlights.
+  if (sights(got) < 25 || /==\s*Districts\s*==|\{\{printDistricts/i.test(page.text)) {
     const own = linksIn(page.text, new RegExp("^" + page.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/"));
     // The Districts section can name separate articles too: Rome's lists Vatican City, where St. Peter's is.
     const sec = page.text.match(/==\s*Districts\s*==([\s\S]*?)\n==[^=]/i)?.[1] || "";
