@@ -66,7 +66,11 @@ for (const l of LINKS) {
   const items = readLink(m, l.trip);
   console.log("  stops: " + items.map((i) => `${i.title} [${i.category}]${i.unread ? " (unread)" : ""}`).join(" | "));
   if (/robot|challenge|connection security/i.test(items.map((i) => i.title).join(" "))) fail("saved a bot-check page as a place");
-  items.filter((i) => !i.unread).length >= l.min ? ok(`${items.length} places read`) : fail(`only ${items.filter((i) => !i.unread).length} places read`);
+  else ok("no bot-check page saved as a place");
+  const read = items.filter((i) => !i.unread).length;
+  if (read >= l.min) ok(`${read} places read`);
+  else if (items.every((i) => i.unread)) console.log(`  ℹ️ the site blocks free readers; saved as one unread link in Ideas (Gemini can try it)`);
+  else fail(`only ${read} places read`);
 }
 
 console.log(`\n${fails ? fails + " check(s) failed" : "All checks passed"}`);

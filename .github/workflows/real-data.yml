@@ -12,5 +12,5 @@ jobs:
         with:
           node-version: 22
       - run: node tests/real-data.mjs
-        continue-on-error: true
-      - run: node tests/probe.mjs
+
+

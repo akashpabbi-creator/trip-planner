@@ -139,6 +139,7 @@ export function parseListings(wikitext) {
       url: /^https?:/.test(f.url || "") ? f.url : "",
       price: (f.price || "").slice(0, 80),
       hours: (f.hours || "").slice(0, 80),
+      wikidata: f.wikidata || "",
       image: f.image ? WV_IMG + encodeURIComponent(f.image.replace(/^(File|Image):/i, "")) + "?width=480" : "",
     });
     re.lastIndex = end;
@@ -156,64 +157,83 @@ function clean(s) {
     .trim();
 }
 async function wvPage(title) {
-  const r = await fetch(WV + encodeURIComponent(title));
-  if (!r.ok) return null;
-  const j = await r.json();
+  const j = await getJson(WV + encodeURIComponent(title)).catch(() => null);
+  if (!j) return null;
   return j.parse ? { title: j.parse.title, text: j.parse.wikitext["*"] } : null;
 }
 // Bumped when the guide reader changes enough that saved guides should be read again.
-export const GUIDE_V = 2;
-// Most-known first ("Cities" sections list the capital, then A–Z): ranked by how many Wikipedias have the page.
-async function byFame(titles) {
-  try {
-    const r = await fetch(`https://www.wikidata.org/w/api.php?action=wbgetentities&sites=enwiki&titles=${encodeURIComponent(titles.slice(0, 40).join("|"))}&props=sitelinks&format=json&origin=*`);
-    const j = await r.json();
-    const n = {};
-    for (const e of Object.values(j.entities || {})) if (e.sitelinks?.enwiki) n[e.sitelinks.enwiki.title] = Object.keys(e.sitelinks).length;
-    if (!Object.keys(n).length) return titles;
-    return [...titles].sort((a, b) => (n[b] || 0) - (n[a] || 0));
-  } catch {
-    return titles;
+
+// Bumped when the guide reader changes enough that saved guides should be read again.
+export const GUIDE_V = 3;
+const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions|pageviews&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
+// Wikimedia answers bursts of requests with 429 and a retry-after: wait it out once.
+async function getJson(url) {
+  for (let k = 0; k < 2; k++) {
+    const r = await fetch(url);
+    if (r.status === 429 && k === 0) {
+      await new Promise((ok) => setTimeout(ok, Math.min(10, Number(r.headers.get("retry-after")) || 3) * 1000));
+      continue;
+    }
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
   }
+}
+// Several guide pages in one request, with how often travellers read each one (last 60 days).
+async function wvPages(titles) {
+  const out = [];
+  for (let i = 0; i < titles.length; i += 20) {
+    const j = await getJson(WVQ + encodeURIComponent(titles.slice(i, i + 20).join("|"))).catch(() => null);
+    for (const pg of j?.query?.pages || []) {
+      const text = pg.revisions?.[0]?.slots?.main?.content;
+      if (text) out.push({ title: pg.title, text, views: Object.values(pg.pageviews || {}).reduce((a, b) => a + (b || 0), 0) });
+    }
+  }
+  return out;
+}
+const linksIn = (text, re) => [...new Set([...text.matchAll(/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/g)].map((x) => x[1].trim().replace(/_/g, " ")).filter((t) => re.test(t)))];
+const sights = (ls) => ls.filter((l) => l.type === "see" || l.type === "do").length;
+// A city's own listings, plus its district pages ("Rome/Colosseo") when the main page has few sights.
+async function cityListings(page) {
+  let got = parseListings(page.text);
+  if (sights(got) < 25) {
+    const ds = linksIn(page.text, new RegExp("^" + page.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/")).slice(0, 20);
+    for (const d of await wvPages(ds)) got = got.concat(parseListings(d.text));
+  }
+  return got;
+}
+// How well known each place is: the number of Wikipedia languages with an article on it (via the listing's Wikidata id).
+async function addFame(listings) {
+  const ids = [...new Set(listings.map((l) => l.wikidata).filter((x) => /^Q\d+$/.test(x || "")))].slice(0, 200);
+  const fame = {};
+  for (let i = 0; i < ids.length; i += 50) {
+    const j = await getJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${ids.slice(i, i + 50).join("|")}&props=sitelinks&format=json&origin=*`).catch(() => null);
+    for (const [id, e] of Object.entries(j?.entities || {})) fame[id] = Object.keys(e.sitelinks || {}).length;
+  }
+  for (const l of listings) l.fame = fame[l.wikidata] || 0;
 }
 export async function fetchGuide(dest) {
   let page = null;
   for (const q of variants(dest)) if ((page = await wvPage(q).catch(() => null))) break;
   if (!page) return { listings: [], source: "" };
-  let listings = parseListings(page.text);
-  // Big cities keep their listings on district pages: read a few of those too.
-  if (listings.length < 15) {
-    const districts = [...page.text.matchAll(/\[\[([^\]|#]+\/[^\]|#]+)/g)].map((x) => x[1].trim()).filter((t) => t.startsWith(page.title + "/"));
-    for (const t of [...new Set(districts)].slice(0, 4)) {
-      const p = await wvPage(t).catch(() => null);
-      if (p) listings = listings.concat(parseListings(p.text));
+  let listings = [];
+  const sec = page.text.match(/==\s*(?:Cities|Cities and towns|Towns)\s*==([\s\S]*?)\n==[^=]/i);
+  const cityNames = sec ? linksIn(sec[1], /^(?!(File|Image|Category):)/i) : [];
+  if (cityNames.length >= 2) {
+    // Countries and regions: the three cities travellers read about most, each with its own listings.
+    const cities = (await wvPages(cityNames.slice(0, 15))).sort((a, b) => b.views - a.views).slice(0, 3);
+    for (const c of cities) {
+      const got = await cityListings(c);
+      listings = listings.concat(got.map((l) => ({ ...l, city: c.title, address: l.address ? `${l.address}, ${c.title}` : c.title })));
     }
   }
-  // Countries and regions keep listings on their city pages: read the top cities from the "Cities" section.
-  if (listings.length < 15) {
-    const sec = page.text.match(/==\s*(?:Cities|Cities and towns|Towns)\s*==([\s\S]*?)\n==[^=]/i);
-    const cities = sec ? [...sec[1].matchAll(/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/g)].map((x) => x[1].trim()).filter((t) => !/^(File|Image|Category):/i.test(t)) : [];
-    for (const t of (await byFame([...new Set(cities)])).slice(0, 3)) {
-      const p = await wvPage(t).catch(() => null);
-      if (!p) continue;
-      let got = parseListings(p.text);
-      // Rome, Florence and other big cities keep their sights on district pages ("Rome/Ancient Rome").
-      if (got.length < 10) {
-        const ds = [...new Set([...p.text.matchAll(/\[\[([^\]|#]+\/[^\]|#]+)/g)].map((x) => x[1].trim()).filter((d) => d.startsWith(p.title + "/")))];
-        for (const d of ds.slice(0, 3)) {
-          const dp = await wvPage(d).catch(() => null);
-          if (dp) got = got.concat(parseListings(dp.text));
-        }
-      }
-      listings = listings.concat(got.map((l) => ({ ...l, city: p.title, address: l.address ? `${l.address}, ${p.title}` : p.title })));
-    }
-  }
-  // Prefer well-described listings with a location.
-  const score = (l) => (l.content.length > 60 ? 2 : 0) + (l.lat ? 1 : 0) + (l.image ? 1 : 0) + (l.url ? 0.5 : 0);
+  if (!listings.length) listings = await cityListings(page);
+  await addFame(listings);
+  // Best known first, then well-described listings with a location.
+  const score = (l) => Math.log2(1 + (l.fame || 0)) * 3 + (l.content.length > 60 ? 2 : 0) + (l.lat ? 1 : 0) + (l.image ? 1 : 0) + (l.url ? 0.5 : 0);
   const seen = new Set();
   listings = listings.filter((l) => !seen.has(l.name) && seen.add(l.name)).sort((a, b) => score(b) - score(a));
   const per = {};
-  listings = listings.filter((l) => (per[(l.city || "") + l.type] = (per[(l.city || "") + l.type] || 0) + 1) <= 12);
+  listings = listings.filter((l) => (per[(l.city || "") + l.type] = (per[(l.city || "") + l.type] || 0) + 1) <= 15);
   return { listings, source: "https://en.wikivoyage.org/wiki/" + encodeURIComponent(page.title.replace(/ /g, "_")) };
 }
 
