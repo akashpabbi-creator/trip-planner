@@ -1396,6 +1396,7 @@ function editDay(id) {
     <label>Notes<textarea name="notes" rows="2">${esc(d.notes || "")}</textarea></label>
     <div class="row">
       <button type="button" data-insert>Insert a day after</button>
+      <button type="button" data-clear ${dayItems(id).length ? "" : "disabled"}>🧹 Clear this day</button>
       <button type="button" class="danger" data-remove>Remove this day</button>
     </div>`,
     async (f) => {
@@ -1414,12 +1415,28 @@ function editDay(id) {
     });
     await log(`inserted a new day after Day ${i + 1} (now ${S.trip.days.length + 1} days)`);
   };
+  $form.querySelector("[data-clear]").onclick = async () => {
+    $modal.close();
+    await clearDay(id, i);
+  };
   $form.querySelector("[data-remove]").onclick = async () => {
     const n = dayItems(id).length;
     if (n && !confirm(`Day ${i + 1} has ${n} stop(s). They'll go back to Ideas. Remove the day?`)) return;
     $modal.close();
     await removeDay(id, i);
   };
+}
+// Empties a day but keeps it: your own places go back to Ideas; untouched sample stops and rest blocks are taken out.
+async function clearDay(id, i) {
+  const list = dayItems(id);
+  if (!list.length) return;
+  const drop = list.filter((it) => it.rest || ((it.sample || ["guide", "plan"].includes(it.suggestedBy)) && untouched(it)));
+  const back = list.filter((it) => !drop.includes(it));
+  if (!confirm(`Clear Day ${i + 1}?${back.length ? ` ${back.length} of your place(s) go back to Ideas.` : ""}${drop.length ? ` ${drop.length} sample stop(s) are removed.` : ""}`)) return;
+  if (back.length) await S.store.batchUpdateItems(S.tripId, back.map((it) => [it.id, { dayId: null, order: 0, time: "", ...stampMe() }]));
+  for (const it of drop) await S.store.deleteItem(S.tripId, it.id);
+  await log(`cleared Day ${i + 1}${back.length ? ` (${back.length} back to ideas)` : ""}`);
+  toast(`Day ${i + 1} is empty. Fill it from Ideas or the Plan buttons.`);
 }
 async function removeDay(id, i) {
   const back = dayItems(id);
