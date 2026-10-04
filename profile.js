@@ -311,13 +311,16 @@ export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listing
       const far = (l) => (c && Number.isFinite(l.lat) ? Math.hypot(l.lat - c.lat, l.lng - c.lng) : 0);
       const pool = listings.filter((l) => (l.type === "see" || l.type === "do") && !TRANSPORT.test(l.name) && !seen.has(l.name.toLowerCase()) && !drafted.has(l.name.toLowerCase()) && (!l.city || !base || l.city.toLowerCase() === base.toLowerCase()));
       const top = pool.slice(0, 12).sort((a, b) => far(a) - far(b)).slice(0, shp.sights - anchors);
-      const add = top.map((l) => { seen.add(l.name.toLowerCase()); return { listing: l, dayIndex: i, time: "", note: "Added from the travel guide" }; });
+      // Each extra gets a free slot: clear of the other stops and the rest block, and before sunset.
+      const taken = plan.slice(from).filter((x) => x.dayIndex === i && toMin(x.time) != null).map((x) => [toMin(x.time), toMin(x.time) + (x.kind === "rest" ? x.durationMin || 60 : x.listing?.durationMin || (x.listing?.type === "eat" ? 75 : 90))]);
+      const last = shp.dusk ? toMin(shp.rest.time) : shp.sunset ? Math.max(shp.sunset, 1080) : 1140;
+      const free = [600, 690, 870, 960, 1050, 1110].filter((t) => t + 60 <= last).filter((t) => !taken.some(([a, b]) => t < b && t + 75 > a));
+      const add = top.slice(0, free.length).map((l, k) => { seen.add(l.name.toLowerCase()); return { listing: l, dayIndex: i, time: hm(free[k]), note: "Added from the travel guide" }; });
       if (add.length) {
         anchors += add.length;
         notes.push(`Day ${i + 1} had room, so it got ${add.map((x) => "“" + x.listing.name + "”").join(", ")} from the travel guide.`);
-        // Untimed extras go after the day's last timed sight, before dinner.
-        const at = plan.findIndex((x, k) => k >= from && x.dayIndex === i && x.listing?.category === "food" && (toMin(x.time) ?? 0) >= 1080);
-        plan.splice(at < 0 ? plan.length : at, 0, ...add);
+        const day = [...plan.splice(from), ...add].sort((a, b) => (a.dayIndex == null) - (b.dayIndex == null) || (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600));
+        plan.push(...day);
       }
       if (anchors < Math.max(2, shp.sights - 1)) notes.push(`Day ${i + 1} is light (${anchors} stop${anchors === 1 ? "" : "s"}), which leaves room for your own finds.`);
     }

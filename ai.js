@@ -137,9 +137,9 @@ Return ONLY a JSON array in a \`\`\`json block, one entry per place in the same 
 
 // Drafts the whole trip day by day from our preferences, grounded in Google Search. The app's rules check it
 // (profile.js checkDraft) before it is shown as a proposal.
-export async function planTrip(key, trip, prefs, { dates = [], saved = [], guide = [], cities = [], shapes = [], weather = [] } = {}) {
+export function planPrompt(trip, prefs, { dates = [], saved = [], guide = [], cities = [], shapes = [], weather = [] } = {}) {
   const n = trip.days.length;
-  const prompt = `You are an expert travel planner. Plan a ${n}-day trip to ${trip.destination} for a couple${trip.startDate ? `, day 1 is ${trip.startDate}` : ""}${trip.budget ? `, total budget ${trip.budget} ${trip.currency || ""} for two` : ""}.
+  return `You are an expert travel planner. Plan a ${n}-day trip to ${trip.destination} for a couple${trip.startDate ? `, day 1 is ${trip.startDate}` : ""}${trip.budget ? `, total budget ${trip.budget} ${trip.currency || ""} for two` : ""}.
 Our preferences and hard rules:
 ${prefs}
 Rules for the plan:
@@ -157,8 +157,15 @@ ${guide.length ? `- Travel guide places you may use: ${JSON.stringify(guide.slic
 Return ONLY a JSON object in a \`\`\`json block:
 {"summary": "2 sentences on the shape of the trip", "days": [{"day": 1, "base": "city", "theme": "3-5 words", "items": [{"name": string, "category": "sight"|"activity"|"food"|"shopping"|"nature", "time": "HH:MM", "durationMin": number, "address": "street and area", "approxCost": number in ${trip.currency || "INR"} for two or null, "why": "one sentence", "closedDays": "e.g. Mondays" or "", "bookAhead": true|false, "veg": "yes"|"no"|"" (food only), "vegNote": "what to order, up to 10 words", "splurge": "food"|"experience"|"", "market": true|false}]}], "stays": [{"name": string, "base": "city", "address": string, "approxCost": number per night or null, "why": string, "splurge": true|false}]}
 Exactly ${n} days.`;
-  const { text } = await call(key, prompt, { search: true });
-  const out = parseJson(text);
-  if (!Array.isArray(out.days)) throw new Error("Unexpected AI answer");
+}
+// Reads a drafted plan from Gemini's answer, or from Claude's answer pasted into the app.
+export function parsePlan(text) {
+  let out;
+  try { out = parseJson(String(text || "")); } catch { out = null; }
+  if (!out || !Array.isArray(out.days)) throw new Error("That doesn't look like the plan. Paste Claude's whole answer, including the json block.");
   return out;
+}
+export async function planTrip(key, trip, prefs, opts = {}) {
+  const { text } = await call(key, planPrompt(trip, prefs, opts), { search: true });
+  return parsePlan(text);
 }

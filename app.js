@@ -3,7 +3,7 @@ import { unfurl, extractUrl, sourceOf, BLOCKED } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
 import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather, GUIDE_V } from "./discover.js";
-import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip, QuotaError, geminiWait } from "./ai.js";
+import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip, planPrompt, parsePlan, QuotaError, geminiWait } from "./ai.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -427,7 +427,7 @@ function viewPlan() {
   const nSmart = smartList().filter((x) => x.changes.length).length;
   return `
     ${ch.length ? `<div class="checks">${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</div>` : ""}
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 Gemini drafted a plan for your days <b>Review</b></button>` : S.planning ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 ${esc(t.proposal.source || "Gemini")} drafted a plan for your days <b>Review</b></button>` : S.planning ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
     ${nSmart ? `<button class="smart-banner" data-action="tab" data-tab="smart">✨ ${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan <b>Review</b></button>` : ""}
     <div class="days">
     ${t.days.map((d, i) => {
@@ -656,6 +656,19 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
 }
 
 // Gemini drafts the trip; the rules check it; every place is found on the map; the result waits on the trip as a proposal.
+// What both planners are told: our rules, saved places, the guide's places, and each day's weather, sunset and rest time.
+function planInputs(t) {
+  const p = profileOf(t);
+  const dates = t.days.map((_, i) => dayDate(i)?.toLocaleDateString("en-GB", { weekday: "long" })).filter(Boolean);
+  const saved = S.items.filter((i) => !i.suggestedBy && !["stay", "transport", "other"].includes(i.category) && !i.rest).map((i) => i.title).slice(0, 25);
+  const guide = (t.guide?.listings || []).filter((l) => ["see", "do", "eat"].includes(l.type)).map((l) => (l.city ? `${l.name} (${l.city})` : l.name));
+  const cities = [...new Set((t.guide?.listings || []).map((l) => l.city).filter(Boolean))];
+  const mode = chooseMode(p, t);
+  const shapes = t.days.map((_, i) => dayShape(t.weather?.days?.[i], mode));
+  return { p, dates, opts: { dates, saved, guide, cities, shapes, weather: t.weather?.days || [] } };
+}
+
+// Gemini drafts the trip; the rules check it; every place is found on the map; the result waits on the trip as a proposal.
 async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
   const t = S.trip;
   if (!t.ai?.key) return toast("Connect Gemini on the Discover tab first.");
@@ -663,14 +676,47 @@ async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
   S.planning = "Gemini is planning the days…";
   render();
   try {
-    const p = profileOf(t);
-    const dates = t.days.map((_, i) => dayDate(i)?.toLocaleDateString("en-GB", { weekday: "long" })).filter(Boolean);
-    const saved = S.items.filter((i) => !i.suggestedBy && !["stay", "transport", "other"].includes(i.category) && !i.rest).map((i) => i.title).slice(0, 25);
-    const guide = (t.guide?.listings || []).filter((l) => ["see", "do", "eat"].includes(l.type)).map((l) => (l.city ? `${l.name} (${l.city})` : l.name));
-    const cities = [...new Set((t.guide?.listings || []).map((l) => l.city).filter(Boolean))];
-    const mode = chooseMode(p, t);
-    const shapes = t.days.map((_, i) => dayShape(t.weather?.days?.[i], mode));
-    const draft = await planTrip(t.ai.key, t, profileText(p), { dates, saved, guide, cities, shapes, weather: t.weather?.days || [] });
+    const { p, opts } = planInputs(t);
+    const draft = await planTrip(t.ai.key, t, profileText(p), opts);
+    await finishDraft(tripId, draft, "Gemini", { quiet });
+  } catch (e) {
+    console.warn(e);
+    if (e instanceof QuotaError) toast(e.message, 9000);
+    else if (!quiet) toast("Gemini couldn't plan this one: " + e.message);
+  } finally {
+    S.planning = false;
+    render();
+  }
+}
+
+// Claude plans in the Claude app (free with a Claude account, no key): the app hands over the request and reads the answer back.
+function claudePlan() {
+  const t = S.trip;
+  const { p, opts } = planInputs(t);
+  const prompt = planPrompt(t, profileText(p), opts).replace("Use Google Search for", "Search the web for")
+    + "\nReply with the json block only, so it can be pasted straight back into our trip planner.";
+  const url = "https://claude.ai/new" + (prompt.length < 7000 ? "?q=" + encodeURIComponent(prompt) : "");
+  window.open(url, "_blank", "noopener");
+  navigator.clipboard?.writeText(prompt).catch(() => {});
+  openModal(`<h3>🟠 Plan with Claude</h3>
+    <p class="small">Claude opened in a new tab with the request ready${prompt.length < 7000 ? "" : " (it's also copied: paste it in)"}. Send it, wait for the answer, then tap <b>Copy</b> under Claude's reply and paste it here.</p>
+    <label>Claude's answer<textarea name="answer" rows="8" placeholder="Paste Claude's whole answer here" required></textarea></label>
+    <p class="muted small">The app checks it against your rules (pace, rest, vegetarian options, no transport stops) and shows it as a plan to review, like Gemini's.</p>
+    <p class="small"><button type="button" class="btn-s" data-action="copyClaudePrompt">Copy the request again</button></p>`, (fd) => {
+    const draft = parsePlan(fd.answer);
+    S.planning = "Checking Claude's plan…";
+    render();
+    finishDraft(S.tripId, draft, "Claude", {})
+      .catch((e) => toast("Couldn't use Claude's plan: " + e.message))
+      .finally(() => { S.planning = false; render(); });
+  });
+  S.claudePrompt = prompt;
+  $form.querySelector("button[value=ok]").textContent = "Use this plan";
+}
+
+async function finishDraft(tripId, draft, source, { quiet = false } = {}) {
+  const t = S.trip;
+  const { p, dates } = planInputs(t);
     const checked = checkDraft(draft, t, p, dates, t.guide?.listings || []);
     // Only places that can be found on the map make it into the plan.
     const todo = checked.plan.filter((x) => x.listing && !inTrip(x.listing.name) && !Number.isFinite(x.listing.lat));
@@ -688,18 +734,10 @@ async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
     const dropped = todo.filter((x) => x.drop);
     if (dropped.length) checked.notes.push(`Left out ${dropped.map((x) => "“" + x.listing.name + "”").join(", ")}: couldn't find ${dropped.length > 1 ? "them" : "it"} on the map.`);
     const plan = checked.plan.filter((x) => !x.drop).map((x) => JSON.parse(JSON.stringify(x)));
-    await S.store.updateTrip(tripId, { proposal: { at: Date.now(), by: S.me.email, byName: S.me.name, summary: String(draft.summary || "").slice(0, 400), mode: checked.mode, bases: checked.bases, plan, notes: checked.notes.slice(0, 12), done: [] }, ...stampMe() });
-    await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `asked Gemini to draft a plan for ${t.destination}` });
+    await S.store.updateTrip(tripId, { proposal: { at: Date.now(), by: S.me.email, byName: S.me.name, source, summary: String(draft.summary || "").slice(0, 400), mode: checked.mode, bases: checked.bases, plan, notes: checked.notes.slice(0, 12), done: [] }, ...stampMe() });
+    await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `asked ${source} to draft a plan for ${t.destination}` });
     if (!quiet) setTimeout(openProposal, 300);
-    else toast("Gemini drafted a plan for your days. Open it from the Plan tab to review.", 6000);
-  } catch (e) {
-    console.warn(e);
-    if (e instanceof QuotaError) toast(e.message, 9000);
-    else if (!quiet) toast("Gemini couldn't plan this one: " + e.message);
-  } finally {
-    S.planning = false;
-    render();
-  }
+    else toast(`${source} drafted a plan for your days. Open it from the Plan tab to review.`, 6000);
 }
 function openProposal() {
   const t = S.trip, pr = t.proposal;
@@ -708,7 +746,7 @@ function openProposal() {
   const day = (i) => pr.plan.filter((x) => x.dayIndex === i).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
   const row = (x) => x.kind === "rest" ? `<li class="muted"><b>${esc(x.time || "")}</b> ☕ Rest &amp; recharge${x.note ? ` <span class="small">· ${esc(x.note)}</span>` : ""}</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
   const ideas = pr.plan.filter((x) => x.dayIndex == null);
-  openModal(`<h3>🤖 Gemini's plan for ${esc(t.destination)}</h3>
+  openModal(`<h3>🤖 ${esc(pr.source || "Gemini")}'s plan for ${esc(t.destination)}</h3>
     <p class="muted small">Drafted by ${esc(pr.byName || "Gemini")} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
     ${pr.summary ? `<p>${esc(pr.summary)}</p>` : ""}
     ${pr.notes?.length ? `<div class="checks">${pr.notes.map((n) => `<div class="check info">${esc(n)}</div>`).join("")}</div>` : ""}
@@ -735,8 +773,8 @@ async function acceptProposal(dayIdxs) {
   if (bases.length) await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = bases.find((x) => x.dayIndex === i); return b ? { ...d, base: b.base } : d; }), ...stampMe() }));
   const done = [...new Set([...(pr.done || []), ...dayIdxs])];
   await S.store.updateTrip(tripId, { proposal: done.length >= t.days.length ? null : { ...pr, done }, ...stampMe() });
-  await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `used Gemini's plan for ${dayIdxs.length === t.days.length ? "every day" : dayIdxs.map((i) => "Day " + (i + 1)).join(", ")} (${n} stops)` });
-  toast(`Gemini's plan is on ${dayIdxs.length === 1 ? "Day " + (dayIdxs[0] + 1) : dayIdxs.length + " days"}.`);
+  await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `used ${t.proposal?.source || "Gemini"}'s plan for ${dayIdxs.length === t.days.length ? "every day" : dayIdxs.map((i) => "Day " + (i + 1)).join(", ")} (${n} stops)` });
+  toast(`${t.proposal?.source || "Gemini"}'s plan is on ${dayIdxs.length === 1 ? "Day " + (dayIdxs[0] + 1) : dayIdxs.length + " days"}.`);
 }
 // Takes out the sample plan nobody has touched and builds it again from the current guide.
 // Your own links go back on the best days; pages that were only a bot check are read again.
@@ -839,15 +877,16 @@ function prefsCard() {
     <div class="d-head"><h3>💚 Planned around your preferences</h3><button class="btn-s" data-action="editProfile">Edit</button></div>
     <ul class="prefs-list small">
       <li>🥚 ${esc(p.diet)}</li>
-      <li>${mode === "slow" ? "🌴 Slow pace: 1–2 anchors a day" : "🏙️ Full days: 3 anchors a day"}${p.pace === "auto" ? " (picked for this destination)" : ""}</li>
-      ${p.rest ? "<li>☕ A rest block every afternoon</li>" : ""}
+      <li>${mode === "slow" ? "🌴 Slow pace: 1–2 anchors a day" : "🏙️ Full days: 3–4 sights a day, 4 when it's cool"}${p.pace === "auto" ? " (picked for this destination)" : ""}</li>
+      ${p.rest ? "<li>☕ A rest block every day, timed to the heat and sunset</li>" : ""}
       ${p.splurges ? "<li>✨ One splurge each: food, stay, experience</li>" : ""}
       <li>🍜 Street food and markets, plus one notable restaurant</li>
       ${p.autoPlace !== false ? "<li>🔗 Places from your shared links go straight onto the best day</li>" : ""}
     </ul>
     ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
     ${anyEmpty ? `<button class="primary btn-s" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
-    ${t.ai?.key ? `<button class="primary btn-s" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? "🤖 Review Gemini's plan" : "🤖 Ask Gemini to plan the days"}</button>` : ""}
+    ${t.ai?.key ? `<button class="primary btn-s" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? `🤖 Review ${esc(t.proposal.source || "Gemini")}'s plan` : "🤖 Ask Gemini to plan the days"}</button>` : ""}
+    <button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}>🟠 Plan with Claude</button>
     ${t.ai?.key && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
     ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>` : ""}
   </section>`;
@@ -1674,13 +1713,15 @@ document.addEventListener("click", async (e) => {
       case "refreshDest": return ensureDestination(true);
       case "buildSample": return buildSampleItinerary();
       case "geminiPlan": return geminiPlan();
+      case "claudePlan": return claudePlan();
+      case "copyClaudePrompt": await navigator.clipboard.writeText(S.claudePrompt || ""); return toast("Request copied. Paste it into Claude.");
       case "openProposal": return openProposal();
       case "acceptDay": {
         $modal.close();
         await acceptProposal([Number(b.dataset.day)]);
         return S.trip.proposal ? setTimeout(openProposal, 400) : null;
       }
-      case "regenPlan": $modal.close(); await S.store.updateTrip(S.tripId, { proposal: null }); return geminiPlan();
+      case "regenPlan": { const src = S.trip.proposal?.source; $modal.close(); await S.store.updateTrip(S.tripId, { proposal: null }); return src === "Claude" || !S.trip.ai?.key ? claudePlan() : geminiPlan(); }
       case "dropPlan": $modal.close(); return S.store.updateTrip(S.tripId, { proposal: null, ...stampMe() });
       case "rebuildSample": return rebuildSample();
       case "editProfile": return editProfile();
