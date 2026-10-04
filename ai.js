@@ -1,32 +1,76 @@
 // Optional AI features using Google's Gemini API (free tier key from https://aistudio.google.com/apikey).
 // The key is saved on the trip, which only its members can read.
 
-const MODELS = ["gemini-flash-latest", "gemini-2.5-flash"];
+// Search-grounded calls need a model whose free tier includes Google Search (the 2.5 Flash family: 500 a day);
+// the newest Flash has no free search. Plain calls use the newest Flash first.
+const MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash"];
+const SEARCH_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"];
 const URL_ = (model, key) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 
+// A model that ran out of free quota is skipped until it resets, so the app doesn't keep spending requests on it.
+const LS = "tripplanner-gemini-wait";
+const waits = (() => { try { return JSON.parse(localStorage.getItem(LS) || "{}"); } catch { return {}; } })();
+const saveWaits = () => { try { localStorage.setItem(LS, JSON.stringify(waits)); } catch {} };
+// Free daily limits reset at midnight Pacific time.
+function nextPacificMidnight() {
+  const now = new Date();
+  const la = new Date(now.toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+  const mid = new Date(la); mid.setHours(24, 0, 0, 0);
+  return now.getTime() + (mid - la);
+}
+export class QuotaError extends Error {}
+function quotaInfo(j, model) {
+  const det = j.error?.details || [];
+  const v = det.flatMap((d) => d.violations || [])[0] || {};
+  const id = String(v.quotaId || v.quotaMetric || "");
+  const delay = parseFloat(det.find((d) => d.retryDelay)?.retryDelay) || 0;
+  const daily = /PerDay/i.test(id) || (!delay && !/PerMinute/i.test(id));
+  const limit = Number(v.quotaValue) || null;
+  return { model, daily, limit, until: daily ? nextPacificMidnight() : Date.now() + Math.max(15, delay) * 1000, search: /search|grounding/i.test(id) };
+}
+function quotaMessage(q) {
+  const when = new Date(q.until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return q.daily
+    ? `Gemini's free daily limit is used up${q.limit ? ` (${q.limit} requests a day on ${q.model})` : ""}. It resets at ${when}. The planner keeps working without Gemini until then.`
+    : `Gemini's free per-minute limit was hit${q.limit ? ` (${q.limit} a minute)` : ""}. Try again after ${when}.`;
+}
+export function geminiWait() {
+  const now = Date.now();
+  // Most of the app's Gemini calls search the web, so it waits when every search model is resting.
+  const left = SEARCH_MODELS.map((m) => waits[m]?.until || 0);
+  return left.every((u) => u > now) ? Math.min(...left) : 0;
+}
+
 async function call(key, prompt, { json = false, search = false, model } = {}) {
-  let lastErr;
-  for (const m of model ? [model] : MODELS) {
+  let lastErr, quota;
+  for (const m of model ? [model] : search ? SEARCH_MODELS : MODELS) {
+    if (waits[m]?.until > Date.now()) { quota = quota || waits[m]; continue; }
     const body = {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.4, ...(json ? { responseMimeType: "application/json" } : {}) },
       ...(search ? { tools: [{ google_search: {} }, ...(search === "url" ? [{ url_context: {} }] : [])] } : {}),
     };
+    let r, j;
     try {
-      const r = await fetch(URL_(m, key), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await r.json();
-      if (!r.ok) {
-        lastErr = new Error(j.error?.message || "Gemini error " + r.status);
-        if (r.status === 404) continue; // model name not available, try the next one
-        throw lastErr;
-      }
+      r = await fetch(URL_(m, key), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      j = await r.json();
+    } catch (e) { lastErr = e; continue; }
+    if (r.ok) {
       const text = (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
       return { text, model: m };
-    } catch (e) {
-      lastErr = e;
-      if (!/404|not found/i.test(e.message)) throw e;
     }
+    lastErr = new Error(j.error?.message || "Gemini error " + r.status);
+    if (r.status === 404) continue; // model name not available, try the next one
+    if (r.status === 429 || j.error?.status === "RESOURCE_EXHAUSTED") {
+      // Each model has its own free quota: note when this one resets and try the next.
+      quota = quotaInfo(j, m);
+      waits[m] = quota;
+      saveWaits();
+      continue;
+    }
+    throw lastErr;
   }
+  if (quota) throw new QuotaError(quotaMessage(quota));
   throw lastErr;
 }
 function parseJson(text) {

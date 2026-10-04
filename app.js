@@ -3,7 +3,7 @@ import { unfurl, extractUrl, sourceOf, BLOCKED } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
 import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather, GUIDE_V } from "./discover.js";
-import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip } from "./ai.js";
+import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip, QuotaError, geminiWait } from "./ai.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -611,7 +611,7 @@ async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.
   if (n) await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `built a sample ${built.mode === "slow" ? "slow-paced" : "full"} itinerary for ${t.destination || "the trip"} from our preferences (${n} stops)` });
   if (!auto) toast(n ? `Sample itinerary added: ${built.mode === "slow" ? "slow pace, 1–2 anchors a day" : "full days, 3 anchors a day"}, with a rest block each day.` : "Nothing new to add from the travel guide.");
   // With Gemini connected, Gemini also drafts a plan, checked by the same rules, for you to accept day by day.
-  if (t.ai?.key && auto && !t.proposal) geminiPlan(tripId, { quiet: true }).catch((e) => console.warn("gemini plan", e.message));
+  if (t.ai?.key && auto && !t.proposal && !geminiWait()) geminiPlan(tripId, { quiet: true }).catch((e) => console.warn("gemini plan", e.message));
 }
 // Writes a plan (from buildSample or checkDraft) onto the given days; entries without a day go to Ideas.
 async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas = true } = {}) {
@@ -694,7 +694,8 @@ async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
     else toast("Gemini drafted a plan for your days. Open it from the Plan tab to review.", 6000);
   } catch (e) {
     console.warn(e);
-    if (!quiet) toast("Gemini couldn't plan this one: " + e.message);
+    if (e instanceof QuotaError) toast(e.message, 9000);
+    else if (!quiet) toast("Gemini couldn't plan this one: " + e.message);
   } finally {
     S.planning = false;
     render();
@@ -847,6 +848,7 @@ function prefsCard() {
     ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
     ${anyEmpty ? `<button class="primary btn-s" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
     ${t.ai?.key ? `<button class="primary btn-s" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? "🤖 Review Gemini's plan" : "🤖 Ask Gemini to plan the days"}</button>` : ""}
+    ${t.ai?.key && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
     ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>` : ""}
   </section>`;
 }
@@ -904,7 +906,7 @@ async function runAiPicks() {
     await S.store.updateTrip(S.tripId, { aiPicks: { for: S.trip.destination, at: Date.now(), items } });
     await log(`asked Gemini for top-rated places (${items.length} found)`);
   } catch (e) {
-    toast("Gemini: " + e.message, 5000);
+    toast(e instanceof QuotaError ? e.message : "Gemini: " + e.message, e instanceof QuotaError ? 9000 : 5000);
   } finally {
     S.aiBusy = null;
     render();
@@ -937,7 +939,7 @@ async function runAiReview() {
     await S.store.updateTrip(S.tripId, { aiReview: { at: Date.now(), by: S.me.email, ...r, applied: [] } });
     await log("asked Gemini to review the plan");
   } catch (e) {
-    toast("Gemini: " + e.message, 5000);
+    toast(e instanceof QuotaError ? e.message : "Gemini: " + e.message, e instanceof QuotaError ? 9000 : 5000);
   } finally {
     S.aiBusy = null;
     render();
@@ -1061,7 +1063,7 @@ async function runAnalyse() {
 // Gemini checks the restaurants in the trip for vegetarian dishes (they don't need to be pure veg).
 async function verifyVeg({ quiet = true } = {}) {
   const t = S.trip;
-  if (!t.ai?.key || S.vegBusy) return;
+  if (!t.ai?.key || S.vegBusy || (quiet && geminiWait())) return;
   const todo = S.items.filter((x) => x.category === "food" && x.vegSource !== "gemini" && (!quiet || !S.vegTried.has(x.id))).slice(0, 15);
   todo.forEach((x) => S.vegTried.add(x.id));
   if (!todo.length) return quiet ? null : toast("Vegetarian options already checked for every restaurant.");
@@ -1079,7 +1081,7 @@ async function verifyVeg({ quiet = true } = {}) {
     const bad = writes.filter(([, p]) => p.veg === "no").length;
     if (!quiet || bad) toast(`Checked ${writes.length} restaurant${writes.length > 1 ? "s" : ""} for vegetarian food${bad ? `: ${bad} ha${bad > 1 ? "ve" : "s"} few vegetarian options (see Smart)` : ": all have vegetarian options"}.`, 5000);
   } catch (e) {
-    if (!quiet) toast("Couldn't check vegetarian options: " + e.message);
+    if (!quiet) toast(e instanceof QuotaError ? e.message : "Couldn't check vegetarian options: " + e.message, 8000);
   } finally {
     S.vegBusy = false;
   }
@@ -1435,7 +1437,7 @@ async function addLink(raw) {
     const t = S.trip;
     let places = readLink(m, t);
     let viaAi = false;
-    if (t.ai?.key) {
+    if (t.ai?.key && !geminiWait()) {
       S.busy = "Gemini is reading the page…";
       render();
       try {
