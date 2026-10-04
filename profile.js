@@ -32,6 +32,25 @@ export function profileText(p) {
   ].filter(Boolean).join("\n");
 }
 
+/* ------------------------------------------------------ daylight and heat */
+// The rest block follows the local day instead of a fixed 3pm: a midday break when it's hot,
+// back at the hotel at dusk when days are short (sights are done by sunset), a short coffee stop otherwise.
+const hm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const mins = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(t || ""); return m ? +m[1] * 60 + +m[2] : null; };
+export function dayShape(w, mode = "dense") {
+  const max = Number.isFinite(w?.max) ? w.max : null;
+  const sunset = mins(w?.sunset);
+  const hot = max != null && max >= 28, cool = max != null && max < 22;
+  // Cool weather leaves room for one more sight in a city day.
+  const sights = mode === "slow" ? (cool ? 3 : 2) : hot ? 3 : cool ? 4 : 3;
+  if (hot) return { sights, rest: { time: "14:00", min: 120, note: `Midday heat (around ${max}°): rest at the hotel or a cool cafe, then head out again at 16:00.` }, sunset };
+  if (sunset != null && sunset <= 18 * 60 + 30) {
+    const at = Math.max(16 * 60, Math.round((sunset - 15) / 30) * 30);
+    return { sights, rest: { time: hm(at), min: 90, note: `Sunset is at ${w.sunset}: sights first, then back to the hotel to rest before dinner.` }, sunset, dusk: true };
+  }
+  return { sights, rest: { time: "15:30", min: 60, note: mode === "slow" ? "Unscheduled afternoon. Pool, nap or a long coffee." : "Coffee break and recharge before the late-afternoon sights." }, sunset };
+}
+
 /* --------------------------------------------------------- choosing places */
 // Vegetarian check: a place only has to offer good vegetarian food, it doesn't have to be pure veg.
 // "yes": vegetarian dishes are clearly on offer. "no": the place is built around meat or fish
@@ -135,7 +154,7 @@ export function buildSample(trip, listings, p = profileOf(trip)) {
   cities.forEach((c, k) => {
     const days = trip.days.slice(start, start + share[k]);
     // Splurges once per trip: food and experience in the first city, stay wherever the best property is (first city).
-    const r = buildCity({ ...trip, days, base: c }, listings.filter((l) => l.city === c), { ...p, splurges: p.splurges && k === 0, used, moreEats: listings.filter((l) => l.city !== c && l.type === "eat") });
+    const r = buildCity({ ...trip, days, base: c, dayOffset: start }, listings.filter((l) => l.city === c), { ...p, splurges: p.splurges && k === 0, used, moreEats: listings.filter((l) => l.city !== c && l.type === "eat") });
     mode = k === 0 ? r.mode : mode;
     r.plan.forEach((x) => plan.push({ ...x, dayIndex: x.dayIndex == null ? null : x.dayIndex + start }));
     days.forEach((_, i) => bases.push({ dayIndex: start + i, base: c }));
@@ -147,7 +166,7 @@ export function buildSample(trip, listings, p = profileOf(trip)) {
 function buildCity(trip, listings, p) {
   const mode = chooseMode(p, trip);
   const n = trip.days.length;
-  const per = mode === "dense" ? 3 : 2;
+  const shapes = trip.days.map((_, i) => dayShape(trip.weather?.days?.[(trip.dayOffset || 0) + i], mode));
   const used = p.used || new Set(); // shared across a multi-city trip, so no place appears twice
   const take = (l) => (l && !used.has(l.name) ? (used.add(l.name), l) : null);
   const of = (...types) => listings.filter((l) => types.includes(l.type) && !used.has(l.name));
@@ -172,7 +191,7 @@ function buildCity(trip, listings, p) {
   const market = take(of("buy", "see", "do").find((l) => MARKET.test(text(l))));
   const anchorPool = of("see", "do");
   const natureFirst = mode === "slow" ? [...anchorPool].sort((a, b) => NATURE.test(text(b)) - NATURE.test(text(a))) : anchorPool;
-  const need = Math.max(0, n * per - (market ? 1 : 0) - (expSplurge ? 1 : 0));
+  const need = Math.max(0, shapes.reduce((a, s) => a + s.sights, 0) - (market ? 1 : 0) - (expSplurge ? 1 : 0));
   const anchors = natureFirst.slice(0, need).map(take).filter(Boolean);
   const groups = cluster(anchors, n);
   // Market and experience go on the lightest days, not the same one.
@@ -191,10 +210,14 @@ function buildCity(trip, listings, p) {
     const morning = g.slice(0, Math.ceil(g.length / 2)), afternoon = g.slice(Math.ceil(g.length / 2));
     // Beach and hill towns have few listed sights: an unhurried half-day outdoors is the plan.
     if (!g.length && mode === "slow") out.push({ listing: { name: `Beach and outdoor time in ${trip.base || trip.destination}`, type: "do", category: "nature", content: "Free time on the nearest beach or trail. Swap in anything you've saved.", address: trip.base || trip.destination }, dayIndex: i, time: "10:00", note: "Slow morning" });
+    const sh = shapes[i];
+    const restItem = { listing: null, kind: "rest", dayIndex: i, time: sh.rest.time, durationMin: sh.rest.min, note: sh.rest.note };
     morning.forEach((l) => put(l, i, "", l === expSplurge ? "Experience splurge" : l === market ? "Market visit" : ""));
     put(meal(c, streetFood), i, "13:00", "Lunch: local and good value");
-    if (p.rest) out.push({ listing: null, kind: "rest", dayIndex: i, time: "15:00", note: mode === "slow" ? "Unscheduled afternoon. Pool, nap or a long coffee." : "Rest and recharge at the hotel or a cafe. The hottest, busiest part of the day." });
+    // Short days: the afternoon sights come before the dusk rest. Long or hot days: rest first, then the afternoon.
+    if (p.rest && !sh.dusk) out.push(restItem);
     afternoon.forEach((l) => put(l, i, "", l === expSplurge ? "Experience splurge" : l === market ? "Market visit" : ""));
+    if (p.rest && sh.dusk) out.push(restItem);
     if (i === splurgeDay && foodSplurge) put(foodSplurge, i, "20:00", "Food splurge. Book ahead and ask for the vegetarian menu.");
     else put(meal(c, i % 2 ? otherFood : streetFood), i, "20:00", "Dinner");
   }
@@ -209,14 +232,13 @@ function buildCity(trip, listings, p) {
 }
 
 /* ------------------------------------------------------- Gemini's draft */
-const TRANSPORT = /\b(airport|aeroporto|airlines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stand|metro station|ferry terminal|car rental|car hire|taxi)\b/i;
+const TRANSPORT = /\b(airport|aeroporto|airlines?|airways|wizz|ryanair|easyjet|terminal|termini|centrale|santa lucia|s\.? ?m\.? ?n\.?|hauptbahnhof|gare|railway|train station|stazione|station|bus station|bus stand|metro station|ferry terminal|car rental|car hire|taxi)\b/i;
 const TYPE_OF = { food: "eat", sight: "see", activity: "do", shopping: "buy", nature: "see", stay: "sleep" };
 const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})/.exec(t || ""); return m ? +m[1] * 60 + +m[2] : null; };
 // Checks Gemini's plan against our rules and turns it into the same shape as buildSample, with a note for each fix.
 // dates: weekday names per day ("Monday"), when the trip has a start date.
 export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listings = []) {
   const mode = chooseMode(p, trip);
-  const per = mode === "dense" ? 3 : 2;
   const plan = [], bases = [], notes = [], seen = new Set();
   let total = 0;
   const splurge = { food: 0, experience: 0, stay: 0 };
@@ -244,10 +266,11 @@ export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listing
       const day = dates[i];
       if (day && x.closedDays && new RegExp(day.slice(0, 3), "i").test(x.closedDays)) { notes.push(`“${x.name}” is closed on ${day}s, so it went to Ideas.`); plan.push({ listing: l, dayIndex: null, time: "", note: `Closed ${x.closedDays}` }); seen.add(key); continue; }
       const t = toMin(x.time);
-      // The 15:00–16:30 rest block stays free.
-      const time = p.rest && t != null && t >= 900 && t < 990 ? "16:30" : x.time && t != null ? x.time.slice(0, 5).padStart(5, "0") : "";
+      // The day's rest block stays free: anything inside it moves to just after.
+      const sh = dayShape(trip.weather?.days?.[i], mode), r0 = toMin(sh.rest.time), r1 = r0 + sh.rest.min;
+      const time = p.rest && t != null && t >= r0 && t < r1 && x.category !== "food" ? hm(r1) : x.time && t != null ? x.time.slice(0, 5).padStart(5, "0") : "";
       if (cat !== "food") {
-        if (anchors >= per + 1) { notes.push(`Day ${i + 1} was too full, so “${x.name}” went to Ideas.`); plan.push({ listing: l, dayIndex: null, time: "", note: "Backup option" }); seen.add(key); continue; }
+        if (anchors >= dayShape(trip.weather?.days?.[i], mode).sights + 1) { notes.push(`Day ${i + 1} was too full, so “${x.name}” went to Ideas.`); plan.push({ listing: l, dayIndex: null, time: "", note: "Backup option" }); seen.add(key); continue; }
         anchors++;
       }
       seen.add(key);
@@ -257,7 +280,8 @@ export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listing
       const note = [x.splurge === "food" ? "Food splurge. Book ahead and ask for the vegetarian menu." : x.splurge === "experience" ? "Experience splurge" : x.market ? "Market visit" : "", x.bookAhead && x.splurge !== "food" ? "Book ahead" : "", x.vegNote && cat === "food" ? `Veg: ${x.vegNote}` : ""].filter(Boolean).join(" · ");
       plan.push({ listing: l, dayIndex: i, time, note });
     }
-    if (p.rest) plan.push({ listing: null, kind: "rest", dayIndex: i, time: "15:00", note: mode === "slow" ? "Unscheduled afternoon. Pool, nap or a long coffee." : "Rest and recharge at the hotel or a cafe. The hottest, busiest part of the day." });
+    const shp = dayShape(trip.weather?.days?.[i], mode);
+    if (p.rest) plan.push({ listing: null, kind: "rest", dayIndex: i, time: shp.rest.time, durationMin: shp.rest.min, note: shp.rest.note });
     // Keep the day in time order, so the rest block sits between lunch and the afternoon.
     const mine = plan.splice(from).sort((a, b) => (a.dayIndex == null) - (b.dayIndex == null) || (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600));
     plan.push(...mine);
@@ -280,7 +304,23 @@ export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listing
     if (fill.length) {
       plan.splice(from, plan.length - from, ...[...plan.slice(from), ...fill].sort((a, b) => (a.dayIndex == null) - (b.dayIndex == null) || (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600)));
     }
-    if (anchors < Math.max(1, per - 1)) notes.push(`Day ${i + 1} is light (${anchors} stop${anchors === 1 ? "" : "s"}), which leaves room for your own finds.`);
+    // A light day is topped up with the guide's best-known sights in that town, nearest the day's other stops first.
+    if (anchors < shp.sights) {
+      const here = plan.slice(from).filter((x) => x.dayIndex === i && Number.isFinite(x.listing?.lat));
+      const c = here.length ? { lat: here.reduce((a, x) => a + x.listing.lat, 0) / here.length, lng: here.reduce((a, x) => a + x.listing.lng, 0) / here.length } : null;
+      const far = (l) => (c && Number.isFinite(l.lat) ? Math.hypot(l.lat - c.lat, l.lng - c.lng) : 0);
+      const pool = listings.filter((l) => (l.type === "see" || l.type === "do") && !TRANSPORT.test(l.name) && !seen.has(l.name.toLowerCase()) && !drafted.has(l.name.toLowerCase()) && (!l.city || !base || l.city.toLowerCase() === base.toLowerCase()));
+      const top = pool.slice(0, 12).sort((a, b) => far(a) - far(b)).slice(0, shp.sights - anchors);
+      const add = top.map((l) => { seen.add(l.name.toLowerCase()); return { listing: l, dayIndex: i, time: "", note: "Added from the travel guide" }; });
+      if (add.length) {
+        anchors += add.length;
+        notes.push(`Day ${i + 1} had room, so it got ${add.map((x) => "“" + x.listing.name + "”").join(", ")} from the travel guide.`);
+        // Untimed extras go after the day's last timed sight, before dinner.
+        const at = plan.findIndex((x, k) => k >= from && x.dayIndex === i && x.listing?.category === "food" && (toMin(x.time) ?? 0) >= 1080);
+        plan.splice(at < 0 ? plan.length : at, 0, ...add);
+      }
+      if (anchors < Math.max(2, shp.sights - 1)) notes.push(`Day ${i + 1} is light (${anchors} stop${anchors === 1 ? "" : "s"}), which leaves room for your own finds.`);
+    }
   });
   for (const s of draft.stays || []) {
     if (!s?.name || seen.has(s.name.toLowerCase())) continue;

@@ -262,8 +262,8 @@ export function analyse(ctx) {
       out.push({
         id: `rest-${d.id}`, kind: "rest", level: "fix",
         title: `Day ${i + 1} has no rest block`,
-        detail: "Your rule is a break every day. This adds a 90-minute rest at 3 pm; move it if another time suits the day better.",
-        changes: [{ type: "add", item: { title: "Rest & recharge", category: "other", dayId: d.id, time: "15:00", durationMin: 90, cost: 0, rest: true, mustDo: false, notes: "Rest and recharge at the hotel or a cafe.", location: "", description: "", image: "", url: "", siteName: "" } }],
+        detail: "Your rule is a break every day. This adds a 90-minute rest in the late afternoon; move it if another time suits the day better.",
+        changes: [{ type: "add", item: { title: "Rest & recharge", category: "other", dayId: d.id, time: "15:30", durationMin: 90, cost: 0, rest: true, mustDo: false, notes: "Rest and recharge at the hotel or a cafe.", location: "", description: "", image: "", url: "", siteName: "" } }],
       });
     }
 

@@ -4,7 +4,7 @@ import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js"
 import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather, GUIDE_V } from "./discover.js";
 import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip } from "./ai.js";
-import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
+import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
 const CATEGORIES = {
@@ -631,7 +631,7 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
     const order = dayId ? (orders[dayId] = (orders[dayId] || 0) + 1) : 0;
     const placing = { dayId, order, time: x.time || "" };
     if (x.kind === "rest") {
-      await S.store.addItem(tripId, { title: "Rest & recharge", description: "", image: "", siteName: "", location: "", url: "", category: "other", durationMin: 90, cost: 0, mustDo: false, rest: true, notes: x.note, suggestedBy: "plan", sample: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...placing, ...stampMe() });
+      await S.store.addItem(tripId, { title: "Rest & recharge", description: "", image: "", siteName: "", location: "", url: "", category: "other", durationMin: x.durationMin || 90, cost: 0, mustDo: false, rest: true, notes: x.note, suggestedBy: "plan", sample: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...placing, ...stampMe() });
       added++;
       continue;
     }
@@ -668,7 +668,9 @@ async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
     const saved = S.items.filter((i) => !i.suggestedBy && !["stay", "transport", "other"].includes(i.category) && !i.rest).map((i) => i.title).slice(0, 25);
     const guide = (t.guide?.listings || []).filter((l) => ["see", "do", "eat"].includes(l.type)).map((l) => (l.city ? `${l.name} (${l.city})` : l.name));
     const cities = [...new Set((t.guide?.listings || []).map((l) => l.city).filter(Boolean))];
-    const draft = await planTrip(t.ai.key, t, profileText(p), { dates, saved, guide, cities });
+    const mode = chooseMode(p, t);
+    const shapes = t.days.map((_, i) => dayShape(t.weather?.days?.[i], mode));
+    const draft = await planTrip(t.ai.key, t, profileText(p), { dates, saved, guide, cities, shapes, weather: t.weather?.days || [] });
     const checked = checkDraft(draft, t, p, dates, t.guide?.listings || []);
     // Only places that can be found on the map make it into the plan.
     const todo = checked.plan.filter((x) => x.listing && !inTrip(x.listing.name) && !Number.isFinite(x.listing.lat));
@@ -703,7 +705,7 @@ function openProposal() {
   if (!pr) return;
   const done = new Set(pr.done || []);
   const day = (i) => pr.plan.filter((x) => x.dayIndex === i).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
-  const row = (x) => x.kind === "rest" ? `<li class="muted">15:00 ☕ Rest &amp; recharge</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
+  const row = (x) => x.kind === "rest" ? `<li class="muted"><b>${esc(x.time || "")}</b> ☕ Rest &amp; recharge${x.note ? ` <span class="small">· ${esc(x.note)}</span>` : ""}</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
   const ideas = pr.plan.filter((x) => x.dayIndex == null);
   openModal(`<h3>🤖 Gemini's plan for ${esc(t.destination)}</h3>
     <p class="muted small">Drafted by ${esc(pr.byName || "Gemini")} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>

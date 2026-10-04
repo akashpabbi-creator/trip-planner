@@ -33,7 +33,13 @@ for (const T of TRIPS) {
     const day = items.filter((x) => x.dayId === d.id).sort((a, b) => a.order - b.order);
     const sights = day.filter((x) => ["sight", "activity", "nature", "shopping"].includes(x.category));
     console.log(`  Day ${i + 1}${d.base ? " (" + d.base + ")" : ""}: ` + day.map((x) => `${x.time || "--"} ${x.title} [${x.category}]`).join(" | "));
-    if (sights.length < 2) { fails++; console.log(`  ❌ day ${i + 1} has ${sights.length} sights`); }
+    const w = trip.weather?.days?.[i] || {};
+    const want = w.max != null && w.max < 22 ? 3 : 2;
+    if (sights.length < want) { fails++; console.log(`  ❌ day ${i + 1} has ${sights.length} sights (${w.max}°, want ${want}+)`); }
+    const rest = day.find((x) => x.rest);
+    if (!rest) { fails++; console.log(`  ❌ day ${i + 1} has no rest block`); }
+    else if (w.sunset && w.sunset <= "18:30" && rest.time < "16:00") { fails++; console.log(`  ❌ day ${i + 1} rests at ${rest.time} though sunset is ${w.sunset}`); }
+    console.log(`    ${w.max}°/${w.min}°, sunrise ${w.sunrise || "?"}, sunset ${w.sunset || "?"}, rest ${rest?.time} for ${rest?.durationMin} min, ${sights.length} sights`);
     const tp = day.filter((x) => /station|termini|airport|terminal|railway|stazione|airline|wizz|bus /i.test(x.title + " " + (x.location || "")));
     if (tp.length) { fails++; console.log(`  ❌ transport on day ${i + 1}: ${tp.map((x) => x.title + " @ " + x.location).join(", ")}`); }
   });

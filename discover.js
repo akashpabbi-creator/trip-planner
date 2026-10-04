@@ -47,7 +47,7 @@ export async function fetchWeather(lat, lng, startDate, nDays) {
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + n - 1);
   const daysAway = (start - Date.now()) / 864e5;
-  const daily = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max";
+  const daily = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset";
   let url, kind, shift = 0;
   if (daysAway > -1 && daysAway + n <= 15) {
     kind = "forecast";
@@ -59,7 +59,7 @@ export async function fetchWeather(lat, lng, startDate, nDays) {
     const s = new Date(start), e = new Date(end);
     s.setUTCFullYear(s.getUTCFullYear() - shift);
     e.setUTCFullYear(e.getUTCFullYear() - shift);
-    url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&start_date=${iso(s)}&end_date=${iso(e)}`;
+    url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lng}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset&timezone=auto&start_date=${iso(s)}&end_date=${iso(e)}`;
   }
   const r = await fetch(url);
   if (!r.ok) throw new Error("weather " + r.status);
@@ -76,6 +76,8 @@ export async function fetchWeather(lat, lng, startDate, nDays) {
       rain: d.precipitation_sum?.[i] ?? null,
       rainPct: d.precipitation_probability_max?.[i] ?? null,
       icon: WMO(d.weather_code?.[i]),
+      sunrise: String(d.sunrise?.[i] || "").slice(11, 16),
+      sunset: String(d.sunset?.[i] || "").slice(11, 16),
     })),
   };
 }
@@ -88,7 +90,7 @@ const TYPE_CAT = { see: "sight", do: "activity", eat: "food", drink: "food", sle
 // airports, stations and airlines, which are not things to visit.
 const SECTION_TYPE = { see: "see", do: "do", eat: "eat", drink: "drink", sleep: "sleep", buy: "buy", shop: "buy", "eat and drink": "eat" };
 const SKIP_SECTION = /^(get in|get around|connect|stay safe|stay healthy|cope|go next|understand|talk|respect|by \w+)/i;
-const NOT_A_SIGHT = /permanently closed|\b(station|festival|festa|notte bianca|white night|camping|campsite|airport|aeroporto|air ?lines?|airways|wizz|ryanair|easyjet|terminal|railway|train station|stazione|bus station|bus stop|metro station|coach|ferry terminal|car rental|car hire|rent-a-car|taxi|parking|tourist information|post office|hospital|pharmacy|police|consulate|embassy|atm)\b/i;
+const NOT_A_SIGHT = /permanently closed|\b(station|festival|festa|notte bianca|white night|camping|campsite|airport|aeroporto|air ?lines?|airways|wizz|ryanair|easyjet|terminal|termini|centrale|santa lucia|hauptbahnhof|railway|train station|stazione|bus station|bus stop|metro station|coach|ferry terminal|car rental|car hire|rent-a-car|taxi|parking|tourist information|post office|hospital|pharmacy|police|consulate|embassy|atm)\b/i;
 export function parseListings(wikitext) {
   const out = [];
   const heads = [...wikitext.matchAll(/^==([^=].*?)==\s*$/gm)].map((h) => ({ at: h.index, name: h[1].trim().toLowerCase() }));
@@ -164,7 +166,7 @@ async function wvPage(title) {
 // Bumped when the guide reader changes enough that saved guides should be read again.
 
 // Bumped when the guide reader changes enough that saved guides should be read again.
-export const GUIDE_V = 3;
+export const GUIDE_V = 4;
 const WVV = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageviews&redirects=1&format=json&formatversion=2&origin=*&titles=";
 const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
 // Wikimedia answers bursts of requests with 429 and a retry-after: wait it out once.
@@ -268,7 +270,9 @@ export async function fetchGuide(dest) {
   // Best known first, then well-described listings with a location.
   const score = (l) => Math.log2(1 + (l.fame || 0)) * 3 + (l.content.length > 60 ? 2 : 0) + (l.lat ? 1 : 0) + (l.image ? 1 : 0) + (l.url ? 0.5 : 0);
   const seen = new Set();
-  listings = listings.filter((l) => !seen.has(l.name) && seen.add(l.name)).sort((a, b) => score(b) - score(a));
+  // The same place under two names (Rialto Bridge / Ponte di Rialto) shares a Wikidata id.
+  const once = (k) => !k || (!seen.has(k) && !!seen.add(k));
+  listings = listings.sort((a, b) => score(b) - score(a)).filter((l) => !seen.has(l.name.toLowerCase()) && once(l.wikidata) && seen.add(l.name.toLowerCase()));
   const per = {};
   listings = listings.filter((l) => (per[(l.city || "") + l.type] = (per[(l.city || "") + l.type] || 0) + 1) <= 15);
   return { listings, source: "https://en.wikivoyage.org/wiki/" + encodeURIComponent(page.title.replace(/ /g, "_")) };

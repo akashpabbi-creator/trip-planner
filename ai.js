@@ -93,15 +93,16 @@ Return ONLY a JSON array in a \`\`\`json block, one entry per place in the same 
 
 // Drafts the whole trip day by day from our preferences, grounded in Google Search. The app's rules check it
 // (profile.js checkDraft) before it is shown as a proposal.
-export async function planTrip(key, trip, prefs, { dates = [], saved = [], guide = [], cities = [] } = {}) {
+export async function planTrip(key, trip, prefs, { dates = [], saved = [], guide = [], cities = [], shapes = [], weather = [] } = {}) {
   const n = trip.days.length;
   const prompt = `You are an expert travel planner. Plan a ${n}-day trip to ${trip.destination} for a couple${trip.startDate ? `, day 1 is ${trip.startDate}` : ""}${trip.budget ? `, total budget ${trip.budget} ${trip.currency || ""} for two` : ""}.
 Our preferences and hard rules:
 ${prefs}
 Rules for the plan:
 - Use Google Search for real, currently open, well-reviewed places. Every place must be a real named place you can give an address for.
-- Pace: 3 sights or activities a day in cities, 2 a day for beach, hill or nature stays. Group each day by area to keep travel short.
-- Every day has lunch (13:00) and dinner (20:00) at places that serve good vegetarian dishes (they do not need to be pure vegetarian). Do NOT add a rest block, the app adds one at 15:00; keep 15:00-16:30 free.
+- Pace: ${shapes.length ? "the number of sights per day below (cooler days fit more)" : "3 to 4 sights or activities a day in cities, 2 to 3 for beach, hill or nature stays"}. Never fewer than 2 sights a day. Group each day by area to keep travel short, and finish outdoor sights before sunset.
+- Every day has lunch (13:00) and dinner (20:00) at places that serve good vegetarian dishes (they do not need to be pure vegetarian). Do NOT add a rest block, the app adds one; keep its window free.
+${shapes.length ? shapes.map((s, i) => `- Day ${i + 1}: ${s.sights} sights${weather[i] ? `, ${weather[i].max}°/${weather[i].min}°` : ""}${weather[i]?.sunset ? `, sunset ${weather[i].sunset}` : ""}, rest ${s.rest.time} for ${s.rest.min} min.`).join("\n") : ""}
 - Exactly one splurge each: one food splurge dinner, one experience splurge (a tour, guide, ticket or class worth paying for), one stay splurge (in "stays").
 - Include one market visit in the trip.
 - Never use airports, stations, airlines, bus or ferry terminals, car rental or taxis as stops.
