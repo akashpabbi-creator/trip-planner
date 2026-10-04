@@ -428,6 +428,10 @@ function viewPlan() {
   return `
     ${ch.length ? `<div class="checks">${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</div>` : ""}
     ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 ${esc(t.proposal.source || "Gemini")} drafted a plan for your days <b>Review</b></button>` : S.planning ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
+    ${!t.proposal && !S.planning && t.days.some((d) => !dayItems(d.id).length) ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>
+      <button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days</button>
+      ${t.ai?.key ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
+      <button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button></div>` : ""}
     ${nSmart ? `<button class="smart-banner" data-action="tab" data-tab="smart">✨ ${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan <b>Review</b></button>` : ""}
     <div class="days">
     ${t.days.map((d, i) => {
@@ -540,7 +544,8 @@ async function ensureDestination(force = false) {
   if (!t?.destination || S.destBusy) return;
   const wantW = `${t.startDate}|${t.days.length}`;
   const tripId = S.tripId;
-  // A trip whose travel guide was read by an older version of the app: read it again and rebuild the untouched sample.
+  // A trip whose travel guide was read by an older version of the app: read it again. Days are never filled here;
+  // they fill only when someone asks (Fill days, Plan with Gemini, Plan with Claude).
   const upgrade = !force && t.place?.for === t.destination && t.guide?.for === t.destination && (t.guide.v || 1) < GUIDE_V && S.upgraded !== tripId;
   if (upgrade) S.upgraded = tripId;
   if (!force && !upgrade && t.place?.for === t.destination) {
@@ -567,8 +572,6 @@ async function ensureDestination(force = false) {
     await S.store.updateTrip(tripId, { destLoading: { for: t.destination, at: Date.now(), by: S.me.email } });
     const d = await loadDestination(t);
     await S.store.updateTrip(tripId, { place: d.place, weather: d.weather ? { ...d.weather, for: wantW } : null, guide: d.guide, destLoading: null });
-    if (S.tripId === tripId && upgrade && d.guide.listings.length) await rebuildSample(tripId, { auto: true });
-    else if (S.tripId === tripId && !S.items.some((i) => i.suggestedBy) && d.guide.listings.length) await addStarter(tripId, d.guide.listings);
   } catch (e) {
     console.warn(e);
     await S.store.updateTrip(tripId, { destLoading: null }).catch(() => {});
@@ -597,9 +600,6 @@ function aiToItem(p) {
     suggestedBy: "ai", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
   };
 }
-async function addStarter(tripId, listings) {
-  await buildSampleItinerary(tripId, listings, { auto: true });
-}
 // Fills empty days with a sample plan built from our preferences (profile.js), and puts stays and backups in Ideas.
 async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.listings || [], { auto = false } = {}) {
   const t = S.trip;
@@ -609,9 +609,7 @@ async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.
   const built = buildSample(t, listings, profileOf(t));
   const n = await writePlan(tripId, built, empty);
   if (n) await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `built a sample ${built.mode === "slow" ? "slow-paced" : "full"} itinerary for ${t.destination || "the trip"} from our preferences (${n} stops)` });
-  if (!auto) toast(n ? `Sample itinerary added: ${built.mode === "slow" ? "slow pace, 1–2 anchors a day" : "full days, 3 anchors a day"}, with a rest block each day.` : "Nothing new to add from the travel guide.");
-  // With Gemini connected, Gemini also drafts a plan, checked by the same rules, for you to accept day by day.
-  if (t.ai?.key && auto && !t.proposal && !geminiWait()) geminiPlan(tripId, { quiet: true }).catch((e) => console.warn("gemini plan", e.message));
+  if (!auto) toast(n ? `Sample itinerary added: ${built.mode === "slow" ? "slow pace, 2–3 stops a day" : "full days, 3–4 sights a day"}, with a rest block timed to the weather.` : "Nothing new to add from the travel guide.");
 }
 // Writes a plan (from buildSample or checkDraft) onto the given days; entries without a day go to Ideas.
 async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas = true } = {}) {
@@ -780,6 +778,15 @@ async function acceptProposal(dayIdxs) {
 // Your own links go back on the best days; pages that were only a bot check are read again.
 const untouched = (i) => !i.userEdited && !(i.updatedAt && i.addedAt && i.updatedAt - i.addedAt > 120000 && i.updatedBy && i.updatedBy !== i.addedBy);
 const waitFor = async (ok, ms = 4000) => { for (let n = 0; n < ms / 100 && !ok(); n++) await new Promise((r) => setTimeout(r, 100)); };
+// Takes out the sample stops nobody has touched; everything you added or edited stays.
+async function clearSample(tripId = S.tripId) {
+  const drop = S.items.filter((i) => (i.sample || ["guide", "plan"].includes(i.suggestedBy)) && untouched(i));
+  if (!drop.length) return toast("No untouched sample stops to clear.");
+  if (!confirm(`Clear ${drop.length} sample stops? Anything you added or edited stays.`)) return;
+  for (const i of drop) await S.store.deleteItem(tripId, i.id);
+  await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `cleared ${drop.length} sample stops` });
+  toast(`Cleared ${drop.length} sample stops.`);
+}
 async function rebuildSample(tripId = S.tripId, { auto = false } = {}) {
   const junk = S.items.filter((i) => i.fromLink && BLOCKED.test(`${i.title} ${i.description || ""}`));
   const drop = S.items.filter((i) => (i.sample || ["guide", "plan"].includes(i.suggestedBy)) && untouched(i)).concat(junk);
@@ -888,7 +895,8 @@ function prefsCard() {
     ${t.ai?.key ? `<button class="primary btn-s" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? `🤖 Review ${esc(t.proposal.source || "Gemini")}'s plan` : "🤖 Ask Gemini to plan the days"}</button>` : ""}
     <button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}>🟠 Plan with Claude</button>
     ${t.ai?.key && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
-    ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>` : ""}
+    ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>
+      <button class="btn-s" data-action="clearSample">🧹 Clear the sample stops</button>` : ""}
   </section>`;
 }
 function editProfile() {
@@ -1724,6 +1732,7 @@ document.addEventListener("click", async (e) => {
       case "regenPlan": { const src = S.trip.proposal?.source; $modal.close(); await S.store.updateTrip(S.tripId, { proposal: null }); return src === "Claude" || !S.trip.ai?.key ? claudePlan() : geminiPlan(); }
       case "dropPlan": $modal.close(); return S.store.updateTrip(S.tripId, { proposal: null, ...stampMe() });
       case "rebuildSample": return rebuildSample();
+      case "clearSample": return clearSample();
       case "editProfile": return editProfile();
       case "discAdd": {
         const list = b.dataset.src === "ai" ? S.trip.aiPicks.items : S.trip.guide.listings;

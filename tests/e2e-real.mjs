@@ -21,6 +21,12 @@ for (const T of TRIPS) {
   await p.fill("[name=numDays]", String(T.days));
   await p.fill("[name=startDate]", T.start).catch(() => {});
   await p.click("#modalForm button[value=ok]");
+  // Days must stay empty until someone asks: check that, then tap Fill.
+  await p.waitForFunction(() => { const db = JSON.parse(localStorage.getItem("tripplanner-demo-v1") || "{}"); const t = Object.values(db.trips || {})[0]; return t?.guide?.listings?.length; }, null, { timeout: 180000 }).catch(() => console.log("  guide didn't load"));
+  await p.waitForTimeout(3000);
+  const early = await p.evaluate(() => { const db = JSON.parse(localStorage.getItem("tripplanner-demo-v1")); const t = Object.values(db.trips)[0]; return Object.values(db.items?.[t.id] || {}).filter((i) => i.dayId).length; });
+  if (early) { fails++; console.log(`  ❌ ${early} stops were put on days before anyone asked`); }
+  await p.locator("[data-action=buildSample]:visible").first().click();
   // Wait until the sample plan has been written.
   await p.waitForFunction(() => { const db = JSON.parse(localStorage.getItem("tripplanner-demo-v1") || "{}"); const t = Object.values(db.trips || {})[0]; return t && Object.values(db.items?.[t.id] || {}).some((i) => i.dayId); }, null, { timeout: 180000 }).catch(() => console.log("  no plan after 3 minutes"));
   await p.waitForTimeout(8000);

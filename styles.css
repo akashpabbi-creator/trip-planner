@@ -341,3 +341,6 @@ label.row { display: flex; gap: 8px; align-items: center; }
 .prop-list li { line-height: 1.35; }
 .proposal .day-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .check.info { background: var(--accent-soft); color: var(--ink); }
+
+.fill-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin: 0 0 12px; border: 1px dashed var(--line, #ccc); border-radius: 12px; }
+.fill-bar span { flex: 1 1 100%; }
