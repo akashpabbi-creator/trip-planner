@@ -2032,7 +2032,7 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     const hadCtl = !!navigator.serviceWorker.controller; // false on first install: no notice then
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (!hadCtl || document.getElementById("upd")) return;
+      if (!hadCtl || performance.now() < 15000 || document.getElementById("upd")) return; // network-first shell already loaded new files if it fired right after load
       const t = document.createElement("div");
       t.id = "upd";
       t.className = "toast upd";
