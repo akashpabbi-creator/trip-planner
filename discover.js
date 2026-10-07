@@ -87,7 +87,7 @@ export async function fetchOpenverse(q) {
 const THEMES = [
   ["coffee", /\b(coffee|cardamom|arabica|robusta)\b/gi, "coffee plantation"],
   ["tea", /\btea (plantations?|gardens?|estates?|hills?)\b|\btea\b/gi, "tea plantation hills"],
-  ["hills", /hill ?station|western ghats|\bghats?\b|\bhills?\b|mountain|misty|\bmist\b/gi, "Western Ghats mist hills"],
+  ["hills", /hill ?station|western ghats|\bghats?\b|\bhills?\b|mountain|misty|\bmist\b/gi, "Western Ghats landscape"],
   ["beach", /\bbeach(es)?\b|\bcoast(al)?\b|seashore|\bsurf/gi, "tropical beach"],
   ["fort", /\bforts?\b|fortress|citadel/gi, "hill fort"],
   ["temple", /\btemples?\b|shrine|\bmosque\b|cathedral|basilica/gi, "temple architecture"],
@@ -131,6 +131,9 @@ export async function fetchInspired(themes) {
 }
 
 const BAD_WORDS = /\b(trains?|railways?|railroad|roads?|buses|bus|buildings?|offices?|hospitals?|colleges?|schools?|stations?|police|junction|highway|traffic)\b/i;
+// Animal and close-up subjects: covers must be scenery. Tested on the caption with underscores turned to spaces (they defeat \b).
+const CRITTER = /\b(frogs?|toads?|snakes?|lizards?|geckos?|spiders?|insects?|butterfl(y|ies)|moths?|beetles?|bees?|ants?|caterpillars?|birds?|species|macro|close-?ups?|portraits?|selfies?|flowers?)\b/i;
+const critter = (x) => CRITTER.test(String(x?.caption || "").replace(/_/g, " "));
 // Ordered cover candidates with captions. Wikivoyage banner, Openverse destination and inspired photos (interleaved), Commons, nearby landmarks,
 // famous listings' photos, the Wikipedia photo, and last a generated illustration. Captions about trains, roads or buildings drop to the end of the photos.
 export function coverEntries(banner, listings, wikiImage, nearby = [], commons = [], ov = [], inspired = [], themes = []) {
@@ -138,8 +141,8 @@ export function coverEntries(banner, listings, wikiImage, nearby = [], commons =
   const mk = (u, caption = "", credit = "") => (u && goodCover(u) && !seen.has(u) && seen.add(u) ? { url: u, caption, ...(credit ? { credit } : {}) } : null);
   const list = (arr) => arr.filter(Boolean);
   const bannerE = list([mk(banner, "")]);
-  const dest = list((ov || []).slice(0, 6).map((x) => mk(x.url, x.caption, x.credit)));
-  const insp = (inspired || []).map((g) => [...list((g.ov || []).slice(0, 3).map((x) => mk(x.url, `Inspired: ${g.theme}`, x.credit))), ...list((g.cm || []).slice(0, 2).map((x) => mk(x.url, `Inspired: ${g.theme}`)))]);
+  const dest = list((ov || []).filter((x) => !critter(x)).slice(0, 6).map((x) => mk(x.url, x.caption, x.credit)));
+  const insp = (inspired || []).map((g) => [...list((g.ov || []).filter((x) => !critter(x)).slice(0, 3).map((x) => mk(x.url, `Inspired: ${g.theme}`, x.credit))), ...list((g.cm || []).filter((x) => !critter(x)).slice(0, 2).map((x) => mk(x.url, `Inspired: ${g.theme}`)))]);
   // Interleave: destination photos and each theme's photos take turns, best first.
   const sink = (l) => [...l.filter((x) => !BAD_WORDS.test(x.caption)), ...l.filter((x) => BAD_WORDS.test(x.caption))];
   const lanes = [sink(dest).slice(0, 3), ...insp.map((l) => l.slice(0, 2)), sink(dest).slice(3), ...insp.map((l) => l.slice(2))];

@@ -149,9 +149,9 @@ try {
   console.log("    " + JSON.stringify(pl.coverCaptions));
   ok(queries.includes("ov:Italy"), "Openverse is asked for the destination first");
   ok(queries.includes("ov:coffee plantation Karnataka"), "inspired query uses the theme and the region: " + queries.filter((x) => x.startsWith("ov:")).join(" | "));
-  ok(queries.some((x) => /^ov:Western Ghats mist hills/.test(x)) && queries.some((x) => /^cm:coffee plantation/.test(x)), "other themes and Commons are searched too");
+  ok(queries.some((x) => /^ov:Western Ghats landscape/.test(x)) && queries.some((x) => /^cm:coffee plantation/.test(x)), "other themes and Commons are searched too");
   ok(pl.coverCaptions[0] === "Italy coast" && /^Inspired:/.test(pl.coverCaptions[1]) && /^Inspired:/.test(pl.coverCaptions[2]), "destination and inspired photos are interleaved best first: " + pl.coverCaptions.join(" / "));
-  ok(pl.coverCaptions.includes("Inspired: Western Ghats mist hills"), "second theme appears");
+  ok(pl.coverCaptions.includes("Inspired: Western Ghats landscape"), "second theme appears");
   ok(!pl.covers.some((u) => /Tall_tower|Small/.test(u)), "portrait and narrow Openverse results are skipped");
   ok(pl.coverCaptions[pl.coverCaptions.length - 2] === "Train on a bridge" && pl.coverCaptions.at(-1) === "Illustration", "a train caption is pushed to the end, the illustration is last");
   ok(pl.covers.at(-1) === "illus:coffee", "illustration uses the main theme");
@@ -184,6 +184,15 @@ try {
 } catch (e) {
   fails++;
   console.log("  FAIL exception:", e.message);
+}
+// Critters are not scenery: wildlife close-ups never become cover options
+{
+  const { coverEntries } = await import(join(root, "discover.js"));
+  const frog = { url: "https://upload.wikimedia.org/a/Kodaikanal_Bush_Frog.jpg", caption: "Kodaikanal_Bush_Frog_the_metallic_jewel" };
+  const hills = { url: "https://upload.wikimedia.org/b/Western_Ghats_hills.jpg", caption: "Western Ghats hills at dawn" };
+  const urls = coverEntries("", [], "", [], [], [{ url: "https://x.org/ovbird.jpg", caption: "Macro of a butterfly" }], [{ theme: "hills", cm: [frog, hills], ov: [{ url: "https://x.org/ovfrog.jpg", caption: "Green_Frog_close-up" }] }]).map((x) => x.url);
+  ok(!urls.includes(frog.url) && !urls.includes("https://x.org/ovfrog.jpg") && !urls.includes("https://x.org/ovbird.jpg"), "wildlife close-ups (underscored titles too) are dropped from covers");
+  ok(urls.includes(hills.url), "a landscape inspired photo is kept");
 }
 ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join(" | ") : ""));
 await b.close();
