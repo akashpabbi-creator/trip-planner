@@ -41,7 +41,7 @@ export function geminiWait() {
   return left.every((u) => u > now) ? Math.min(...left) : 0;
 }
 
-async function call(key, prompt, { json = false, search = false, model } = {}) {
+export async function call(key, prompt, { json = false, search = false, model } = {}) {
   let lastErr, quota;
   for (const m of model ? [model] : search ? SEARCH_MODELS : MODELS) {
     if (waits[m]?.until > Date.now()) { quota = quota || waits[m]; continue; }
@@ -73,7 +73,7 @@ async function call(key, prompt, { json = false, search = false, model } = {}) {
   if (quota) throw new QuotaError(quotaMessage(quota));
   throw lastErr;
 }
-function parseJson(text) {
+export function parseJson(text) {
   const m = text.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, text];
   const s = m[1].trim();
   const start = s.search(/[[{]/);

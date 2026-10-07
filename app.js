@@ -823,7 +823,7 @@ function openProposal() {
   const row = (x) => x.kind === "rest" ? `<li class="muted"><b>${esc(x.time || "")}</b> ☕ Rest &amp; recharge${x.note ? ` <span class="small">· ${esc(x.note)}</span>` : ""}</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
   const ideas = pr.plan.filter((x) => x.dayIndex == null);
   openModal(`<h3>🤖 ${esc(pr.source || "Gemini")}'s plan for ${esc(t.destination)}</h3>
-    <p class="muted small">Drafted by ${esc(pr.byName || "Gemini")} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
+    <p class="muted small">Drafted by ${esc(pr.source || "Gemini")} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
     ${pr.summary ? `<p>${esc(pr.summary)}</p>` : ""}
     ${pr.notes?.length ? `<div class="checks">${pr.notes.map((n) => `<div class="check info">${esc(n)}</div>`).join("")}</div>` : ""}
     <div class="proposal">${t.days.map((d, i) => `<section class="day"><header class="day-head"><div><div class="day-n">Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}</div>${pr.bases?.find((b) => b.dayIndex === i) ? `<div class="day-title muted">staying in ${esc(pr.bases.find((b) => b.dayIndex === i).base)}</div>` : ""}</div>
@@ -939,7 +939,7 @@ function viewDiscover() {
     <div class="chips">${filters.map(([k, l]) => `<button class="chip ${f === k ? "on" : ""}" data-action="discFilter" data-id="${k}">${l}</button>`).join("")}</div>
 
     <section class="d-sec">
-      <div class="d-head"><h3>✨ Top rated, picked by Gemini</h3>
+      <div class="d-head"><h3>✨ Top rated, picked by ${esc(t.aiPicks?.for === t.destination && t.aiPicks.source || "Gemini")}</h3>
         ${t.ai?.key ? `<button class="btn-s" data-action="aiPicks" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "picks" ? "Searching…" : picks.length ? "Refresh" : "Find top-rated picks"}</button>` : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
       ${picks.length ? `<div class="dgrid">${picks.map(([x, i]) => discoverCard(x, "ai", i)).join("")}</div>`
         : `<p class="muted small">${t.ai?.key ? "Gemini searches Google for the best-reviewed places, with ratings." : "Connect a free Gemini key to get top-rated restaurants, sights and hotels with Google ratings."}</p>`}
@@ -1102,19 +1102,19 @@ async function applyAi(idx) {
     await S.store.addItem(S.tripId, { ...aiToItem({ name: p.name, category: p.category, address: p.location, durationMin: p.durationMin, approxCost: p.cost, why: sug.detail }), dayId, order: dayId ? nextOrder(dayId) : 0 });
   }
   await S.store.txTrip(S.tripId, (cur) => ({ aiReview: { ...cur.aiReview, applied: [...new Set([...(cur.aiReview?.applied || []), idx])] }, ...stampMe() }));
-  await log(`applied Gemini's suggestion: ${sug.title}`);
+  await log(`applied ${rev.source || "Gemini"}'s suggestion: ${sug.title}`);
 }
 function viewAiReview() {
   const t = S.trip;
   const r = t.aiReview;
-  const head = `<div class="d-head"><h3>🤖 Gemini review</h3>${t.ai?.key
+  const head = `<div class="d-head"><h3>🤖 ${esc(r?.source || "Gemini")} review</h3>${t.ai?.key
     ? `<button class="btn-s ${r ? "" : "primary"}" data-action="aiReview" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "review" ? "Reviewing…" : r ? "Review again" : "Review our plan"}</button>`
     : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
     <p class="muted small">Using Claude? <button class="link" data-action="copyForClaude" data-id="review">Copy plan for a Claude review</button> or <button class="link" data-action="copyForClaude" data-id="drive">Copy plan to save in Google Drive</button>, then paste it in your Claude trip project.</p>`;
   if (!r) return `<section class="ai-box">${head}<p class="muted small">${t.ai?.key ? "Gemini reads the whole plan and suggests improvements: timing, opening hours, what to add, how to get around." : "Connect a free Gemini key for an expert review of your plan in plain language."}</p></section>`;
   return `<section class="ai-box">${head}
     <p class="ai-sum">${esc(r.summary)}</p>
-    <p class="muted small">Reviewed ${ago(r.at)}, asked by ${esc(who(r.by))}. Changes since then aren't included.</p>
+    <p class="muted small">${r.source === "Claude" ? "Sent by Claude" : "Reviewed"} ${ago(r.at)}, ${r.source === "Claude" ? "for" : "asked by"} ${esc(who(r.by))}. Changes since then aren't included.</p>
     ${r.suggestions.map((x, i) => {
       const done = (r.applied || []).includes(i);
       const can = !done && aiActionable(x.action);
@@ -1855,7 +1855,7 @@ document.addEventListener("click", async (e) => {
         const x = list[+id];
         if (!x || inTrip(x.name)) return;
         await S.store.addItem(S.tripId, b.dataset.src === "ai" ? aiToItem(x) : guideToItem(x));
-        await log(`added “${x.name}” to ideas from ${b.dataset.src === "ai" ? "Gemini's picks" : "the travel guide"}`);
+        await log(`added “${x.name}” to ideas from ${b.dataset.src === "ai" ? (S.trip.aiPicks.source || "Gemini") + "'s picks" : "the travel guide"}`);
         toast("Added to Ideas.");
         return touchTrip();
       }
