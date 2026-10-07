@@ -11,6 +11,7 @@ import * as captureMod from "./capture.js";
 import * as kitMod from "./kit.js";
 import * as changesMod from "./changes.js";
 import * as bridgeMod from "./bridge.js";
+import * as bookingsMod from "./bookings.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -1944,6 +1945,7 @@ const ctx = {
   action: (name, fn) => { REG.actions[name] = fn; },
   on: (event, fn) => { (REG.events[event] ||= []).push(fn); },
   slot: (name, fn) => { (REG.slots[name] ||= []).push(fn); },
+  renderSlot: slot,
   // ctx.costs(fn) registers extra cost rows; ctx.costs() returns the totals.
   costs: (fn) => (typeof fn === "function" ? void REG.costs.push(fn) : costs()),
 };
@@ -1956,7 +1958,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
