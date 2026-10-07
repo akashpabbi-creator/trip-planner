@@ -1,7 +1,7 @@
 // Minimal service worker: makes the app installable (needed for "Share to Trips" on Android)
 // and keeps the app shell available offline. Data sync is handled by Firestore itself.
 // Bump CACHE on every release: a changed sw.js is what makes open apps show the "New version" refresh notice.
-const CACHE = "trips-shell-v25";
+const CACHE = "trips-shell-v26";
 // Firebase SDK and fonts live on other origins; versioned URLs, so cache-first is safe. Kept across shell bumps.
 const CDN = "trips-cdn-v1";
 const FBJS = ["firebase-app.js", "firebase-auth.js", "firebase-firestore.js"].map((f) => "https://www.gstatic.com/firebasejs/10.12.2/" + f);
@@ -17,7 +17,7 @@ async function cdnFetch(request) {
   if (hit) { if (request.url.startsWith("https://fonts.googleapis.com/")) net.catch(() => {}); return hit; }
   return net;
 }
-const SHELL = ["./", "index.html", "styles.css", "app.js", "store.js", "unfurl.js", "smart.js", "discover.js", "ai.js", "profile.js", "linkinfo.js", "map.js", "along.js", "social.js", "capture.js", "kit.js", "changes.js", "bridge.js", "bookings.js", "paste.js", "shuffle.js", "config.js", "manifest.webmanifest", "icons/icon.svg"];
+const SHELL = ["./", "index.html", "styles.css", "app.js", "store.js", "unfurl.js", "smart.js", "discover.js", "ai.js", "profile.js", "linkinfo.js", "map.js", "along.js", "social.js", "capture.js", "kit.js", "changes.js", "bridge.js", "bookings.js", "paste.js", "shuffle.js", "proposal-social.js", "config.js", "manifest.webmanifest", "icons/icon.svg"];
 // Android "Share" to the installed app arrives as a POST (multipart: images + title/text/url). Images wait in
 // Cache "share-inbox" until the app reads them (capture.js); text and links ride along in the redirect URL.
 const INBOX = "share-inbox";

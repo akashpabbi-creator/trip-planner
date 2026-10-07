@@ -3,6 +3,7 @@
 // (applyOp / opText), shared with the Claude link (bridge.js).
 import { call, parseJson, QuotaError, geminiWait } from "./ai.js";
 import { geocode, has } from "./smart.js";
+import { voteRow, thread, summary } from "./proposal-social.js";
 
 let ctx;
 const BOOKING_KINDS = ["flight", "hotel", "train", "bus", "ferry", "car", "tickets", "other"];
@@ -345,11 +346,14 @@ export function openChanges() {
   if (!c) return;
   ctx.openModal(`<h3>💬 ${esc(c.source)}'s suggested changes</h3>
     <div id="chgHead"></div><div id="chgList"></div>
+    <div id="chgAll" class="ps-all"></div>
+    <div id="chgThread"></div>
     <div class="row"><button type="button" class="btn-s" data-action="chgDiscard">Discard all</button></div>`, async () => {
     await applyAll();
     return false;
   });
   paintChanges();
+  document.getElementById("chgThread").innerHTML = thread(c, "changes"); // painted once; later updates only touch the comment list
 }
 function paintChanges() {
   const { S, esc } = ctx, c = S.trip.changes;
@@ -364,8 +368,9 @@ function paintChanges() {
     const state = done.has(i) ? `<span class="muted small">✓ Applied</span>` : skip.has(i) ? `<span class="muted small">Skipped</span>`
       : bad ? `<span class="small chg-bad">Can't apply: ${esc(bad)}</span>`
       : `<span class="chg-act"><button type="button" class="btn-s primary" data-action="chgApply" data-id="${i}">Apply</button><button type="button" class="btn-s" data-action="chgSkip" data-id="${i}">Skip</button></span>`;
-    return `<div class="chg-op ${bad ? "bad" : ""} ${done.has(i) || skip.has(i) ? "off" : ""}"><div class="chg-t">${esc(opText(op))}${op.why ? `<div class="muted small">${esc(op.why)}</div>` : ""}</div>${state}</div>`;
+    return `<div class="chg-op ${bad ? "bad" : ""} ${done.has(i) || skip.has(i) ? "off" : ""}"><div class="chg-t">${esc(opText(op))}${op.why ? `<div class="muted small">${esc(op.why)}</div>` : ""}</div><span class="chg-side">${voteRow(c, String(i), "changes")}${state}</span></div>`;
   }).join("");
+  document.getElementById("chgAll").innerHTML = `<b>What do you both think?</b>${voteRow(c, "all", "changes")}<span class="muted small">Votes are just opinions. Nothing applies until you tap Apply.</span>`;
   const ok = ctx.$form.querySelector("button[value=ok]");
   if (ok) { ok.textContent = left.length > 1 ? `Apply all ${left.length}` : "Apply"; ok.disabled = !left.length; }
 }
@@ -406,6 +411,7 @@ const CSS = `
 .chg-op.off .chg-t { color: var(--muted); text-decoration: line-through; }
 .chg-op.bad { opacity: .75; }
 .chg-bad { color: var(--warn); text-align: right; }
+.chg-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
 .chg-act { display: flex; gap: 6px; flex-shrink: 0; }
 `;
 function box() {
@@ -426,7 +432,8 @@ function banner() {
   if (!c) return "";
   const n = pending().length;
   if (!n) return "";
-  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(c.source)} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}</span><b>Review</b></button>`;
+  const sum = summary(c, S.trip.members);
+  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(c.source)} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}${sum ? `<span class="ps-sum">${esc(sum)}</span>` : ""}</span><b>Review</b></button>`;
 }
 
 export function init(c) {
