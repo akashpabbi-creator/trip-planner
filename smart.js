@@ -16,7 +16,11 @@ export const has = (p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
 
 // Free geocoder (OpenStreetMap Nominatim). Its usage policy asks for at most 1 request per second.
 const geoCache = new Map();
+let geoGate = Promise.resolve(), geoLast = 0;
+const geoSlot = () => { const w = geoGate.then(async () => { const wait = geoLast + 1100 - Date.now(); if (wait > 0) await new Promise((r) => setTimeout(r, wait)); geoLast = Date.now(); }); geoGate = w.catch(() => {}); return w; };
 export async function geocode(query) {
+  if (geoCache.has(query)) return geoCache.get(query);
+  await geoSlot();
   if (geoCache.has(query)) return geoCache.get(query);
   const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(query), {
     headers: { "Accept-Language": navigator.language || "en" },

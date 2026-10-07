@@ -2,7 +2,7 @@
 // The app keeps a snapshot of the plan in it; Claude drops proposals into its inbox; the app turns each one into a
 // proposal the couple review. Nothing Claude sends is applied without a tap.
 import { parseJson } from "./ai.js";
-import { OP_FORMATS, proposeChanges } from "./changes.js";
+import { OP_FORMATS, normCategory, proposeChanges } from "./changes.js";
 
 let ctx;
 let watching = "";      // token currently watched
@@ -184,7 +184,7 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
     const cats = ctx.CATEGORIES;
     const all = (Array.isArray(p.items) ? p.items : []).filter((x) => x && (x.name || x.title));
     const items = all.map((x) => ({
-      name: String(x.name || x.title).slice(0, 140), category: cats[x.category] ? x.category : "sight",
+      name: String(x.name || x.title).slice(0, 140), category: normCategory(x.category, cats) || "sight",
       rating: Number(x.rating) || null, reviews: Number(x.reviews) || null, priceLevel: String(x.priceLevel || "").slice(0, 6) || null,
       approxCost: Number(x.approxCost) || null, area: String(x.area || "").slice(0, 80), why: String(x.why || "").slice(0, 240),
       durationMin: Number(x.durationMin) || 90, address: String(x.address || "").slice(0, 200),
