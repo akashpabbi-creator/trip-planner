@@ -1,7 +1,7 @@
 // Minimal service worker: makes the app installable (needed for "Share to Trips" on Android)
 // and keeps the app shell available offline. Data sync is handled by Firestore itself.
 // Bump CACHE on every release: a changed sw.js is what makes open apps show the "New version" refresh notice.
-const CACHE = "trips-shell-v21";
+const CACHE = "trips-shell-v22";
 // Firebase SDK and fonts live on other origins; versioned URLs, so cache-first is safe. Kept across shell bumps.
 const CDN = "trips-cdn-v1";
 const FBJS = ["firebase-app.js", "firebase-auth.js", "firebase-firestore.js"].map((f) => "https://www.gstatic.com/firebasejs/10.12.2/" + f);

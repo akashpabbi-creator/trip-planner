@@ -100,6 +100,9 @@ try {
   await p.evaluate(() => { window.open = () => null; navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
   await p.fill("#changeInput", "add a rest day on day 3");
   await p.click("[data-action=chgClaude]");
+  await p.waitForSelector("#modalForm button[value=cancel]");
+  ok(/Connect once and every Claude button opens Claude with your trip ready\./.test(await p.textContent("#modalForm")) && (await p.textContent("#modalForm button[value=cancel]")) === "Not now", "first Ask Claude with the link off offers to connect (the nudge)");
+  await p.click("#modalForm button[value=cancel]");
   await p.waitForSelector("#modalForm textarea[name=answer]");
   const copied = await p.evaluate(() => window.__copied);
   ok(/add a rest day on day 3/.test(copied) && copied.includes(ids.a) && /"type":"move"/.test(copied) && /vegetarian/.test(copied), "copied request has the ask, the plan with ids and the change formats");
@@ -113,15 +116,30 @@ try {
   ok(true, "a check op creates trip.checklist without the Kit module's help");
   await p.click("[data-action=chgDiscard]");
 
-  console.log("Claude link in demo mode");
+  console.log("Ask Claude again: no nudge, straight to copy/paste");
+  await p.fill("#changeInput", "another thing");
+  await p.click("[data-action=chgClaude]");
+  await p.waitForSelector("#modalForm textarea[name=answer]");
+  ok(true, "the nudge shows only once");
+  await p.click("[data-close]");
+
+  console.log("Connect from the nudge: Connect continues straight to Claude");
+  await p.evaluate(() => { localStorage.removeItem("tp-claude-nudged"); window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; });
   await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: null }));
   await p.setViewportSize({ width: 390, height: 800 });
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-action=bridgeOpen]");
+  await p.fill("#changeInput", "swap two stops");
+  await p.click("[data-action=chgClaude]");
+  await p.waitForSelector("#modalForm button[value=cancel]");
   await p.click("#modalForm button[value=ok]");
-  await p.waitForFunction(() => /connected/.test(document.querySelector("#modalForm h3")?.textContent || ""));
+  await p.waitForFunction(() => window.__opened.length === 1, null, { timeout: 10000 });
   const tok = await p.evaluate(() => window.__tripCtx.S.trip.bridge.token);
-  await p.click("[data-close]");
+  const u0 = await p.evaluate(() => window.__opened[0]);
+  const q0 = decodeURIComponent(u0.split("?q=")[1] || "");
+  ok(u0.startsWith("https://claude.ai/new?q=") && q0.includes("token: " + tok) && q0.includes("Request: Please handle our new request in the trip planner: swap two stops"), "Connect opens claude.ai/new?q= with the token and the request");
+  ok((await p.evaluate(() => window.__copied)) === q0, "the clipboard holds the same text");
+  ok(await p.evaluate(() => window.__tripCtx.S.trip.bridge.ask?.request === "swap two stops"), "the request is saved for Claude too");
+
+  console.log("Claude link in demo mode");
   await p.waitForFunction((t) => JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t]?.snapshot, tok, { timeout: 10000 });
   ok(true, "demo bridge gets a snapshot");
   await p.evaluate((t) => window.__demoBridgePush(t, { id: "d1", at: Date.now(), json: JSON.stringify({ kind: "review", summary: "Fine.", suggestions: [{ title: "Eat more pasta", detail: "Always.", action: { type: "none" } }] }) }), tok);

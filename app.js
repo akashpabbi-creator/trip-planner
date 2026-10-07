@@ -792,7 +792,8 @@ async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
 }
 
 // Claude plans in the Claude app (free with a Claude account, no key): the app hands over the request and reads the answer back.
-function claudePlan() {
+function claudePlan(manual) {
+  if (!manual && ctx.openClaude("Plan our empty days", { fallback: () => claudePlan(true) })) return; // one tap when the Claude link is on
   const t = S.trip;
   const { p, opts } = planInputs(t);
   const prompt = planPrompt(t, profileText(p), opts).replace("Use Google Search for", "Search the web for")
@@ -1901,6 +1902,7 @@ document.addEventListener("click", async (e) => {
       case "aiReview": return runAiReview();
       case "aiApply": return applyAi(+id);
       case "copyForClaude": {
+        if (id === "review" && S.trip.bridge?.token) return ctx.openClaude("Review our plan");
         const ask = id === "drive"
           ? `This is our final plan for ${S.trip.destination || "our trip"}. Use the Trip Sheet (travel-itinerary-planner) skill to turn it into a Trip Sheet, and file it in my Google Drive under Travel - Sanj_Akash with the usual folder naming. Keep our choices; fill in real times, legs, costs and bookings.`
           : `Please review our trip plan for ${S.trip.destination || "our trip"}. Check pacing, opening hours and best times, how we get between places (car, train, taxi, walking), must-dos, balance between what each of us wanted, budget and anything missing. Tell us exactly what to change, by day.`;
