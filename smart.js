@@ -34,7 +34,7 @@ export async function geocode(query) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Finds coordinates for stops that don't have them yet. Returns [itemId, {lat,lng}] pairs.
 export async function locateAll(items, destination, onProgress) {
-  const todo = items.filter((i) => !has(i) && (i.location || i.title) && !i.geoFailed).slice(0, 30);
+  const todo = items.filter((i) => !has(i) && !i.rest && (i.location || i.title) && !i.geoFailed).slice(0, 30);
   const out = [];
   for (let k = 0; k < todo.length; k++) {
     const it = todo[k];
@@ -152,7 +152,7 @@ export function analyse(ctx) {
   };
 
   // 0. Missing locations: nothing else works well without them.
-  const unlocated = ctx.items.filter((i) => !has(i));
+  const unlocated = ctx.items.filter((i) => !has(i) && !i.rest);
   if (unlocated.length)
     out.push({
       id: "locate", kind: "locate", level: "info",

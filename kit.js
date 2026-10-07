@@ -1,7 +1,7 @@
 // kit: Exports (day route link, .ics, .kml), Today card, Packing + To-dos, Spending log.
 // Other modules add their sections to the Kit tab through the "kit" slot (shown first).
 let ctx, S;
-const q = new URLSearchParams(location.search);
+const q = new URLSearchParams(typeof location !== "undefined" ? location.search : ""); // guarded so tests can import this file in Node
 const NOW_OVERRIDE = (q.get("now") || "").match(/^\d{1,2}:\d{2}$/)?.[0] || ""; // test override: ?now=HH:MM
 const TRANSIT = new Set(["transit", "bus", "train", "ferry"]);
 const drafts = {}; // typed-but-unsent input values, kept across re-renders
@@ -67,6 +67,7 @@ export function init(c) {
     if (m && e.key === "Enter") { e.preventDefault(); addItem(null, m[1]); }
   });
   ctx.on("render", restoreDrafts);
+  ctx.on("render", guideFailNote);
   ctx.on("trip", () => fixPending());
   window.addEventListener("online", () => fixPending(true));
 }
@@ -97,6 +98,14 @@ function download(name, mime, text) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+// Discover: when the travel guide could not be reached, say so instead of "No guide listings found".
+function guideFailNote() {
+  const g = S.trip?.guide;
+  if (!g?.failed || g.listings?.length) return;
+  for (const p of document.querySelectorAll(".d-sec p.muted.small"))
+    if (/^No guide listings found/.test(p.textContent)) p.textContent = "Couldn't reach the travel guide. Check your connection and tap Refresh.";
 }
 
 /* ------------------------------------------------------------ day route link */
@@ -278,7 +287,7 @@ async function fetchRate(from, to) {
   return 0;
 }
 // 1 unit of `from` in trip currency. Cached on the trip for 12 h; a stale rate beats none when offline.
-async function rateFor(from) {
+export async function rateFor(from) {
   const base = trip().currency || "INR";
   if (from === base) return 1;
   const r = trip().rates;
@@ -308,22 +317,36 @@ async function fixPending(force) {
       await S.store.txTrip(S.tripId, (cur) => ({ spends: (cur.spends || []).map((s) => (s.inTrip == null && rates[s.currency] ? { ...s, inTrip: Math.round(s.amount * rates[s.currency] * 100) / 100 } : s)) }));
   } finally { fixing = false; }
 }
+const MAX_AMOUNT = 1e9;
+let addingSpend = false;
 async function addSpend() {
+  if (addingSpend) return;
   const t = trip(), val = (id) => document.getElementById(id)?.value || "";
   const amount = Number(val("kSpAmt"));
   if (!(amount > 0)) { document.getElementById("kSpAmt")?.focus(); return ctx.toast("Enter the amount first."); }
+  if (amount < 0.01) { document.getElementById("kSpAmt")?.focus(); return ctx.toast("That amount is too small. Use 0.01 or more."); }
+  if (!(amount <= MAX_AMOUNT)) { document.getElementById("kSpAmt")?.focus(); return ctx.toast("That amount is too big. Check the number."); }
   const currency = val("kSpCur") || t.currency || "INR";
   const category = val("kSpCat") || "other";
-  const label = val("kSpLabel").trim() || ctx.CATEGORIES[category]?.label || "Spend";
+  const typed = val("kSpLabel"), label = typed.trim() || ctx.CATEGORIES[category]?.label || "Spend";
   const date = val("kSpDate") || ymd(new Date());
   const paidBy = val("kSpBy") || S.me.email;
-  const rate = await rateFor(currency);
-  const spend = { id: ctx.uid(), label, amount, currency, inTrip: rate ? Math.round(amount * rate * 100) / 100 : null, category, paidBy, date, by: S.me.email, at: Date.now() };
+  // Everything is read and the fields are cleared before any waiting, so a second tap has nothing left to save.
+  addingSpend = true;
   lastCur = currency;
   clearDrafts("kSpAmt", "kSpLabel");
-  await S.store.txTrip(S.tripId, (cur) => ({ spends: [...(cur.spends || []), spend], ...ctx.stampMe() }));
-  ctx.log(`logged a spend: ${label}, ${ctx.money(amount, currency)}`);
-  if (!rate) ctx.toast("Saved. The exchange rate will be added when you're back online.", 5000);
+  try {
+    const rate = await rateFor(currency);
+    const spend = { id: ctx.uid(), label, amount, currency, inTrip: rate ? Math.round(amount * rate * 100) / 100 : null, category, paidBy, date, by: S.me.email, at: Date.now() };
+    await S.store.txTrip(S.tripId, (cur) => ({ spends: [...(cur.spends || []), spend], ...ctx.stampMe() }));
+    ctx.log(`logged a spend: ${label}, ${ctx.money(amount, currency)}`);
+    if (!rate) ctx.toast("Saved. The exchange rate will be added when you're back online.", 5000);
+  } catch (e) {
+    console.warn(e);
+    drafts.kSpAmt = String(amount); drafts.kSpLabel = typed; // give the text back so nothing is lost
+    restoreDrafts();
+    ctx.toast("Couldn't save that spend. Check your connection and try again.");
+  } finally { addingSpend = false; }
 }
 async function delSpend(btn, id) {
   const s = (trip().spends || []).find((x) => x.id === id);
@@ -368,7 +391,7 @@ function spendSection() {
   }).join("");
   const today = ctx.today(), defDate = ymd(today >= 0 ? ctx.dayDate(today) : new Date());
   const form = ui.spendForm ? `<div class="k-spend-form">
-      <input id="kSpAmt" data-kd="1" type="number" inputmode="decimal" min="0" step="any" placeholder="Amount">
+      <input id="kSpAmt" data-kd="1" type="number" inputmode="decimal" min="0" max="1000000000" step="any" placeholder="Amount">
       <select id="kSpCur" data-kd="1" aria-label="Currency">${[...new Set([lastCur || cur, cur, ...ctx.CURRENCIES])].map((c) => `<option ${c === (drafts.kSpCur || lastCur || cur) ? "selected" : ""}>${c}</option>`).join("")}</select>
       <input id="kSpLabel" data-kd="1" class="wide" placeholder="What was it? e.g. Dinner">
       <select id="kSpCat" data-kd="1" aria-label="Category">${Object.entries(ctx.CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === (drafts.kSpCat || "food") ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select>
@@ -434,9 +457,10 @@ export function buildIcs() {
     if (b.start.length >= 16) {
       const sm = ctx.toMin(b.start.slice(11, 16)), em = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(b.end || "") ? b.end : "";
       const ed = em ? em.slice(0, 10) : b.start.slice(0, 10);
-      L.push(dt("DTSTART", stamp(b.start.slice(0, 10), sm)), dt("DTEND", em ? stamp(ed, ctx.toMin(em.slice(11, 16))) : stamp(b.start.slice(0, 10), sm + 60)));
+      const s0 = stamp(b.start.slice(0, 10), sm), e0 = em ? stamp(ed, ctx.toMin(em.slice(11, 16))) : "";
+      L.push(dt("DTSTART", s0), dt("DTEND", e0 && e0 > s0 ? e0 : stamp(b.start.slice(0, 10), sm + 60))); // never an end before the start
     } else {
-      const next = stamp(b.start.slice(0, 10), 1440).slice(0, 8);
+      const next = stamp(b.start.slice(0, 10), 1440).slice(0, 8); // all-day: DTEND is the day after the start
       L.push(`DTSTART;VALUE=DATE:${b.start.slice(0, 10).replace(/-/g, "")}`, `DTEND;VALUE=DATE:${next}`);
     }
     L.push(`SUMMARY:${icsText(b.title || b.kind || "Booking")}`);

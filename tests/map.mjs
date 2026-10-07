@@ -17,6 +17,11 @@ const srv = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "127.
 await new Promise((r) => setTimeout(r, 800));
 const URL0 = `http://127.0.0.1:${PORT}/`;
 const LEAF = "/tmp/claude-0/fbt/node_modules/leaflet/dist/";
+if (!existsSync(LEAF + "leaflet.js")) {
+  console.error(`tests/map.mjs needs Leaflet in ${LEAF}\nInstall it with:  mkdir -p /tmp/claude-0/fbt && cd /tmp/claude-0/fbt && npm i leaflet@1.9.4`);
+  srv.kill();
+  process.exit(1);
+}
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGN48e4RAAV6ArmMu8CWAAAAAElFTkSuQmCC", "base64");
 const SHOTS = "/tmp/claude-0";
 

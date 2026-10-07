@@ -1,6 +1,7 @@
 // bookings: Kit tab sections "Bookings" (flights, hotels, tickets; from pasted emails) and "Check prices"
 // (flight and hotel search links, no API). Also a strip on each Plan day, costs in Budget and a "Prices" link on stays.
 import { call, parseJson, QuotaError, geminiWait } from "./ai.js";
+import { rateFor } from "./kit.js";
 
 export const KINDS = {
   flight: { icon: "✈️", label: "Flight" }, hotel: { icon: "🏨", label: "Hotel" }, train: { icon: "🚆", label: "Train" },
@@ -230,8 +231,20 @@ export function init(ctx) {
     const c = (b.currency || cur()).toUpperCase();
     if (c === cur().toUpperCase()) return amount;
     const r = S.trip.rates;
-    if (r && String(r.base).toUpperCase() === cur().toUpperCase() && Number(r.map?.[c]) > 0) return amount / Number(r.map[c]);
+    // trip.rates.map[X] is how much 1 X is worth in the trip currency (same as the spending log).
+    if (r && String(r.base).toUpperCase() === cur().toUpperCase() && Number(r.map?.[c]) > 0) return amount * Number(r.map[c]);
     return null;
+  }
+  const excluded = () => list().filter((b) => inTrip(b) === null);
+  // Fetch (and cache on the trip) rates for bookings in other currencies, at most every 30 s.
+  let rateBusy = false, rateAt = 0;
+  async function ensureRates(force) {
+    if (rateBusy || !S.trip || !S.tripId || navigator.onLine === false || (!force && Date.now() - rateAt < 30000)) return;
+    const cs = [...new Set(excluded().map((b) => (b.currency || "").toUpperCase()).filter(Boolean))];
+    if (!cs.length) return;
+    rateBusy = true; rateAt = Date.now();
+    try { for (const c of cs) await rateFor(c); } catch (e) { console.warn("booking rate", e); } finally { rateBusy = false; }
+    ctx.render();
   }
 
   /* ---- stays: nights, bases, price link */
@@ -329,6 +342,12 @@ export function init(ctx) {
   }
   ctx.slot("kit", bookingsSection);
   ctx.slot("kit", pricesSection);
+  ctx.slot("budget", () => {
+    const n = excluded().length;
+    return n ? `<p class="muted small" id="bkNotCounted">${n} booking${n > 1 ? "s" : ""} in other currencies ${n > 1 ? "aren't" : "isn't"} counted yet (waiting for an exchange rate).</p>` : "";
+  });
+  ctx.on("trip", () => ensureRates());
+  window.addEventListener("online", () => ensureRates(true));
   document.addEventListener("toggle", (e) => { if (e.target?.id === "chk-sec") chkOpen = e.target.open; }, true);
   document.addEventListener("change", async (e) => {
     if (e.target.id !== "homeCity" || !S.tripId) return;
@@ -382,6 +401,7 @@ export function init(ctx) {
   }
 
   /* ---- booking form */
+  const MAX_COST = 1e9;
   function formHtml(b, note = "") {
     const k = (n) => esc(b[n] ?? "");
     return `<div class="bk-form"><h3>${b.id ? "Edit booking" : "Booking"}</h3>
@@ -392,14 +412,20 @@ export function init(ctx) {
       <div class="grid2"><label>Starts<input name="start" type="datetime-local" value="${k("start")}"></label><label>Ends<input name="end" type="datetime-local" value="${k("end")}"></label></div>
       <div class="grid2"><label>From<input name="from" value="${k("from")}"></label><label>To<input name="to" value="${k("to")}"></label></div>
       <label>Address<input name="address" value="${k("address")}" placeholder="Hotels and tickets"></label>
-      <div class="grid2"><label>Cost<input name="cost" type="number" min="0" step="any" value="${b.cost || ""}"></label>
+      <div class="grid2"><label>Cost<input name="cost" type="number" min="0" max="1000000000" step="any" value="${b.cost || ""}"></label>
         <label>Currency<select name="currency">${[...new Set([b.currency || cur(), ...ctx.CURRENCIES])].map((c) => `<option ${c === (b.currency || cur()) ? "selected" : ""}>${c}</option>`).join("")}</select></label></div>
       <label>Notes<input name="notes" value="${k("notes")}"></label>
       ${b.id ? `<button type="button" class="btn-s" data-action="bkDelete" data-id="${esc(b.id)}">Delete this booking</button>` : ""}
     </div>`;
   }
   async function saveBooking(f, id) {
+    const rawCost = Number(f.cost || 0);
+    if (!Number.isFinite(rawCost) || rawCost > MAX_COST) { toast("That cost is too big. Check the number."); return false; }
+    if (rawCost < 0) { toast("The cost can't be negative."); return false; }
     const clean = cleanBooking({ ...f, cost: f.cost }, S.trip);
+    if (clean.start && clean.end && clean.end < clean.start && !(clean.end.endsWith("T00:00") && clean.end.slice(0, 10) >= clean.start.slice(0, 10))) {
+      toast("The end is before the start. Check the dates."); return false;
+    }
     clean.title = (f.title || "").trim().slice(0, 120) || KINDS[clean.kind].label;
     let saved;
     await S.store.txTrip(S.tripId, (cur_) => {
@@ -409,6 +435,8 @@ export function init(ctx) {
       return { bookings: [...all, saved], ...ctx.stampMe() };
     });
     await ctx.log(`${id ? "updated" : "added"} the booking “${clean.title}”`);
+    // A price in another currency needs a rate to count in the budget: fetch it now (same as the spending log).
+    if (clean.cost && clean.currency.toUpperCase() !== cur().toUpperCase()) rateFor(clean.currency).then(() => ctx.render(), () => {});
     return saved;
   }
   // Shows each prefilled booking in turn so the couple can check it before it is saved.
@@ -418,6 +446,7 @@ export function init(ctx) {
     const n = total - queue.length;
     modal(formHtml(b, `${total > 1 ? `Booking ${n} of ${total}. ` : ""}${b.got === 0 ? "I couldn't find much in that email, so please fill in the rest." : "Check the details, then save."}`), async (f) => {
       const saved = await saveBooking(f);
+      if (!saved) return false;
       toast("Booking saved.");
       if (saved.kind === "hotel") setTimeout(() => offerStay(saved, queue.length ? () => nextFromQueue(total) : null), 80);
       else if (queue.length) setTimeout(() => nextFromQueue(total), 80);
@@ -447,7 +476,7 @@ export function init(ctx) {
   }
 
   /* ---- actions */
-  ctx.action("bkNew", () => { queue = []; modal(formHtml({ kind: "flight", currency: cur() }), async (f) => { const s = await saveBooking(f); if (s.kind === "hotel") setTimeout(() => offerStay(s), 80); }); });
+  ctx.action("bkNew", () => { queue = []; modal(formHtml({ kind: "flight", currency: cur() }), async (f) => { const s = await saveBooking(f); if (!s) return false; if (s.kind === "hotel") setTimeout(() => offerStay(s), 80); }); });
   ctx.action("bkEdit", (btn, id) => {
     const b = (S.trip.bookings || []).find((x) => x.id === id);
     if (b) modal(formHtml(b), (f) => saveBooking(f, id));
