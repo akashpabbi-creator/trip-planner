@@ -19,7 +19,7 @@ const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL "
 const b = await chromium.launch();
 const errors = [];
 
-async function run(label, { banner, wikiImage, nearby = {}, commons = {} }) {
+async function run(label, { banner, wikiImage, nearby = {}, commons = {}, ov = () => [], description = "", extract = "Italy is a country.", fail = false, queries = [] }) {
   console.log(label);
   const ctx = await b.newContext({ viewport: { width: 390, height: 800 } });
   const p = await ctx.newPage();
@@ -27,7 +27,10 @@ async function run(label, { banner, wikiImage, nearby = {}, commons = {} }) {
   const json = (r, body) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   await p.route(/^https?:\/\/(?!127\.0\.0\.1)/, (r) => {
     const u = r.request().url();
-    if (/en\.wikipedia\.org\/api\/rest_v1\/page\/summary\//.test(u)) return json(r, { type: "standard", title: "Italy", extract: "Italy is a country.", originalimage: { source: wikiImage }, coordinates: { lat: 41.9, lon: 12.5 }, content_urls: { desktop: { page: "https://en.wikipedia.org/wiki/Italy" } } });
+    if (/api\.openverse\.org/.test(u)) { const q = new URL(u).searchParams.get("q"); queries.push("ov:" + q); return fail ? r.abort() : json(r, { results: ov(q) }); }
+    if (fail && /pageprops|geosearch|commons\.wikimedia\.org\/w\/api/.test(u)) { if (/commons\.wikimedia/.test(u)) queries.push("cm:" + decodeURIComponent(new URL(u).searchParams.get("gsrsearch") || "")); return r.abort(); }
+    if (/commons\.wikimedia\.org\/w\/api\.php/.test(u)) queries.push("cm:" + decodeURIComponent(new URL(u).searchParams.get("gsrsearch") || ""));
+    if (/en\.wikipedia\.org\/api\/rest_v1\/page\/summary\//.test(u)) return json(r, { type: "standard", title: "Italy", description, extract, originalimage: { source: wikiImage }, coordinates: { lat: 41.9, lon: 12.5 }, content_urls: { desktop: { page: "https://en.wikipedia.org/wiki/Italy" } } });
     if (/en\.wikivoyage\.org\/w\/api\.php\?action=query&prop=pageprops/.test(u)) return json(r, { query: { pages: { 1: { title: "Italy", pageprops: banner ? { wpb_banner: banner } : {} } } } });
     if (/en\.wikipedia\.org\/w\/api\.php.*geosearch/.test(u)) return json(r, { query: { pages: nearby } });
     if (/commons\.wikimedia\.org\/w\/api\.php/.test(u)) return json(r, { query: { pages: commons } });
@@ -54,7 +57,7 @@ try {
   const PHOTO = "https://upload.wikimedia.org/wikipedia/commons/a/a1/Colosseum_in_Rome.jpg";
   let { p, ctx } = await run("banner + photo", { banner: "Italy banner.jpg", wikiImage: PHOTO });
   let pl = await p.evaluate(() => window.__tripCtx.S.trip.place);
-  ok(Array.isArray(pl.covers) && pl.covers.length === 2, "two cover candidates: " + JSON.stringify(pl.covers));
+  ok(Array.isArray(pl.covers) && pl.covers.length === 3 && pl.covers[2] === "illus:generic", "banner, photo and the illustration: " + JSON.stringify(pl.covers));
   ok(/Special:FilePath\/Italy_banner\.jpg\?width=1600/.test(pl.covers[0]) && pl.image === pl.covers[0], "the Wikivoyage banner wins and is place.image");
   ok(pl.covers[1] === PHOTO, "the Wikipedia photo follows");
   ok((await heroCover(p)).includes("Italy_banner.jpg"), "hero shows the banner");
@@ -62,10 +65,11 @@ try {
   await p.click(".cover-btn");
   await p.waitForSelector("#modal[open] .cover-grid");
   ok((await p.textContent("#modal h3")) === "Choose a cover", "picker is titled Choose a cover");
-  ok((await p.$$(".cover-opt")).length === 2 && await p.$eval(".cover-opt", (e) => e.classList.contains("on")), "grid shows both covers, current one outlined");
+  ok((await p.$$(".cover-opt")).length === 3 && await p.$eval(".cover-opt", (e) => e.classList.contains("on")), "grid shows all covers, current one outlined");
   await p.click(".cover-opt:nth-child(2)");
   await p.waitForFunction(() => window.__tripCtx.S.trip.coverIdx === 1);
-  ok((await heroCover(p)).includes("Colosseum_in_Rome.jpg"), "picking a thumbnail saves coverIdx and changes the hero");
+  ok((await heroCover(p)).includes("Colosseum_in_Rome.jpg"), "picking a thumbnail changes the hero");
+  ok((await p.evaluate(() => window.__tripCtx.S.trip.coverPick)) === PHOTO, "the pick is stored by URL (coverPick)");
   await p.click(".cover-btn");
   ok(await p.$eval(".cover-opt:nth-child(2)", (e) => e.classList.contains("on")), "the new pick is outlined");
   await p.fill("[name=coverUrl]", "https://example.org/mine.jpg");
@@ -86,11 +90,11 @@ try {
 
   ({ p, ctx } = await run("flag only", { banner: "Pagebanner default.jpg", wikiImage: FLAG }));
   pl = await p.evaluate(() => window.__tripCtx.S.trip.place);
-  ok(pl.covers.length === 0 && !pl.image, "flag rejected and the default banner skipped: no cover");
-  ok(!(await heroCover(p)), "hero falls back to the gradient");
+  ok(pl.covers.length === 1 && pl.covers[0] === "illus:generic", "flag rejected and the default banner skipped: only the illustration is left");
+  ok((await heroCover(p)).startsWith("url('data:image/svg+xml"), "hero shows the generated illustration");
   ok(!!(await p.$(".cover-btn")), "cover button stays so a link can be pasted");
   await p.click(".cover-btn");
-  ok(!(await p.$(".cover-opt")) && !!(await p.$("[name=coverUrl]")), "empty picker offers only the photo link");
+  ok((await p.$$(".cover-opt")).length === 1 && !!(await p.$("[name=coverUrl]")), "picker offers the illustration and the photo link");
   await p.fill("[name=coverUrl]", "http://insecure.example/x.jpg");
   await p.click("#modalForm button[value=ok]");
   await p.waitForTimeout(200);
@@ -122,17 +126,60 @@ try {
   };
   ({ p, ctx } = await run("nearby + commons only", { banner: "", wikiImage: "https://upload.wikimedia.org/wikipedia/commons/z/zz/Hassan_district_map.png", nearby, commons }));
   pl = await p.evaluate(() => window.__tripCtx.S.trip.place);
-  ok(pl.covers.length === 3, "three covers: " + JSON.stringify(pl.covers));
-  ok(/Manjarabad_Fort\.jpg$/.test(pl.covers[0]) && /Mapusa_market\.jpg$/.test(pl.covers[1]), "landmarks first, nearest first; Mapusa passes the map filter");
-  ok(/1600px-Coffee_estate_Sakleshpur\.jpg$/.test(pl.covers[2]), "Commons photo uses the 1600px thumbnail");
+  ok(pl.covers.length === 4, "three photos and the illustration: " + JSON.stringify(pl.covers));
+  ok(/1600px-Coffee_estate_Sakleshpur\.jpg$/.test(pl.covers[0]), "Commons photo (1600px thumbnail) ranks above landmarks");
+  ok(/Manjarabad_Fort\.jpg$/.test(pl.covers[1]) && /Mapusa_market\.jpg$/.test(pl.covers[2]), "landmarks next, nearest first; Mapusa passes the map filter");
   ok(!pl.covers.some((u) => /taluk|district|Census|portrait|Tiny|\.png/i.test(u)), "map, taluk, census, portrait, narrow and non-JPEG images are rejected");
-  ok(JSON.stringify(pl.coverCaptions) === JSON.stringify(["Manjarabad Fort", "Mapusa", "Coffee estate Sakleshpur"]), "captions: " + JSON.stringify(pl.coverCaptions));
-  ok((await heroCover(p)).includes("Manjarabad_Fort.jpg"), "hero shows the first landmark");
+  ok(JSON.stringify(pl.coverCaptions) === JSON.stringify(["Coffee estate Sakleshpur", "Manjarabad Fort", "Mapusa", "Illustration"]), "captions: " + JSON.stringify(pl.coverCaptions));
+  ok((await heroCover(p)).includes("Coffee_estate_Sakleshpur.jpg"), "hero shows the first photo");
   await p.click(".cover-btn");
   await p.waitForSelector(".cover-opt");
-  ok((await p.$$(".cover-opt")).length === 3 && (await p.textContent(".cover-opt")).includes("Manjarabad Fort"), "picker shows thumbnails with captions");
+  ok((await p.$$(".cover-opt")).length === 4 && (await p.textContent(".cover-opt")).includes("Coffee estate Sakleshpur"), "picker shows thumbnails with captions");
   await p.screenshot({ path: process.env.SHOT || join(dir, "picker.png") });
   await p.keyboard.press("Escape");
+  await ctx.close();
+
+  // Openverse destination photos + inspired themes, ranking, credits, coverPick persistence
+  const hit = (title, w, h, extra = {}) => ({ title, url: "https://live.staticflickr.com/" + title.replace(/\W+/g, "_") + ".jpg", width: w, height: h, creator: "Jane", license: "by", license_version: "2.0", ...extra });
+  const queries = [];
+  const ovData = (q) => (q === "Italy" ? [hit("Train on a bridge", 4000, 2500), hit("Italy coast", 4000, 2600), hit("Tall tower", 1800, 3000), hit("Small", 640, 400)]
+    : /coffee/.test(q) ? [hit("Coffee estate in the mist", 3000, 2000)] : /Western Ghats/.test(q) ? [hit("Misty ghats at dawn", 3200, 2000)] : []);
+  ({ p, ctx } = await run("openverse + inspired", { banner: "", wikiImage: "", ov: ovData, queries, description: "Town in Karnataka, India", extract: "Italy is a hill town known for its coffee estates, cardamom, a hill fort and the Western Ghats." }));
+  pl = await p.evaluate(() => window.__tripCtx.S.trip.place);
+  console.log("    " + JSON.stringify(pl.coverCaptions));
+  ok(queries.includes("ov:Italy"), "Openverse is asked for the destination first");
+  ok(queries.includes("ov:coffee plantation Karnataka"), "inspired query uses the theme and the region: " + queries.filter((x) => x.startsWith("ov:")).join(" | "));
+  ok(queries.some((x) => /^ov:Western Ghats mist hills/.test(x)) && queries.some((x) => /^cm:coffee plantation/.test(x)), "other themes and Commons are searched too");
+  ok(pl.coverCaptions[0] === "Italy coast" && /^Inspired:/.test(pl.coverCaptions[1]) && /^Inspired:/.test(pl.coverCaptions[2]), "destination and inspired photos are interleaved best first: " + pl.coverCaptions.join(" / "));
+  ok(pl.coverCaptions.includes("Inspired: Western Ghats mist hills"), "second theme appears");
+  ok(!pl.covers.some((u) => /Tall_tower|Small/.test(u)), "portrait and narrow Openverse results are skipped");
+  ok(pl.coverCaptions[pl.coverCaptions.length - 2] === "Train on a bridge" && pl.coverCaptions.at(-1) === "Illustration", "a train caption is pushed to the end, the illustration is last");
+  ok(pl.covers.at(-1) === "illus:coffee", "illustration uses the main theme");
+  ok(pl.coverCredits[0] === "Jane · CC BY 2.0", "credit kept: " + pl.coverCredits[0]);
+  ok((await heroCover(p)).includes("Italy_coast.jpg"), "hero shows the first ranked photo");
+  await p.click(".cover-btn");
+  await p.waitForSelector(".cover-opt");
+  ok((await p.textContent(".cover-opt")).includes("Jane · CC BY 2.0"), "picker shows the credit line");
+  await p.click(".cover-opt:nth-child(3)");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.coverPick);
+  const picked = await p.evaluate(() => window.__tripCtx.S.trip.coverPick);
+  ok(/Coffee_estate_in_the_mist/.test(picked), "picked photo stored by URL");
+  await p.evaluate(async () => { const c = window.__tripCtx; const pl = c.S.trip.place; await c.S.store.updateTrip(c.S.tripId, { place: { ...pl, covers: [...pl.covers].reverse(), coverCaptions: [...pl.coverCaptions].reverse(), coverCredits: [...pl.coverCredits].reverse() } }); });
+  await p.waitForTimeout(300);
+  ok((await heroCover(p)).includes("Coffee_estate_in_the_mist"), "the pick survives a re-read that reorders the list");
+  await p.evaluate(async () => { const c = window.__tripCtx; const pl = c.S.trip.place; await c.S.store.updateTrip(c.S.tripId, { place: { ...pl, covers: pl.covers.filter((u) => !/Coffee_estate/.test(u)), coverCaptions: pl.coverCaptions.slice(1), coverCredits: pl.coverCredits.slice(1) } }); });
+  await p.waitForTimeout(300);
+  ok(!(await heroCover(p)).includes("Coffee_estate_in_the_mist") && !!(await heroCover(p)), "a pick that is no longer a candidate falls back to the first one");
+  await ctx.close();
+
+  // every network source fails: the illustration still gives a cover, offline
+  ({ p, ctx } = await run("all networks fail", { banner: "", wikiImage: "", fail: true, extract: "Italy is known for its coffee estates and cardamom." }));
+  pl = await p.evaluate(() => window.__tripCtx.S.trip.place);
+  ok(pl.covers.length === 1 && pl.covers[0] === "illus:coffee" && pl.coverCaptions[0] === "Illustration", "only the themed illustration remains: " + JSON.stringify(pl.covers));
+  ok((await heroCover(p)).startsWith("url('data:image/svg+xml"), "hero renders the generated SVG");
+  const bad = await p.evaluate(async () => { const c = window.__tripCtx; await c.S.store.updateTrip(c.S.tripId, { place: { ...c.S.trip.place, covers: ["data:image/svg+xml,<svg onload=alert(1)>", "illus:../x"] } }); return 1; });
+  await p.waitForTimeout(300);
+  ok(!(await heroCover(p)), "arbitrary data: URLs and malformed tokens are not accepted as covers");
   await ctx.close();
 } catch (e) {
   fails++;

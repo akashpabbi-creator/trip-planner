@@ -2,7 +2,7 @@ import { createStore } from "./store.js";
 import { unfurl, extractUrl, sourceOf, BLOCKED } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
 import { readLink } from "./linkinfo.js";
-import { loadDestination, fetchWeather, GUIDE_V, goodCover } from "./discover.js";
+import { loadDestination, fetchWeather, GUIDE_V, goodCover, isIllus, illustrationUrl } from "./discover.js";
 import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip, planPrompt, parsePlan, QuotaError, geminiWait } from "./ai.js";
 import * as mapMod from "./map.js";
 import * as alongMod from "./along.js";
@@ -76,6 +76,9 @@ function localSet(k, v) {
 /* ------------------------------------------------------------------ helpers */
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const safeUrl = (u) => (/^https?:\/\//i.test(u || "") ? u : "");
+// Covers may also be our own generated illustration ("illus:coffee"), never an arbitrary data: URL.
+const safeCover = (u) => (isIllus(u) ? u : safeUrl(u));
+const coverSrc = (u) => (isIllus(u) ? illustrationUrl(u) : safeUrl(u));
 const uid = () => Math.random().toString(36).slice(2, 9);
 const firstName = (n) => String(n || "").split(/[\s@]/)[0];
 
@@ -324,28 +327,50 @@ function renderUser() {
   box.innerHTML = `<button class="avatar-btn" data-action="userMenu" aria-label="Account menu" aria-expanded="${!!S.userMenu}" title="${esc(S.me.email)}">${S.me.photo ? `<img src="${esc(S.me.photo)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}<span>${ini}</span></button>
     ${S.userMenu ? `<div class="user-menu" role="menu"><div class="um-name">${esc(S.me.name || "")}</div><div class="um-mail">${esc(S.me.email || "")}</div><button class="um-out" role="menuitem" data-action="signout">Sign out</button></div>` : ""}`;
 }
+const wideMQ = typeof matchMedia === "function" ? matchMedia("(min-width: 1100px)") : null;
+const isWide = () => !!wideMQ?.matches;
+wideMQ?.addEventListener?.("change", () => { if (S.trip) render(); });
+// Plan tab, desktop: the right-hand panel holds the assistant card, weather and the first few ideas.
+function sidePanel(asst) {
+  const t = S.trip;
+  const w = t.weather?.days || [];
+  const list = ideas().slice(0, 5);
+  return `<aside class="side">
+    ${asst}
+    ${w.length ? `<section class="side-card"><h4>Weather</h4><div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${d.icon}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div></section>` : ""}
+    <section class="side-card"><h4>Ideas waiting${ideas().length ? ` <span class="muted">${ideas().length}</span>` : ""}</h4>
+      ${list.length ? list.map((it) => `<div class="side-idea"><span class="si-t">${esc(it.title)}</span><button class="btn-s" data-action="schedule" data-id="${it.id}">Add to day</button></div>`).join("") : `<p class="muted small">No ideas waiting. Paste a link to save one.</p>`}
+      <button class="link" data-action="tab" data-tab="ideas">See all ideas</button>
+    </section>
+  </aside>`;
+}
 // The cover to show: the chosen one of place.covers (older trips: place.image), never a flag, map or emblem.
 function coversOf(t) {
   const p = t?.place || {};
-  let list = (p.covers?.length ? p.covers : [p.image]).filter((u) => safeUrl(u) && goodCover(u));
+  let list = (p.covers?.length ? p.covers : [p.image]).filter((u) => safeCover(u) && goodCover(u));
   if (!list.length) {
     const g = (t?.guide?.listings || []).find((l) => safeUrl(l.image) && goodCover(l.image));
     if (g) list = [g.image];
   }
   return list;
 }
-// A photo link pasted by the trip's people wins over the picked cover.
+// A photo link pasted by the trip's people wins over the picked cover. A picked cover is kept by URL, and only while it is still a candidate.
 function coverOf(t) {
   if (safeUrl(t?.coverUrl)) return t.coverUrl;
   const list = coversOf(t);
-  return list.length ? list[(Number(t.coverIdx) || 0) % list.length] : "";
+  if (!list.length) return "";
+  if (t.coverPick && list.includes(t.coverPick)) return t.coverPick;
+  if (!t.coverPick && t.coverIdx != null) return list[(Number(t.coverIdx) || 0) % list.length];
+  return list[0];
 }
+const cssUrl = (u) => esc(coverSrc(u)).replace(/'/g, "%27");
 function coverPicker() {
   const t = S.trip, list = coversOf(t), p = t.place || {};
   const cur = safeUrl(t.coverUrl) ? "" : coverOf(t);
-  const cap = (u) => { const i = (p.covers || []).indexOf(u); return (p.coverCaptions || [])[i] || ""; };
+  const at = (arr, u) => ((arr || [])[(p.covers || []).indexOf(u)] || "");
+  const cap = (u) => at(p.coverCaptions, u), credit = (u) => at(p.coverCredits, u);
   openModal(`<h3>Choose a cover</h3>
-    ${list.length ? `<div class="cover-grid">${list.map((u, i) => `<button type="button" class="cover-opt ${u === cur ? "on" : ""}" data-action="coverPick" data-i="${i}" aria-label="Use cover ${i + 1}${cap(u) ? ": " + esc(cap(u)) : ""}" aria-pressed="${u === cur}"><img src="${esc(safeUrl(u))}" alt="" loading="lazy" referrerpolicy="no-referrer">${cap(u) ? `<span>${esc(cap(u))}</span>` : ""}</button>`).join("")}</div>`
+    ${list.length ? `<div class="cover-grid">${list.map((u, i) => `<button type="button" class="cover-opt ${u === cur ? "on" : ""}" data-action="coverPick" data-i="${i}" aria-label="Use cover ${i + 1}${cap(u) ? ": " + esc(cap(u)) : ""}" aria-pressed="${u === cur}"><img src="${esc(coverSrc(u))}" alt="" loading="lazy" referrerpolicy="no-referrer">${cap(u) ? `<span>${esc(cap(u))}${credit(u) ? `<small>${esc(credit(u))}</small>` : ""}</span>` : ""}</button>`).join("")}</div>`
       : `<p class="muted small">No photos found for this place. Paste a photo link instead.</p>`}
     <label>Use a photo link<input name="coverUrl" type="url" inputmode="url" placeholder="https://…/photo.jpg" value="${esc(safeUrl(t.coverUrl))}"></label>
     ${safeUrl(t.coverUrl) ? `<button type="button" class="link danger" data-action="coverClear">Remove</button>` : ""}`,
@@ -387,7 +412,7 @@ function viewHome() {
     ${trips.length ? "" : `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>`}
     <div class="trip-cards">
       ${trips.map((t) => `<button class="trip-card" data-action="open" data-id="${t.id}">
-          <div class="tc-img" ${coverOf(t) ? `style="background-image:url('${esc(coverOf(t))}')"` : ""}></div>
+          <div class="tc-img" ${coverOf(t) ? `style="background-image:url('${cssUrl(coverOf(t))}')"` : ""}></div>
           <div class="tc-body">
           <div class="tc-title">${esc(t.name)}</div>
           <div class="muted">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${(t.days || []).length} days</div>
@@ -421,8 +446,10 @@ function viewTrip() {
     const on = S.presence.some((p) => p.email === m && Date.now() - p.at < 60000);
     return `<span class="av ${on ? "on" : ""}" title="${esc(nameOf(m))}${on ? " · here now" : ""}">${esc(firstName(nameOf(m)).slice(0, 1).toUpperCase())}</span>`;
   }).join("");
-  return `<section class="trip">
-    <header class="hero ${cover ? "has-img" : ""}" ${cover ? `style="--cover:url('${esc(cover)}')"` : ""}>
+  const body = runView(cur);
+  const aside = cur?.id === "plan" && isWide() ? sidePanel(S.asstHtml || "") : "";
+  return `<section class="trip ${aside ? "has-side" : ""}">
+    <header class="hero ${cover ? "has-img" : ""} ${cur?.id === "plan" ? "" : "compact"}" ${cover ? `style="--cover:url('${cssUrl(cover)}')"` : ""}>
       <div class="hero-inner">
         <div class="hero-top">
           <button class="chip ghost" data-action="home">‹ Trips</button>
@@ -453,7 +480,8 @@ function viewTrip() {
     ${viewAddLink()}
 
     ${viewNav(tabs, cur, counts)}
-    <div class="tab-body">${runView(cur)}</div>
+    <div class="tab-body">${body}</div>
+    ${aside}
     <p class="foot muted small">${t.updatedAt ? `Last change ${ago(t.updatedAt)} by ${esc(who(t.updatedBy))}` : ""}</p>
   </section>`;
 }
@@ -541,7 +569,9 @@ function runView(tab) {
 
 function viewAddLink() {
   // Phones: the + opens a bottom sheet of tiles. Desktop: the same buttons sit inline beside the field.
-  const extra = slot("addBar").replace(/<button class="icon"(?![^>]*data-label)([^>]*?)title="([^"]*)"/g, '<button class="icon"$1title="$2" data-label="$2"');
+  const SHORT = { "From a screenshot": "Screenshot", "Paste tips or text": "Paste text" };
+  const extra = slot("addBar").replace(/<button class="icon"(?![^>]*data-label)([^>]*?)title="([^"]*)"/g, '<button class="icon"$1title="$2" data-label="$2"')
+    .replace(/data-label="([^"]*)"/g, (m, l) => `data-label="${l}" data-short="${SHORT[l] || l}"`);
   return `<div class="add-wrap ${S.addOpen ? "open" : ""}">
     <div class="add-link">
       <span class="al-ic">🔗</span>
@@ -555,8 +585,8 @@ function viewAddLink() {
       <h3>Add to the trip</h3>
       <p class="muted small">${S.aiUser ? "Links, screenshots and tips" : "Links and places"} all land in Ideas, or straight onto a day.</p>
       <div class="as-grid">
-        <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-sub="Use the copied link">📋</button>
-        <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-sub="Add a place by name">📍</button>
+        <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-short="Clipboard" data-sub="Use the copied link">📋</button>
+        <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-short="New stop" data-sub="Add a place by name">📍</button>
         ${extra}
       </div>
     </div>
@@ -642,9 +672,7 @@ function viewPlan() {
     ? `<div class="check ${ch[0].level}">${esc(ch[0].text)}</div>`
     : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}"><span class="ar-ic w">⚠️</span><span class="ar-t">${ch.length} things to check</span><b>See</b></summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
   const ico = (e, w) => `<span class="ar-ic ${w || ""}">${e}</span>`;
-  return `
-    ${slot("planToday")}
-    <div class="asst">
+  const asstHtml = `<div class="asst">
     ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days${psocialMod.summary(t.proposal, t.members) ? `<span class="ps-sum">${esc(psocialMod.summary(t.proposal, t.members))}</span>` : ""}</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
@@ -655,7 +683,11 @@ function viewPlan() {
       ${ctx.aiKey() ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
       ${S.aiUser ? `<button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button>` : ""}</div>` : ""}
     ${lead !== "smart" ? smart : ""}
-    </div>
+    </div>`;
+  S.asstHtml = asstHtml;
+  return `
+    ${slot("planToday")}
+    ${isWide() ? "" : asstHtml}
     <div class="days">
     ${t.days.map((d, i) => {
       const sch = schedule(d.id);
@@ -1135,12 +1167,14 @@ function prefsCard() {
       ${p.autoPlace !== false ? "<li>🔗 Places from your shared links go straight onto the best day</li>" : ""}
     </ul>
     ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
-    ${anyEmpty ? `<button class="primary btn-s" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
-    ${ctx.aiKey() ? `<button class="primary btn-s" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? `🤖 Review ${esc(t.proposal.source || "Gemini")}'s plan` : "🤖 Ask Gemini to plan the days"}</button>` : ""}
-    ${S.aiUser ? `<button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}>🟠 Plan with Claude</button>` : ""}
-    ${ctx.aiKey() && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
-    ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>
+    <div class="prefs-acts">
+      ${anyEmpty ? `<button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
+      ${ctx.aiKey() ? `<button class="btn-s ${anyEmpty ? "" : "primary"}" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? `🤖 Review ${esc(t.proposal.source || "Gemini")}'s plan` : "🤖 Ask Gemini to plan the days"}</button>` : ""}
+      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}>🟠 Plan with Claude</button>` : ""}
+      ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>
       <button class="btn-s" data-action="clearSample">🧹 Clear the sample stops</button>` : ""}
+    </div>
+    ${ctx.aiKey() && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
   </section>`;
 }
 function editProfile() {
@@ -2038,7 +2072,10 @@ document.addEventListener("click", async (e) => {
       case "coverPick": {
         if (b.dataset.i == null) return coverPicker();
         $modal.close();
-        return S.store.updateTrip(S.tripId, { coverIdx: Number(b.dataset.i) || 0, coverUrl: "", ...stampMe() });
+        {
+          const pick = coversOf(S.trip)[Number(b.dataset.i) || 0] || "";
+          return S.store.updateTrip(S.tripId, { coverPick: pick, coverIdx: Number(b.dataset.i) || 0, coverUrl: "", ...stampMe() });
+        }
       }
       case "coverClear":
         $modal.close();

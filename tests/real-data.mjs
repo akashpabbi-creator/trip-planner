@@ -1,6 +1,6 @@
 // Runs the travel guide reader, the sample planner and the link reader against the real sites
 // (Wikivoyage, Wikipedia, Wikidata, a real blog) and checks the results. Run: node tests/real-data.mjs
-import { loadDestination, fetchNearby, fetchCommons, goodCover, coverEntries } from "../discover.js";
+import { loadDestination, fetchPlace, fetchOpenverse, goodCover, loadCovers, themesFor } from "../discover.js";
 import { buildSample, profileOf } from "../profile.js";
 import { unfurl } from "../unfurl.js";
 import { readLink } from "../linkinfo.js";
@@ -66,13 +66,18 @@ for (const c of CASES) {
 {
   await new Promise((r) => setTimeout(r, 20000));
   console.log("\n=== Covers for Sakleshpur");
-  const lat = 12.94, lng = 75.78; // from the Wikipedia summary
-  const [nearby, commons] = await Promise.all([fetchNearby(lat, lng).catch((e) => (console.log("  nearby failed: " + e.message), [])), fetchCommons("Sakleshpur, Karnataka").catch((e) => (console.log("  commons failed: " + e.message), []))]);
-  const list = coverEntries("", [], "", nearby, commons);
-  list.forEach((x, i) => console.log(`  ${i + 1}. ${x.url}  [${x.caption || "-"}]`));
-  list.length >= 3 ? ok(`${list.length} cover candidates (${nearby.length} nearby, ${commons.length} Commons)`) : fail(`only ${list.length} cover candidates`);
+  const place = (await fetchPlace("Sakleshpur, Karnataka").catch(() => null)) || { title: "Sakleshpur", description: "Town in Karnataka, India", extract: "Sakleshpur is a hill station in the Western Ghats known for coffee estates, cardamom, Manjarabad Fort and Bisle Ghat.", lat: 12.94, lng: 75.78 };
+  const lat = place.lat ?? 12.94, lng = place.lng ?? 75.78; // from the Wikipedia summary
+  console.log("  themes: " + JSON.stringify(themesFor(place, [])));
+  const direct = await fetchOpenverse("Sakleshpur").catch((e) => (console.log("  openverse failed: " + e.message), []));
+  console.log(`  Openverse "Sakleshpur": ${direct.length} photo(s)`);
+  const { entries: list, nearby, commons, ov, inspired } = await loadCovers({ dest: "Sakleshpur, Karnataka", place, listings: [], lat, lng, banner: "" });
+  list.forEach((x, i) => console.log(`  ${i + 1}. ${x.url.slice(0, 110)}  [${x.caption || "-"}]${x.credit ? "  (" + x.credit + ")" : ""}`));
+  list.length >= 3 ? ok(`${list.length} cover candidates (${nearby.length} nearby, ${commons.length} Commons, ${ov.length} Openverse, ${inspired.reduce((n, g) => n + g.ov.length + g.cm.length, 0)} inspired)`) : fail(`only ${list.length} cover candidates`);
   const bad = list.filter((x) => !goodCover(x.url));
   bad.length ? fail("candidates match the filter: " + bad.map((x) => x.url).join(", ")) : ok("no candidate matches the filter");
+  list.some((x) => /^Inspired:/.test(x.caption) || x.credit) ? ok("at least one Inspired or Openverse photo") : fail("no Inspired or Openverse photo among the candidates");
+  list.at(-1)?.url.startsWith("illus:") ? ok("the illustration is the last candidate") : fail("no illustration fallback");
 }
 
 for (const l of LINKS) {

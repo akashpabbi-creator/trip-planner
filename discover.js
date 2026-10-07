@@ -14,7 +14,9 @@ const WV_IMG = "https://commons.wikimedia.org/wiki/Special:FilePath/";
 export const BAD_COVER = /Flag_of|Coat_of_arms|_location_|Locator|Map_of|Emblem|\.svg|(^|[_\s\-(.,/])(maps?|taluks?|taluka|census|hobli|panchayat|districts?|diagrams?|logos?|seals?|charts?|graphs?|plans?|flags?|emblems?|locators?)([_\s\-).,]|$)/i;
 const decoded = (u) => { try { return decodeURIComponent(String(u)); } catch { return String(u); } };
 // w and h are optional: when known, portrait images and ones narrower than 900px are rejected too.
+export const isIllus = (u) => /^illus:[a-z]+$/.test(String(u || ""));
 export const goodCover = (u, w, h) => {
+  if (isIllus(u)) return true;
   if (!u || BAD_COVER.test(decoded(u).replace(/ /g, "_"))) return false;
   if (w > 0 && h > 0 && h > w * 1.05) return false;
   if (w > 0 && w < 900) return false;
@@ -53,11 +55,10 @@ export async function fetchNearby(lat, lng) {
     .sort((a, b) => (a.index || 0) - (b.index || 0))
     .map((p) => ({ url: p.original.source, caption: p.title || "" }));
 }
-// Photos of the place itself from Wikimedia Commons (1600px thumbnails).
-export async function fetchCommons(dest) {
-  const name = String(dest || "").split(",")[0].trim();
-  if (!name) return [];
-  const r = await fetch(COMMONS + encodeURIComponent(name + " filetype:bitmap"));
+// Photos from Wikimedia Commons for a search phrase (1600px thumbnails).
+export async function commonsSearch(q) {
+  if (!q) return [];
+  const r = await fetch(COMMONS + encodeURIComponent(q + " filetype:bitmap"));
   if (!r.ok) return [];
   const j = await r.json();
   return Object.values(j.query?.pages || {})
@@ -66,18 +67,154 @@ export async function fetchCommons(dest) {
     .sort((a, b) => (a.p.index || 0) - (b.p.index || 0))
     .map(({ p, i }) => ({ url: i.thumburl, caption: decoded(String(p.title || "")).replace(/^File:/i, "").replace(/\.\w+$/, "").replace(/_/g, " ").trim() }));
 }
-// Ordered cover candidates with captions: Wikivoyage banner, famous listings' photos (3), the Wikipedia photo, nearby landmarks (4), Commons (4).
-export function coverEntries(banner, listings, wikiImage, nearby = [], commons = []) {
+// Photos of the place itself from Wikimedia Commons.
+export const fetchCommons = (dest) => commonsSearch(String(dest || "").split(",")[0].trim());
+
+// Openverse (free, no key, CORS): CC-licensed photos from Flickr, Wikimedia and others. Landscape, 1000px or wider, with creator and licence for credit.
+const OPENVERSE = "https://api.openverse.org/v1/images/?aspect_ratio=wide&size=large&mature=false&page_size=20&q=";
+export async function fetchOpenverse(q) {
+  if (!q) return [];
+  const r = await fetch(OPENVERSE + encodeURIComponent(q));
+  if (!r.ok) return [];
+  const j = await r.json();
+  return (j.results || [])
+    .map((x) => ({ x, url: /^https:/i.test(x.url || "") ? x.url : /^https:/i.test(x.thumbnail || "") ? x.thumbnail : "" }))
+    .filter(({ x, url }) => url && !(x.width > 0 && x.height > 0 && (x.height > x.width * 1.05 || x.width < 1000)) && goodCover(url, x.width, x.height) && goodCover(x.title || "x"))
+    .map(({ x, url }) => ({ url, caption: String(x.title || "").replace(/\s+/g, " ").trim().slice(0, 80), credit: [x.creator, x.license ? `CC ${String(x.license).toUpperCase()}${x.license_version ? " " + x.license_version : ""}` : ""].filter(Boolean).join(" · ") }));
+}
+
+// What a place is known for, from its Wikipedia description and summary and its guide listings. Each theme has a search phrase and an illustration id.
+const THEMES = [
+  ["coffee", /\b(coffee|cardamom|arabica|robusta)\b/gi, "coffee plantation"],
+  ["tea", /\btea (plantations?|gardens?|estates?|hills?)\b|\btea\b/gi, "tea plantation hills"],
+  ["hills", /hill ?station|western ghats|\bghats?\b|\bhills?\b|mountain|misty|\bmist\b/gi, "Western Ghats mist hills"],
+  ["beach", /\bbeach(es)?\b|\bcoast(al)?\b|seashore|\bsurf/gi, "tropical beach"],
+  ["fort", /\bforts?\b|fortress|citadel/gi, "hill fort"],
+  ["temple", /\btemples?\b|shrine|\bmosque\b|cathedral|basilica/gi, "temple architecture"],
+  ["backwater", /backwaters?|houseboat|lagoon/gi, "Kerala backwaters"],
+  ["desert", /\bdesert\b|\bdunes?\b|\bsahara\b/gi, "desert dunes"],
+  ["snow", /\bsnow(y|fall)?\b|glacier|\bski\b|himalaya/gi, "snow mountains"],
+  ["lake", /\blakes?\b|\breservoir\b/gi, "lake sunrise"],
+  ["waterfall", /waterfalls?|\bfalls\b|cascade/gi, "waterfall"],
+  ["wildlife", /wildlife|national park|safari|sanctuary|tiger|elephant/gi, "wildlife sanctuary forest"],
+  ["vineyard", /vineyards?|\bwinery|wineries|\bwine\b/gi, "vineyard"],
+  ["oldtown", /old town|medieval|historic centre|historic center|heritage|palace/gi, "old town historic centre"],
+  ["city", /\bmetropolis\b|skyline|capital city|\bcity\b/gi, "city skyline"],
+];
+// "Town in Karnataka, India" -> "Karnataka". Only when the description names a region and a country.
+export function regionOf(place) {
+  const parts = String(place?.description || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return "";
+  const m = parts[0].match(/\b(?:in|of)\s+(?:the\s+)?([A-Z][\w'’ .-]*)$/);
+  return m ? m[1].trim() : "";
+}
+export function themesFor(place, listings = []) {
+  const text = [place?.description, place?.extract, ...(listings || []).slice(0, 40).flatMap((l) => [l.name, l.content])].filter(Boolean).join(" . ");
+  const region = regionOf(place);
+  return THEMES.map(([id, re, q], order) => ({ id, order, n: (text.match(re) || []).length, q }))
+    .filter((t) => t.n > 0)
+    .sort((a, b) => b.n - a.n || a.order - b.order)
+    .slice(0, 3)
+    .map((t) => ({ id: t.id, order: t.order, q: t.id === "temple" ? `${region} ${t.q}`.trim() : t.q, region: t.id === "hills" || t.id === "backwater" ? "" : region }));
+}
+// Searches for the themes: Openverse then Commons, "<theme> <region>" first and the plain theme when that finds nothing.
+export async function fetchInspired(themes) {
   const out = [];
-  const add = (u, caption = "") => { if (u && goodCover(u) && !out.some((x) => x.url === u)) out.push({ url: u, caption }); };
-  add(banner);
-  [...(listings || [])].filter((l) => l.image && (l.type === "see" || l.type === "do")).sort((a, b) => (b.fame || 0) - (a.fame || 0)).slice(0, 3).forEach((l) => add(l.image.replace(/width=\d+/, "width=1280"), l.name || ""));
-  add(wikiImage);
-  (nearby || []).slice(0, 4).forEach((x) => add(x.url, x.caption));
-  (commons || []).slice(0, 4).forEach((x) => add(x.url, x.caption));
-  return out.slice(0, 10);
+  for (const t of themes || []) {
+    const qs = t.region ? [`${t.q} ${t.region}`, t.q] : [t.q];
+    let ov = [];
+    for (const q of qs) { ov = await fetchOpenverse(q).catch(() => []); if (ov.length) break; }
+    const cm = await commonsSearch(qs[0]).catch(() => []);
+    out.push({ id: t.id, theme: t.q, ov, cm });
+  }
+  return out;
+}
+
+const BAD_WORDS = /\b(trains?|railways?|railroad|roads?|buses|bus|buildings?|offices?|hospitals?|colleges?|schools?|stations?|police|junction|highway|traffic)\b/i;
+// Ordered cover candidates with captions. Wikivoyage banner, Openverse destination and inspired photos (interleaved), Commons, nearby landmarks,
+// famous listings' photos, the Wikipedia photo, and last a generated illustration. Captions about trains, roads or buildings drop to the end of the photos.
+export function coverEntries(banner, listings, wikiImage, nearby = [], commons = [], ov = [], inspired = [], themes = []) {
+  const seen = new Set();
+  const mk = (u, caption = "", credit = "") => (u && goodCover(u) && !seen.has(u) && seen.add(u) ? { url: u, caption, ...(credit ? { credit } : {}) } : null);
+  const list = (arr) => arr.filter(Boolean);
+  const bannerE = list([mk(banner, "")]);
+  const dest = list((ov || []).slice(0, 6).map((x) => mk(x.url, x.caption, x.credit)));
+  const insp = (inspired || []).map((g) => [...list((g.ov || []).slice(0, 3).map((x) => mk(x.url, `Inspired: ${g.theme}`, x.credit))), ...list((g.cm || []).slice(0, 2).map((x) => mk(x.url, `Inspired: ${g.theme}`)))]);
+  // Interleave: destination photos and each theme's photos take turns, best first.
+  const sink = (l) => [...l.filter((x) => !BAD_WORDS.test(x.caption)), ...l.filter((x) => BAD_WORDS.test(x.caption))];
+  const lanes = [sink(dest).slice(0, 3), ...insp.map((l) => l.slice(0, 2)), sink(dest).slice(3), ...insp.map((l) => l.slice(2))];
+  const mixed = [];
+  for (let k = 0; lanes.some((l) => l[k]); k++) for (const l of lanes) if (l[k]) mixed.push(l[k]);
+  const com = list((commons || []).slice(0, 3).map((x) => mk(x.url, x.caption)));
+  const near = list((nearby || []).slice(0, 3).map((x) => mk(x.url, x.caption)));
+  const lst = list([...(listings || [])].filter((l) => l.image && (l.type === "see" || l.type === "do")).sort((a, b) => (b.fame || 0) - (a.fame || 0)).slice(0, 3).map((l) => mk(l.image.replace(/width=\d+/, "width=1280"), l.name || "")));
+  const wiki = list([mk(wikiImage, "")]);
+  const photos = [...bannerE, ...mixed, ...com, ...near, ...lst, ...wiki];
+  const ranked = [...photos.filter((x) => !BAD_WORDS.test(x.caption)), ...photos.filter((x) => BAD_WORDS.test(x.caption))];
+  return [...ranked.slice(0, 11), { url: "illus:" + ([...(themes || [])].sort((a, b) => a.order - b.order)[0]?.id || "generic"), caption: "Illustration" }];
 }
 export const coverList = (...a) => coverEntries(...a).map((x) => x.url);
+
+// Everything a cover needs, with each source failing on its own: the cover list for a destination.
+export async function loadCovers({ dest, place, listings = [], lat, lng, banner }) {
+  const themes = themesFor(place, listings);
+  const [nearby, commons, ov, inspired] = await Promise.all([
+    lat != null ? fetchNearby(lat, lng).catch(() => []) : [],
+    fetchCommons(dest).catch(() => []),
+    fetchOpenverse(String(dest || "").split(",")[0].trim()).catch(() => []),
+    fetchInspired(themes).catch(() => []),
+  ]);
+  return { entries: coverEntries(banner, listings, place?.image, nearby, commons, ov, inspired, themes), themes, nearby, commons, ov, inspired };
+}
+
+// A small illustrated cover, drawn here so it always works offline: sky, sun, layered hills and mist, with motifs by theme.
+const PAL = {
+  coffee: ["#2d4a3a", "#1f3a2c", "#3f6b4b", "#8fb89a", "#f3d9a0"],
+  tea: ["#35563a", "#274a2e", "#4d8a4f", "#a9d19b", "#f6e3a8"],
+  hills: ["#2f5249", "#254238", "#3d7a68", "#a6cdc0", "#f4d9a3"],
+  beach: ["#0f6f8f", "#e9cf96", "#2bb0c9", "#bfe9ef", "#ffd98a"],
+  desert: ["#c9803c", "#a8642b", "#e3a55b", "#f4cf99", "#fff0c4"],
+  snow: ["#4a6a8f", "#d8e6f5", "#7fa2c6", "#e8f1fa", "#fff3c9"],
+  city: ["#243b5a", "#1a2c46", "#3a5a85", "#8fb0d6", "#ffd27a"],
+};
+PAL.fort = PAL.hills; PAL.temple = PAL.desert; PAL.backwater = PAL.coffee; PAL.lake = PAL.hills; PAL.waterfall = PAL.tea; PAL.wildlife = PAL.coffee; PAL.vineyard = PAL.tea; PAL.oldtown = PAL.city; PAL.generic = PAL.hills;
+export function illustrationSvg(id) {
+  const [dark, deep, mid, sky, sun] = PAL[id] || PAL.generic;
+  const W = 1600, H = 900;
+  const ridge = (y, amp, seed, fill, op = 1) => {
+    let d = `M0 ${H} L0 ${y}`;
+    for (let x = 0; x <= W; x += 100) d += ` L${x} ${Math.round(y + Math.sin(x / 210 + seed) * amp + Math.sin(x / 90 + seed * 2) * amp * 0.35)}`;
+    return `<path d="${d} L${W} ${H}Z" fill="${fill}" opacity="${op}"/>`;
+  };
+  const mist = (y, op) => `<rect x="0" y="${y}" width="${W}" height="90" fill="url(#m)" opacity="${op}"/>`;
+  let motif = "", base = "";
+  if (id === "beach") {
+    base = `<rect x="0" y="560" width="${W}" height="340" fill="${mid}"/><path d="M0 620 Q400 590 800 620 T1600 620 L1600 900 L0 900Z" fill="${dark}" opacity=".35"/><path d="M0 760 Q500 700 1000 770 T1600 740 L1600 900 L0 900Z" fill="${deep}"/>`;
+    motif = `<path d="M1150 760 Q1170 640 1240 560 M1240 560 q-90-30-150 20 M1240 560 q-60-70-150-50 M1240 560 q60-70 150-40 M1240 560 q90-20 130 40" stroke="#3a5a2a" stroke-width="12" fill="none" stroke-linecap="round"/>`;
+  } else if (id === "desert") {
+    base = ridge(600, 40, 1, mid) + ridge(700, 55, 3, dark) + ridge(790, 40, 5, deep);
+  } else if (id === "snow") {
+    const peak = (x, h, w) => `<path d="M${x - w} 700 L${x} ${700 - h} L${x + w} 700Z" fill="${mid}"/><path d="M${x - w * 0.28} ${700 - h * 0.72} L${x} ${700 - h} L${x + w * 0.28} ${700 - h * 0.72} L${x + w * 0.1} ${700 - h * 0.62} L${x - w * 0.05} ${700 - h * 0.7}Z" fill="#fff"/>`;
+    base = peak(450, 380, 360) + peak(900, 470, 420) + peak(1300, 330, 320) + ridge(720, 30, 2, dark) + ridge(800, 25, 4, deep);
+  } else if (id === "city") {
+    let b = ""; for (let x = 0, k = 0; x < W; x += 70 + (k % 3) * 20, k++) { const h = 140 + ((k * 97) % 260); b += `<rect x="${x}" y="${760 - h}" width="${60 + (k % 3) * 14}" height="${h + 140}" fill="${k % 2 ? dark : deep}"/>`; for (let yy = 780 - h; yy < 740; yy += 34) b += `<rect x="${x + 10}" y="${yy}" width="8" height="12" fill="${sun}" opacity=".55"/>`; }
+    base = ridge(640, 25, 1, mid, 0.6) + b;
+  } else {
+    base = ridge(560, 55, 1, mid, 0.55) + mist(540, 0.7) + ridge(640, 60, 2.2, mid) + mist(650, 0.6) + ridge(730, 55, 4, dark) + mist(760, 0.5) + ridge(820, 40, 6, deep);
+    if (id === "coffee" || id === "tea" || id === "vineyard") {
+      let rows = ""; for (let r = 0; r < 4; r++) { const y = 800 + r * 28; rows += `<path d="M0 ${y} Q400 ${y - 22} 800 ${y} T1600 ${y}" stroke="${sky}" stroke-width="9" stroke-dasharray="14 12" fill="none" opacity=".28"/>`; }
+      motif = rows;
+    } else if (id === "fort") {
+      motif = `<g fill="${deep}"><rect x="1080" y="470" width="220" height="130"/><rect x="1065" y="440" width="50" height="160"/><rect x="1265" y="440" width="50" height="160"/><path d="M1065 440h50v-18h-12v8h-8v-8h-10v8h-8v-8h-12zM1265 440h50v-18h-12v8h-8v-8h-10v8h-8v-8h-12z"/><rect x="1150" y="520" width="80" height="80" rx="40"/></g>`;
+    } else if (id === "temple") {
+      motif = `<g fill="${deep}"><path d="M1100 600V420l50-70 50 70v180zM1150 350v-40M1050 600V500h200v100z"/></g>`;
+    } else if (id === "waterfall") {
+      motif = `<rect x="1000" y="520" width="42" height="300" fill="#fff" opacity=".7" rx="20"/>`;
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${dark}"/><stop offset="0.55" stop-color="${sky}"/><stop offset="1" stop-color="${sun}"/></linearGradient><linearGradient id="m" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><rect width="${W}" height="${H}" fill="url(#s)"/><circle cx="1180" cy="330" r="150" fill="${sun}" opacity=".35"/><circle cx="1180" cy="330" r="82" fill="${sun}"/>${base}${motif}</svg>`;
+}
+export const illustrationUrl = (token) => "data:image/svg+xml;utf8," + encodeURIComponent(illustrationSvg(String(token || "").slice(6))).replace(/'/g, "%27");
 
 const variants = (dest) => {
   const parts = String(dest || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -236,7 +373,7 @@ async function wvPage(title) {
 // Bumped when the guide reader changes enough that saved guides should be read again.
 
 // Bumped when the guide reader changes enough that saved guides should be read again.
-export const GUIDE_V = 6;
+export const GUIDE_V = 7;
 const WVV = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageviews&redirects=1&format=json&formatversion=2&origin=*&titles=";
 const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
 // Wikimedia answers bursts of requests with 429 and a retry-after: wait it out once.
@@ -358,18 +495,17 @@ export async function loadDestination(trip) {
     lat = g?.lat;
     lng = g?.lng;
   }
-  const [weather, guide, banner, nearby, commons] = await Promise.all([
+  const [weather, guide, banner] = await Promise.all([
     lat != null ? fetchWeather(lat, lng, trip.startDate, trip.days.length).catch(() => null) : null,
     fetchGuide(dest).catch(() => ({ listings: [], source: "" })),
     fetchBanner(dest).catch(() => ""),
-    lat != null ? fetchNearby(lat, lng).catch(() => []) : [],
-    fetchCommons(dest).catch(() => []),
   ]);
-  const entries = coverEntries(banner, guide.listings, place?.image, nearby, commons);
+  const { entries } = await loadCovers({ dest, place, listings: guide.listings, lat, lng, banner });
   const covers = entries.map((x) => x.url);
   const base = place ? { ...place, lat, lng, for: dest } : { title: dest, lat, lng, for: dest };
   base.image = covers[0] || "";
   base.covers = covers;
   base.coverCaptions = entries.map((x) => x.caption || "");
+  base.coverCredits = entries.map((x) => x.credit || "");
   return { place: base, weather, guide: { ...guide, for: dest, at: Date.now(), v: GUIDE_V } };
 }
