@@ -9,6 +9,36 @@ const WIKI = "https://en.wikipedia.org/api/rest_v1/page/summary/";
 const WV = "https://en.wikivoyage.org/w/api.php?action=parse&prop=wikitext&redirects=1&format=json&origin=*&page=";
 const WV_IMG = "https://commons.wikimedia.org/wiki/Special:FilePath/";
 
+// Wikipedia's lead image for a country is often its flag, and for regions a locator map: never use those as a cover.
+export const BAD_COVER = /Flag_of|Coat_of_arms|_location_|Locator|_map|Map_of|Emblem|\.svg/i;
+export const goodCover = (u) => !!u && !BAD_COVER.test(decodeURIComponent(String(u)).replace(/ /g, "_"));
+const WVP = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageprops&redirects=1&format=json&origin=*&titles=";
+// The hand-made panorama at the top of a Wikivoyage page ("Italy banner.jpg"); the generic default banner doesn't count.
+export async function fetchBanner(dest) {
+  for (const q of variants(dest)) {
+    try {
+      const r = await fetch(WVP + encodeURIComponent(q));
+      if (!r.ok) continue;
+      const j = await r.json();
+      const f = Object.values(j.query?.pages || {}).map((p) => p.pageprops?.wpb_banner).find(Boolean);
+      if (f && !/(page)?banner default/i.test(f)) {
+        const u = WV_IMG + encodeURIComponent(String(f).replace(/^(File|Image):/i, "").replace(/ /g, "_")) + "?width=1600";
+        if (goodCover(u)) return u;
+      }
+    } catch (e) { console.warn("banner", e); }
+  }
+  return "";
+}
+// Ordered cover candidates: Wikivoyage banner, famous listings' photos, the Wikipedia photo (unless it's a flag or map).
+export function coverList(banner, listings, wikiImage) {
+  const out = [];
+  const add = (u) => { if (u && goodCover(u) && !out.includes(u)) out.push(u); };
+  add(banner);
+  [...(listings || [])].filter((l) => l.image && (l.type === "see" || l.type === "do")).sort((a, b) => (b.fame || 0) - (a.fame || 0)).slice(0, 4).forEach((l) => add(l.image.replace(/width=\d+/, "width=1280")));
+  add(wikiImage);
+  return out.slice(0, 6);
+}
+
 const variants = (dest) => {
   const parts = String(dest || "").split(",").map((s) => s.trim()).filter(Boolean);
   return [...new Set([parts.join(", "), parts[0], parts.slice(0, 2).join(", ")].filter(Boolean))];
@@ -166,7 +196,7 @@ async function wvPage(title) {
 // Bumped when the guide reader changes enough that saved guides should be read again.
 
 // Bumped when the guide reader changes enough that saved guides should be read again.
-export const GUIDE_V = 4;
+export const GUIDE_V = 5;
 const WVV = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageviews&redirects=1&format=json&formatversion=2&origin=*&titles=";
 const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
 // Wikimedia answers bursts of requests with 429 and a retry-after: wait it out once.
@@ -288,9 +318,14 @@ export async function loadDestination(trip) {
     lat = g?.lat;
     lng = g?.lng;
   }
-  const [weather, guide] = await Promise.all([
+  const [weather, guide, banner] = await Promise.all([
     lat != null ? fetchWeather(lat, lng, trip.startDate, trip.days.length).catch(() => null) : null,
     fetchGuide(dest).catch(() => ({ listings: [], source: "" })),
+    fetchBanner(dest).catch(() => ""),
   ]);
-  return { place: place ? { ...place, lat, lng, for: dest } : { title: dest, lat, lng, for: dest }, weather, guide: { ...guide, for: dest, at: Date.now(), v: GUIDE_V } };
+  const covers = coverList(banner, guide.listings, place?.image);
+  const base = place ? { ...place, lat, lng, for: dest } : { title: dest, lat, lng, for: dest };
+  base.image = covers[0] || "";
+  base.covers = covers;
+  return { place: base, weather, guide: { ...guide, for: dest, at: Date.now(), v: GUIDE_V } };
 }

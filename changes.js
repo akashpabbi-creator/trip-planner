@@ -406,7 +406,7 @@ function banner() {
   if (!c) return "";
   const n = pending().length;
   if (!n) return "";
-  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen">💬 ${esc(c.source)} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""} <b>Review</b></button>`;
+  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(c.source)} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}</span><b>Review</b></button>`;
 }
 
 export function init(c) {

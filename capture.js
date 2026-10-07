@@ -134,7 +134,7 @@ export function init(ctx) {
     } catch (e) { console.warn("shared pictures", e); }
   }
 
-  ctx.slot("addBar", () => `<button class="icon" data-action="capturePick" title="Add places from a screenshot">📷</button>`);
+  ctx.slot("addBar", () => `<button class="icon" data-action="capturePick" title="Add places from a screenshot" data-label="From a screenshot" data-sub="Read places off a photo">📷</button>`);
   ctx.action("capturePick", () => (canRead() ? pick() : noGemini()));
   ctx.action("captureShared", async (btn, id) => {
     ctx.$modal.close();

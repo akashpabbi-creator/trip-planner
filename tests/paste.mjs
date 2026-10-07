@@ -20,6 +20,8 @@ if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
+// On phones the add bar's extra buttons live in the "Add to the trip" sheet behind the + button.
+const openAdd = async (p) => { if (await p.isVisible(".add-plus") && !(await p.$(".add-wrap.open"))) await p.click("[data-action=addOpen]"); };
 const b = await chromium.launch();
 const errors = [];
 let geminiPrompt = "", geminiCalls = 0, geminiReply = null;
@@ -55,7 +57,9 @@ try {
   });
 
   console.log("the sheet");
+  await openAdd(p);
   ok(await p.isVisible("[data-action=pasteOpen]") && (await p.getAttribute("[data-action=pasteOpen]", "title")) === "Paste tips or a transcript", "📝 button in the add bar");
+  await openAdd(p);
   await p.click("[data-action=pasteOpen]");
   await p.waitForSelector("#pasteText");
   const sheet = await p.textContent("#modalForm");
@@ -104,6 +108,7 @@ try {
 
   console.log("Gemini finds nothing");
   geminiReply = { kind: "changes", summary: "none", ops: [] };
+  await openAdd(p);
   await p.click("[data-action=pasteOpen]");
   await p.fill("#pasteText", "Just say hi to everyone from me!");
   await p.click("[data-action=pasteGemini]");
@@ -113,6 +118,7 @@ try {
 
   console.log("Ask Claude without the link: copy, paste back");
   await p.evaluate(() => { window.open = () => null; navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
+  await openAdd(p);
   await p.click("[data-action=pasteOpen]");
   await p.fill("#pasteText", TIPS);
   await p.click("[data-action=pasteClaude]");
@@ -139,6 +145,7 @@ try {
   const tok = await p.evaluate(() => window.__tripCtx.S.trip.bridge.token);
   await p.click("[data-close]");
   const LONG = "Tips: " + "x".repeat(9000) + " END";
+  await openAdd(p);
   await p.click("[data-action=pasteOpen]");
   await p.fill("#pasteText", LONG);
   await p.click("[data-action=pasteClaude]");
