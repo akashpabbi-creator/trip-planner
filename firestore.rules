@@ -7,15 +7,31 @@ service cloud.firestore {
     function isMember(tripId) {
       return me() in get(/databases/$(database)/documents/trips/$(tripId)).data.members;
     }
+    // Gemini and Claude are for accounts that have an aiUsers doc (made by hand in the console).
+    function aiUser() { return signedIn() && exists(/databases/$(database)/documents/aiUsers/$(me())); }
 
     match /trips/{tripId} {
       allow read: if signedIn() && me() in resource.data.members;
       allow create: if signedIn() && request.resource.data.owner == me()
                     && request.resource.data.members == [me()];
-      // Members can edit the trip and invite people, but can't remove the owner.
-      allow update: if signedIn() && me() in resource.data.members
-                    && request.resource.data.owner == resource.data.owner
-                    && resource.data.owner in request.resource.data.members;
+      allow update: if signedIn() && request.resource.data.owner == resource.data.owner && (
+        // The owner can change anything, but stays on the trip.
+        (me() == resource.data.owner && resource.data.owner in request.resource.data.members)
+        // Other members can edit the trip and invite people (members can be added, not removed), or leave it themselves.
+        // They can't change the invite link.
+        || (me() in resource.data.members && me() != resource.data.owner
+            && request.resource.data.get('join', null) == resource.data.get('join', null)
+            && (request.resource.data.members.hasAll(resource.data.members)
+                || (!(me() in request.resource.data.members)
+                    && request.resource.data.members.toSet() == resource.data.members.toSet().difference([me()].toSet()))))
+        // Someone with a valid invite link joins: it names an existing joins doc for this trip, and only they are added.
+        || (!(me() in resource.data.members)
+            && request.resource.data.get('lastJoin', null) is string
+            && exists(/databases/$(database)/documents/joins/$(request.resource.data.lastJoin))
+            && get(/databases/$(database)/documents/joins/$(request.resource.data.lastJoin)).data.tripId == tripId
+            && request.resource.data.members.toSet() == resource.data.members.toSet().union([me()].toSet())
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberNames', 'lastJoin', 'updatedBy', 'updatedByName', 'updatedAt']))
+      );
       allow delete: if signedIn() && me() == resource.data.owner;
 
       match /{sub}/{docId} {
@@ -23,19 +39,36 @@ service cloud.firestore {
       }
     }
 
+    // Is this account allowed Gemini and Claude? Each account can only look at its own doc.
+    match /aiUsers/{email} {
+      allow get: if signedIn() && me() == email;
+    }
+    // An AI user's Gemini key and Claude link tokens. Nobody else can read or write it.
+    match /private/{email} {
+      allow read, write: if signedIn() && me() == email && aiUser();
+    }
+
+    // Invite links. The doc id is the secret code: whoever has it can read it, nobody can list them.
+    match /joins/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() && request.resource.data.tripId is string
+                    && get(/databases/$(database)/documents/trips/$(request.resource.data.tripId)).data.owner == me();
+      allow delete: if signedIn() && get(/databases/$(database)/documents/trips/$(resource.data.tripId)).data.owner == me();
+    }
+
     // Claude link. The doc id is a secret token: anyone who has it can read the doc, nobody can list them.
-    // Signed-in members of the trip manage it. Claude has no sign-in, so without one it may only add to the inbox
+    // Signed-in AI users who are on the trip manage it. Claude has no sign-in, so without one it may only add to the inbox
     // (and stamp inboxAt): the plan snapshot and everything else stays untouchable.
     match /bridges/{token} {
       allow get: if true;
-      allow create: if signedIn() && request.resource.data.tripId is string && isMember(request.resource.data.tripId);
-      allow update: if (signedIn() && isMember(resource.data.tripId)
+      allow create: if aiUser() && request.resource.data.tripId is string && isMember(request.resource.data.tripId);
+      allow update: if (aiUser() && isMember(resource.data.tripId)
                         && request.resource.data.tripId == resource.data.tripId)
                     || (resource.data.on == true
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inbox', 'inboxAt'])
                         && request.resource.data.inbox is list
                         && request.resource.data.inbox.size() <= 30);
-      allow delete: if signedIn() && isMember(resource.data.tripId);
+      allow delete: if aiUser() && isMember(resource.data.tripId);
     }
   }
 }

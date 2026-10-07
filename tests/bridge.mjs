@@ -35,6 +35,8 @@ const srv = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "127.
 await new Promise((r) => setTimeout(r, 800));
 const URL0 = `http://127.0.0.1:${PORT}/`;
 const FS = "http://127.0.0.1:8080/v1/projects/demo-trips/databases/(default)/documents";
+// Claude links are for AI users: seed akash's aiUsers doc (the emulator's "owner" token bypasses the rules, like the console).
+await fetch(`${FS}/aiUsers?documentId=akash@example.com`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer owner" }, body: JSON.stringify({ fields: { on: { booleanValue: true } } }) });
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
@@ -87,7 +89,8 @@ try {
     await mk("trevi", { title: "Trevi Fountain", category: "sight", location: "Piazza di Trevi, Rome", lat: 41.901, lng: 12.483, dayId: null, order: 0 });
     await mk("grill", { title: "Meat Grill House", category: "food", location: "Via Roma 1, Rome", lat: 41.9, lng: 12.5, dayId: null, order: 0, vegSource: "gemini" });
     await S.store.setItemPath(S.tripId, ids.colo, ["votes", "partner@example.com"], "love");
-    await S.store.updateTrip(S.tripId, { ai: { key: "SECRETGEMINIKEY123", model: "x" }, memberNames: { "akash@example.com": "Akash", "partner@example.com": "Sanj" }, members: [S.me.email, "partner@example.com"] });
+    await S.store.updatePrivate(S.me.email, { ai: { key: "SECRETGEMINIKEY123", model: "x" } });
+    await S.store.updateTrip(S.tripId, { memberNames: { "akash@example.com": "Akash", "partner@example.com": "Sanj" }, members: [S.me.email, "partner@example.com"] });
     return ids;
   });
   await p.waitForTimeout(500);
@@ -99,7 +102,7 @@ try {
   await p.click("#modalForm button[value=ok]");
   await p.waitForFunction(() => /Claude is connected/.test(document.querySelector("#modalForm h3")?.textContent || ""), null, { timeout: 15000 });
   ok(true, "Connect turns it on and shows the connected modal");
-  const tok = await p.evaluate(() => window.__tripCtx.S.trip.bridge?.token);
+  const tok = await p.evaluate(() => window.__tripCtx.bridgeToken());
   ok(/^[A-Za-z0-9_-]{32}$/.test(tok || ""), "token is 32 url-safe chars: " + tok);
   await p.evaluate(() => { navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
   await p.click("[data-action=bridgeCopy]");
@@ -305,7 +308,7 @@ try {
   ok(await p.isVisible("[data-action=chgClaude]") && await p.isVisible("[data-action=chgGemini]"), "typing in the box shows Ask Gemini (key set) and Ask Claude");
   await p.evaluate(() => { navigator.clipboard.writeText = async () => {}; });
   await p.click("[data-action=chgClaude]");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.bridge?.ask?.request === "swap lunch and dinner on day 2");
+  await p.waitForFunction(() => window.__tripCtx.bridgeAsk()?.request === "swap lunch and dinner on day 2");
   await p.waitForFunction(async (u) => { const j = await (await fetch(u)).json(); return /swap lunch and dinner/.test(j.fields?.snapshot?.stringValue || "") && /requests/.test(j.fields.snapshot.stringValue); }, `${FS}/bridges/${tok}`, { timeout: 15000 });
   ok(true, "Ask Claude with the link on saves the request, and it reaches the snapshot as `requests`");
   const n7 = await p.evaluate(() => window.__opened.length);
@@ -320,7 +323,7 @@ try {
   await p.click(".more-sheet [data-action=bridgeOpen]");
   p.once("dialog", (d) => d.accept());
   await p.click("[data-action=bridgeOff]");
-  await p.waitForFunction(() => !window.__tripCtx.S.trip.bridge, null, { timeout: 10000 });
+  await p.waitForFunction(() => !window.__tripCtx.bridgeToken(), null, { timeout: 10000 });
   await p.waitForTimeout(500);
   ok((await fetch(`${FS}/bridges/${tok}`)).status === 404, "Turn off deletes the bridge doc");
   const gone = py3(["read"], env);

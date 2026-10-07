@@ -58,7 +58,7 @@ try {
   ok(!(await p.isVisible("[data-action=chgClaude]")), "buttons stay hidden until you focus it");
   await p.click("#changeInput");
   ok(await p.isVisible("[data-action=chgClaude]") && !(await p.$("[data-action=chgGemini]")), "focus shows Ask Claude; no Ask Gemini without a key");
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: { key: "K", model: "m" } }));
+  await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: { key: "K", model: "m" } }));
   await p.waitForTimeout(300);
   await p.fill("#changeInput", "make Day 1 slower");
   await p.evaluate(() => window.__tripCtx.render());
@@ -125,19 +125,19 @@ try {
 
   console.log("Connect from the nudge: Connect continues straight to Claude");
   await p.evaluate(() => { localStorage.removeItem("tp-claude-nudged"); window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; });
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: null }));
+  await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: null }));
   await p.setViewportSize({ width: 390, height: 800 });
   await p.fill("#changeInput", "swap two stops");
   await p.click("[data-action=chgClaude]");
   await p.waitForSelector("#modalForm button[value=cancel]");
   await p.click("#modalForm button[value=ok]");
   await p.waitForFunction(() => window.__opened.length === 1, null, { timeout: 10000 });
-  const tok = await p.evaluate(() => window.__tripCtx.S.trip.bridge.token);
+  const tok = await p.evaluate(() => window.__tripCtx.bridgeToken());
   const u0 = await p.evaluate(() => window.__opened[0]);
   const q0 = decodeURIComponent(u0.split("?q=")[1] || "");
   ok(u0.startsWith("https://claude.ai/new?q=") && q0.includes("token: " + tok) && q0.includes("Request: Please handle our new request in the trip planner: swap two stops"), "Connect opens claude.ai/new?q= with the token and the request");
   ok((await p.evaluate(() => window.__copied)) === q0, "the clipboard holds the same text");
-  ok(await p.evaluate(() => window.__tripCtx.S.trip.bridge.ask?.request === "swap two stops"), "the request is saved for Claude too");
+  ok(await p.evaluate(() => window.__tripCtx.bridgeAsk()?.request === "swap two stops"), "the request is saved for Claude too");
 
   console.log("Claude link in demo mode");
   await p.waitForFunction((t) => JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t]?.snapshot, tok, { timeout: 10000 });
@@ -149,7 +149,7 @@ try {
   await p.evaluate((t) => window.__demoBridgePush(t, { id: "d2", at: Date.now(), json: "not json" }), tok);
   await p.waitForFunction(() => /couldn't use/.test(document.getElementById("toast").textContent), null, { timeout: 5000 });
   ok(true, "garbage in the inbox gives a plain-words toast, no crash");
-  const del = await p.evaluate(async (t) => { await window.__tripCtx.S.store.deleteTrip(window.__tripCtx.S.tripId); return JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t]; }, tok);
+  const del = await p.evaluate(async (t) => { await window.__tripCtx.S.store.deleteTrip(window.__tripCtx.S.tripId, window.__tripCtx.bridgeToken()); return JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t]; }, tok);
   ok(del === undefined, "deleting the trip deletes its bridge doc");
 } catch (e) {
   fails++;

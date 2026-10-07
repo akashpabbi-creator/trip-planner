@@ -179,8 +179,8 @@ try {
   await d.waitForFunction(() => !document.getElementById("modal").open);
 
   /* ---- with Gemini */
-  await d.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: { key: "TESTKEY", model: "x" } }));
-  await d.waitForFunction(() => window.__tripCtx.S.trip.ai?.key === "TESTKEY");
+  await d.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: { key: "TESTKEY", model: "x" } }));
+  await d.waitForFunction(() => window.__tripCtx.aiKey() === "TESTKEY");
   const [fc] = await Promise.all([d.waitForEvent("filechooser"), d.click("[data-action=capturePick]")]);
   ok(fc.isMultiple(), "file picker allows several images");
   await fc.setFiles([png1, png2]);
@@ -306,8 +306,8 @@ try {
 
   /* ---- regex fallback in the UI */
   console.log("bookings from an email (no Gemini)");
-  await d.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: null }));
-  await d.waitForFunction(() => !window.__tripCtx.S.trip.ai);
+  await d.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: null }));
+  await d.waitForFunction(() => !window.__tripCtx.aiKey());
   await d.click('.tabs-desk [data-tab=kit]');
   await d.click("[data-action=bkEmail]");
   ok(/Read email/.test(await d.textContent("#modalForm button.primary")), "no key: button says 'Read email'");
@@ -329,7 +329,7 @@ try {
 
   /* ---- shared images through the real service worker */
   console.log("android share target (real service worker)");
-  await d.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: { key: "TESTKEY", model: "x" } }));
+  await d.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: { key: "TESTKEY", model: "x" } }));
   await d.evaluate(async () => { await navigator.serviceWorker.register("sw.js"); await navigator.serviceWorker.ready; });
   await d.reload();
   await d.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 8000 });

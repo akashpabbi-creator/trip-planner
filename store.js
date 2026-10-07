@@ -108,9 +108,8 @@ async function firebaseStore(config) {
       return wr(fs.setDoc(ref, data), ref.id);
     },
     updateTrip: (id, patch) => fs.updateDoc(tripRef(id), patch),
-    async deleteTrip(id) {
-      const snap = await fs.getDoc(tripRef(id));
-      const token = snap.data()?.bridge?.token;
+    async deleteTrip(id, token) {
+      if (!token) token = (await fs.getDoc(tripRef(id))).data()?.bridge?.token; // older trips kept the token on the trip
       if (token) await fs.deleteDoc(bridgeRef(token)).catch(() => {});
       for (const name of ["items", "activity", "presence"]) {
         const s = await fs.getDocs(sub(id, name));
@@ -162,6 +161,32 @@ async function firebaseStore(config) {
     heartbeat: (tripId, me) =>
       fs.setDoc(fs.doc(db, "trips", tripId, "presence", me.email), { email: me.email, name: me.name, at: Date.now() }),
 
+    // AI users: an `aiUsers/{email}` doc (made by hand in the console) turns on Gemini and Claude for that account.
+    // Their key and Claude link token live in `private/{email}`, which nobody else can read.
+    async aiUser(email) {
+      try {
+        return (await fs.getDoc(fs.doc(db, "aiUsers", email))).exists();
+      } catch (e) {
+        if (e.code === "permission-denied") return false;
+        return (await fs.getDocFromCache(fs.doc(db, "aiUsers", email)).catch(() => null))?.exists() || false; // offline: what we saw last time
+      }
+    },
+    watchPrivate: (email, cb) => fs.onSnapshot(fs.doc(db, "private", email), (d) => cb(d.exists() ? d.data() : {}), (e) => { console.warn("private", e.message); cb({}); }),
+    updatePrivate: (email, patch) => fs.setDoc(fs.doc(db, "private", email), patch, { merge: true }),
+
+    // Join link: `joins/{code}` names a trip. The joiner can't read the trip yet, so this is one plain update (no transaction).
+    // Emails contain dots, so the name goes in as a path of two segments.
+    createJoin: (code, data) => fs.setDoc(fs.doc(db, "joins", code), data),
+    deleteJoin: (code) => fs.deleteDoc(fs.doc(db, "joins", code)),
+    async joinTrip(code, me) {
+      const j = await fs.getDoc(fs.doc(db, "joins", code));
+      if (!j.exists() || typeof j.data().tripId !== "string") return null;
+      const tripId = j.data().tripId;
+      await fs.updateDoc(tripRef(tripId), "members", fs.arrayUnion(me.email), new fs.FieldPath("memberNames", me.email), me.name,
+        "lastJoin", code, "updatedBy", me.email, "updatedByName", me.name, "updatedAt", Date.now());
+      return tripId;
+    },
+
     // Claude link: a doc named by a secret token that a Claude session reads and writes.
     createBridge: (token, data) => fs.setDoc(bridgeRef(token), data),
     updateBridge: (token, patch) => fs.updateDoc(bridgeRef(token), patch),
@@ -176,7 +201,7 @@ async function firebaseStore(config) {
         return inbox;
       }),
   };
-  for (const k of ["updateTrip", "updateItem", "deleteItem", "batchUpdateItems", "setItemPath", "arrayAdd", "arrayRemove", "txTrip"]) {
+  for (const k of ["updateTrip", "updatePrivate", "updateItem", "deleteItem", "batchUpdateItems", "setItemPath", "arrayAdd", "arrayRemove", "txTrip"]) {
     const fn = store[k];
     store[k] = (...a) => settle(track(fn(...a)));
   }
@@ -190,13 +215,14 @@ function demoStore() {
   const listeners = new Set();
   const load = () => {
     try {
-      return JSON.parse(localStorage.getItem(KEY)) || { trips: {}, items: {}, activity: {}, presence: {}, bridges: {} };
+      return JSON.parse(localStorage.getItem(KEY)) || { trips: {}, items: {}, activity: {}, presence: {}, bridges: {}, private: {}, joins: {} };
     } catch {
-      return { trips: {}, items: {}, activity: {}, presence: {}, bridges: {} };
+      return { trips: {}, items: {}, activity: {}, presence: {}, bridges: {}, private: {}, joins: {} };
     }
   };
   let state = load();
-  state.bridges ||= {};
+  const fix = () => { state.bridges ||= {}; state.private ||= {}; state.joins ||= {}; };
+  fix();
   const save = () => {
     localStorage.setItem(KEY, JSON.stringify(state));
     chan?.postMessage("changed");
@@ -205,7 +231,7 @@ function demoStore() {
   const emit = () => listeners.forEach((fn) => fn());
   const reload = () => {
     state = load();
-    state.bridges ||= {};
+    fix();
     emit();
   };
   chan?.addEventListener("message", reload);
@@ -227,7 +253,7 @@ function demoStore() {
   // Tests (and the console) can play the part of Claude writing to the inbox.
   window.__demoBridgePush = (token, entry) => {
     state = load();
-    state.bridges ||= {};
+    fix();
     const b = state.bridges[token];
     if (!b) return false;
     (b.inbox ||= []).push(entry);
@@ -271,8 +297,8 @@ function demoStore() {
       Object.assign(state.trips[id], patch);
       save();
     },
-    async deleteTrip(id) {
-      const token = state.trips[id]?.bridge?.token;
+    async deleteTrip(id, token) {
+      token ||= state.trips[id]?.bridge?.token;
       if (token) delete state.bridges[token];
       delete state.trips[id];
       delete state.items[id];
@@ -329,13 +355,52 @@ function demoStore() {
       it[field] = (it[field] || []).filter((x) => JSON.stringify(x) !== JSON.stringify(value));
       save();
     },
+    // Everyone is an AI user in the demo unless `?noai` or localStorage["tripplanner-demo-noai"] = "1".
+    async aiUser() {
+      let off = new URLSearchParams(location.search).has("noai");
+      try { off ||= localStorage.getItem("tripplanner-demo-noai") === "1"; } catch {}
+      return !off;
+    },
+    watchPrivate: (email, cb) => listen(() => cb(structuredClone(state.private[email] || {}))),
+    async updatePrivate(email, patch) {
+      state = load();
+      fix();
+      const merge = (to, from) => {
+        for (const [k, v] of Object.entries(from)) to[k] = v && typeof v === "object" && !Array.isArray(v) && to[k] && typeof to[k] === "object" ? merge(to[k], v) : structuredClone(v);
+        return to;
+      };
+      merge((state.private[email] ||= {}), patch);
+      save();
+    },
+    async createJoin(code, data) {
+      state = load();
+      fix();
+      state.joins[code] = structuredClone(data);
+      save();
+    },
+    async deleteJoin(code) {
+      state = load();
+      fix();
+      delete state.joins[code];
+      save();
+    },
+    async joinTrip(code, me) {
+      state = load();
+      fix();
+      const tripId = state.joins[code]?.tripId, t = state.trips[tripId];
+      if (!t) return null;
+      if (!t.members.includes(me.email)) t.members.push(me.email);
+      Object.assign(t, { memberNames: { ...t.memberNames, [me.email]: me.name }, lastJoin: code, updatedBy: me.email, updatedByName: me.name, updatedAt: Date.now() });
+      save();
+      return tripId;
+    },
     async createBridge(token, data) {
       state.bridges[token] = structuredClone(data);
       save();
     },
     async updateBridge(token, patch) {
       state = load();
-      state.bridges ||= {};
+      fix();
       if (!state.bridges[token]) throw new Error("No such bridge");
       Object.assign(state.bridges[token], structuredClone(patch));
       save();
@@ -347,7 +412,7 @@ function demoStore() {
     watchBridge: (token, cb) => listen(() => cb(state.bridges[token] ? structuredClone(state.bridges[token]) : null)),
     async takeInbox(token) {
       state = load();
-      state.bridges ||= {};
+      fix();
       const b = state.bridges[token];
       const inbox = b?.inbox || [];
       if (inbox.length) {

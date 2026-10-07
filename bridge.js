@@ -55,7 +55,8 @@ function buildSnapshot() {
   if (t.aiPicks?.items?.length) pend.picks = { source: t.aiPicks.source || "Gemini", count: t.aiPicks.items.length };
   snap.pendingProposals = pend;
   if (t.profile?.home) snap.homeCity = t.profile.home;
-  if (t.bridge?.ask) snap.requests = [{ request: t.bridge.ask.request, ...(t.bridge.ask.text ? { text: t.bridge.ask.text } : {}), from: t.bridge.ask.by, asked: new Date(t.bridge.ask.at).toISOString() }];
+  const ask = ctx.bridgeAsk();
+  if (ask) snap.requests = [{ request: ask.request, ...(ask.text ? { text: ask.text } : {}), from: ask.by, asked: new Date(ask.at).toISOString() }];
   snap.howToSend = {
     note: "Everything you send is a proposal the couple review in the app; nothing is applied until they tap. Send by appending {id, at, json} to the bridge inbox (see the trip-planner skill).",
     payloadKinds: PAYLOADS,
@@ -78,7 +79,7 @@ function snapshotJson() {
   return json;
 }
 async function writeSnapshot() {
-  const tok = ctx.S.trip?.bridge?.token;
+  const tok = ctx.bridgeToken();
   if (!tok || !remoteReady || !remote || !ctx.S.items) return;
   const json = snapshotJson();
   if (json === lastWritten || json === remote.snapshot) return;
@@ -88,13 +89,13 @@ async function writeSnapshot() {
 }
 function scheduleSnapshot(delay = SNAP_DELAY) {
   clearTimeout(snapTimer);
-  if (!ctx.S.trip?.bridge?.token) return;
+  if (!ctx.bridgeToken()) return;
   snapTimer = setTimeout(writeSnapshot, delay);
 }
 
 /* ------------------------------------------------------------ the doc watch */
 function ensureWatch() {
-  const tok = ctx.S.trip?.bridge?.token || "";
+  const tok = ctx.bridgeToken();
   if (tok === watching) return;
   stopWatch();
   watching = tok;
@@ -120,7 +121,7 @@ async function onBridge(tok, b) {
     remoteReady = false;
     setTimeout(async () => {
       const { S } = ctx;
-      if (watching !== tok || remote || S.trip?.bridge?.token !== tok) return;
+      if (watching !== tok || remote || ctx.bridgeToken() !== tok) return;
       try { await S.store.createBridge(tok, newDoc(tok)); } catch (e) { console.warn("claude link", e.message); }
     }, 2500);
     return;
@@ -211,7 +212,7 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
 }
 
 /* -------------------------------------------------------------------- modal */
-const tokenOf = () => ctx.S.trip?.bridge?.token || "";
+const tokenOf = () => ctx.bridgeToken();
 function newToken() {
   const a = new Uint8Array(32);
   crypto.getRandomValues(a);
@@ -274,7 +275,7 @@ export function openClaude(request, { fallback, onConnected } = {}) {
 async function turnOn() {
   const { S } = ctx, token = newToken();
   await S.store.createBridge(token, newDoc(token));
-  await S.store.updateTrip(S.tripId, { bridge: { token, by: S.me.email, at: Date.now() }, ...ctx.stampMe() });
+  await S.store.updatePrivate(S.me.email, { bridges: { [S.tripId]: { token, at: Date.now() } } });
   await ctx.log("connected Claude to the plan");
   return token;
 }
@@ -283,7 +284,7 @@ async function turnOff() {
   if (!tok) return;
   stopWatch();
   await S.store.deleteBridge(tok).catch((e) => console.warn(e.message));
-  await S.store.updateTrip(S.tripId, { bridge: null, ...ctx.stampMe() });
+  await S.store.updatePrivate(S.me.email, { bridges: { [S.tripId]: null } });
   await ctx.log("disconnected Claude from the plan");
 }
 function consentModal(onConnect, lead = "", cancel = "") {
@@ -300,10 +301,11 @@ function consentModal(onConnect, lead = "", cancel = "") {
 }
 function openBridge() {
   const { S, esc } = ctx;
+  if (!S.aiUser) return;
   if (!S.tripId || !S.trip) return ctx.toast("Open a trip first.");
   const tok = tokenOf();
   if (!tok) return consentModal(async () => { await turnOn(); setTimeout(openBridge, 400); });
-  const at = remote?.snapshotAt, ask = ctx.S.trip.bridge?.ask;
+  const at = remote?.snapshotAt, ask = ctx.bridgeAsk();
   const empty = ctx.S.trip.days.some((d) => !ctx.dayItems(d.id).length);
   const quick = [["Review our plan", "Review our plan"], ...(empty ? [["Plan our empty days", "Plan our empty days"]] : []),
     ["Top places & vegetarian restaurants", "Find the top places and vegetarian restaurants for our trip"],
@@ -374,6 +376,7 @@ export function init(c) {
     setTimeout(openBridge, 500);
   });
   ctx.on("trip", () => { ensureWatch(); scheduleSnapshot(); });
+  ctx.on("priv", () => { ensureWatch(); scheduleSnapshot(); });
   ctx.on("items", () => scheduleSnapshot());
   ctx.on("close", () => stopWatch());
 }
