@@ -14,7 +14,6 @@ const centroid = (list) => {
   const p = list.filter(has);
   return p.length ? { lat: p.reduce((a, x) => a + x.lat, 0) / p.length, lng: p.reduce((a, x) => a + x.lng, 0) / p.length } : null;
 };
-const pad = (t) => String(t).replace(/^(\d):/, "0$1:"); // "9:00" to "09:00"
 const shuffled = (list) => list.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
 
 export function init(ctx) {
@@ -78,13 +77,11 @@ export function init(ctx) {
       return;
     }
     last.set(dayId, swaps.map((x) => x.out.id + ">" + x.in.id).sort().join(","));
-    const times = new Map(ctx.schedule(dayId).map((s) => [s.it.id, s]));
     const ops = swaps.flatMap((x) => {
-      const est = times.get(x.out.id);
       const why = `Same kind of place${x.near ? `, near your other Day ${n} stops` : ""}${loveCount(x.in) ? " and one you liked" : ""}`;
       return [
         { type: "remove", itemId: x.out.id, why: `Makes room on Day ${n} for “${x.in.title}”` },
-        { type: "move", itemId: x.in.id, toDay: n, ...(est?.auto ? { time: pad(ctx.fromMin(est.start)) } : {}), why: why + "." },
+        { type: "move", itemId: x.in.id, toDay: n, order: x.out.order, why: why + "." },
       ];
     });
     const summary = swaps.map((x) => `“${x.in.title}” instead of “${x.out.title}”`).join(", ");

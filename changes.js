@@ -39,7 +39,7 @@ export function cleanOp(o) {
   const out = { type };
   if (o.why) out.why = str(o.why, 240);
   const id = () => str(o.itemId ?? o.id, 80);
-  if (type === "move") Object.assign(out, { itemId: id(), toDay: Math.round(num(o.toDay)), ...(o.time ? { time: str(o.time, 8) } : {}) });
+  if (type === "move") Object.assign(out, { itemId: id(), toDay: Math.round(num(o.toDay)), ...(o.time ? { time: str(o.time, 8) } : {}), ...(typeof o.order === "number" && Number.isFinite(o.order) ? { order: o.order } : {}) }); // order: internal (Shuffle keeps a stop's place)
   else if (type === "remove") out.itemId = id();
   else if (type === "time") Object.assign(out, { itemId: id(), time: str(o.time, 8) });
   else if (type === "transport") Object.assign(out, { itemId: id(), mode: str(o.mode, 20), minutes: Math.round(num(o.minutes)), ...(o.cost != null && o.cost !== "" ? { cost: num(o.cost) } : {}) });
@@ -140,7 +140,7 @@ export async function applyOp(op, { source = "" } = {}) {
   switch (op.type) {
     case "move": {
       const id = dayId(op.toDay), time = hhmm(op.time);
-      await store.updateItem(tripId, it.id, { dayId: id, order: time ? ctx.orderForTime(id, time) : ctx.nextOrder(id), ...(time ? { time } : {}), userEdited: true, ...me });
+      await store.updateItem(tripId, it.id, { dayId: id, order: time ? ctx.orderForTime(id, time) : Number.isFinite(op.order) ? op.order : ctx.nextOrder(id), ...(time ? { time } : {}), userEdited: true, ...me });
       return done(`moved ${q(it.title)} to Day ${op.toDay}`);
     }
     case "remove":

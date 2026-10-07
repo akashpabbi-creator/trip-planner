@@ -83,7 +83,7 @@ try {
   ok(outs.every((o) => ["sight", "food"].includes(o)), "only swappable stops go out (not must-do, fixed time, both-love or stay): " + outs);
   const pair = outs[0] === "sight" ? ["i1", "i2"] : ["i3"];
   ok(ins.every((i) => pair.includes(i)), "same category comes in, never vetoed, no-veg, far away or a different kind: " + ins);
-  ok(c1.ops.every((o) => o.why) && c1.ops.filter((o) => o.type === "move").every((o) => o.toDay === 2 && /^\d\d:\d\d$/.test(o.time) && /Same kind of place/.test(o.why)), "each op has a why; the new stop takes the old one's estimated time on Day 2");
+  ok(c1.ops.every((o) => o.why) && c1.ops.filter((o) => o.type === "move").every((o) => o.toDay === 2 && !o.time && /Same kind of place/.test(o.why)), "each op has a why; the new stop has no fixed time on Day 2");
   const modal = await p.textContent("#modalForm");
   ok(/Shuffle's suggested changes/.test(modal) && !/You asked/.test(modal) && /Shuffle Day 2/.test(modal) && /Nothing changes until you tap Apply/.test(modal), "review reads well for Shuffle");
   const unchanged = await p.evaluate((i) => window.__tripCtx.S.items.find((x) => x.id === i).dayId, ids[outs[0]]);
@@ -92,6 +92,8 @@ try {
   await p.click("[data-close]");
   ok(/Shuffle suggests 2 changes for “Shuffle Day 2”/.test(await p.textContent(".smart-banner[data-action=chgOpen]")), "banner: " + (await p.textContent(".smart-banner[data-action=chgOpen]")).trim());
 
+  const oldOrder = await p.evaluate((i) => window.__tripCtx.S.items.find((x) => x.id === i).order, ids[outs[0]]);
+  ok(c1.ops.find((o) => o.type === "move").order === oldOrder, "the swapped-in stop takes the old stop's position");
   console.log("a second shuffle differs");
   let differs = 0;
   let prev = [outs[0], ins[0]].join(">");
@@ -116,6 +118,10 @@ try {
   const state = await p.evaluate(() => { const c = window.__tripCtx; return c.S.trip.days.map((d) => c.dayItems(d.id).map((i) => i.title)); });
   ok(state[1].length === 6 && state[1].includes("Colosseum") && state[1].includes("Pantheon") && state[1].includes("Trevi Fountain"), "Day 2 still has six stops and the protected ones: " + state[1]);
 
+  const placed = await p.evaluate(() => { const c = window.__tripCtx; return c.dayItems(c.S.trip.days[1].id).map((i) => [i.title, i.time || ""]); });
+  ok(["Castel Sant'Angelo,Colosseum,Trattoria Verde,Pantheon,Trevi Fountain,Hotel Roma", "Villa Borghese,Colosseum,Forno Veg,Pantheon,Trevi Fountain,Hotel Roma"].includes(placed.map((x) => x[0]).join(",")) && placed.every((x) => x[0] === "Pantheon" || !x[1]), "the swapped-in stop sits where the old one was and has no time: " + JSON.stringify(placed));
+  const again = await p.evaluate(() => { const c = window.__tripCtx; const swapped = c.dayItems(c.S.trip.days[1].id).find((i) => ["Castel Sant'Angelo", "Forno Veg"].includes(i.title)); return swapped && !swapped.time && !swapped.mustDo; });
+  ok(again, "so a later shuffle can swap it again");
   console.log("nothing to swap");
   await p.evaluate(async () => { const c = window.__tripCtx; for (const i of c.ideas()) await c.S.store.deleteItem(c.S.tripId, i.id); });
   await p.waitForTimeout(400);
