@@ -55,6 +55,17 @@ A free, private web app for planning a trip together. Both of you edit the same 
 
 Previews use the free [Microlink](https://microlink.io) service (about 50 lookups a day per device), with a free fallback. If a preview fails the link is still saved.
 
+## Friends, and AI only for one account
+
+The planner is one app for everyone. Gemini and Claude are only for accounts listed in the `aiUsers` collection; everyone else gets the same planner with no Gemini or Claude buttons or text (the rule-based features stay: Fill empty days, travel guide, link reader, bookings email reader, map, budget, kit, ideas, votes).
+
+- **Make an AI user.** In the Firebase console, Firestore → Start collection `aiUsers`, document id = the lowercase Google email, any field (for example `on: true`). The app never writes it, and no email is in the code.
+- **Where the secrets live.** The Gemini key and the Claude link token are saved in `private/{email}` (`ai` and `bridges.{tripId}`), which only that account can read, and only if it has an `aiUsers` doc. They are no longer on the trip, so people sharing a trip can't see them. When an AI user opens a trip that still has `ai` or `bridge` on it from an older version, the app moves them to the private doc and clears them from the trip. Until that account opens the trip, the old values are still on it.
+- **Invite link.** Invite (top of a trip) → Invite link → Create. Share or copy it; anyone who opens it and signs in with Google joins the trip. Reset link makes a new one and the old one stops working. The owner can also Remove people; everyone else can Leave this trip. Invite by email still works.
+- **iPhone.** In Safari (not yet on the Home Screen) the app shows a one-time tip to add it to the Home Screen and sign in in Safari first.
+- **Rules.** Publish the new `firestore.rules` (they add `aiUsers`, `private`, `joins`, leaving a trip, joining by link, and make the Claude link AI-user only).
+- **Demo mode.** Everyone is an AI user, unless the address has `?noai` or `localStorage["tripplanner-demo-noai"] = "1"`.
+
 ## Claude link
 
 Connect Claude (More → Connect Claude) lets a Claude chat in the Claude desktop app or Cowork read your plan and send proposals, using the "trip-planner" skill in `docs/claude-skill.md`.
@@ -97,7 +108,7 @@ The Gemini key comes from https://aistudio.google.com/apikey. It's free with any
 
 ### 3. Use it
 1. Open the app, sign in with Google, create a trip.
-2. Click **Invite** and add your partner's Gmail address. They open the same link, sign in, and the trip is there.
+2. Click **Invite** and add a Gmail address, or create an invite link and send it. They open the app (or the link), sign in, and the trip is there.
 3. On phones, use the browser's **Add to Home screen**. On Android this also adds "Trips" to the share menu.
 
 ## Try it without setup

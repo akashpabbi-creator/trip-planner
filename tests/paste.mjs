@@ -69,7 +69,7 @@ try {
   ok((await p.getAttribute("#pasteText", "maxlength")) === "20000", "box is capped at 20,000 characters");
   await p.click("[data-close]");
 
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: { key: "K", model: "m" } }));
+  await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: { key: "K", model: "m" } }));
   await p.waitForTimeout(300);
 
   console.log("long text in the link box opens the sheet");
@@ -137,20 +137,20 @@ try {
   ok(true, "applying it adds the place");
 
   console.log("Ask Claude with the Claude link on");
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: null }));
+  await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: null }));
   await p.click(".tabs-bar [data-action=moreToggle]");
   await p.click(".more-sheet [data-action=bridgeOpen]");
   await p.click("#modalForm button[value=ok]");
   await p.waitForFunction(() => /connected/.test(document.querySelector("#modalForm h3")?.textContent || ""));
-  const tok = await p.evaluate(() => window.__tripCtx.S.trip.bridge.token);
+  const tok = await p.evaluate(() => window.__tripCtx.bridgeToken());
   await p.click("[data-close]");
   const LONG = "Tips: " + "x".repeat(9000) + " END";
   await openAdd(p);
   await p.click("[data-action=pasteOpen]");
   await p.fill("#pasteText", LONG);
   await p.click("[data-action=pasteClaude]");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.bridge?.ask, null, { timeout: 5000 });
-  const ask = await p.evaluate(() => window.__tripCtx.S.trip.bridge.ask);
+  await p.waitForFunction(() => window.__tripCtx.bridgeAsk(), null, { timeout: 5000 });
+  const ask = await p.evaluate(() => window.__tripCtx.bridgeAsk());
   ok(ask.request === "Find places in pasted text" && ask.text.length === 8000 && ask.text.startsWith("Tips: "), "the ask stays short and carries the text, capped at 8,000");
   await p.waitForFunction((t) => (JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t]?.snapshot || "").includes('"requests"'), tok, { timeout: 10000 });
   const snap = await p.evaluate((t) => JSON.parse(JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t].snapshot).requests[0], tok);
