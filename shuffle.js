@@ -76,6 +76,9 @@ export function init(ctx) {
       ctx.setChangeDraft?.(`Swap a couple of Day ${n} stops for new places`);
       return;
     }
+    // A new shuffle replaces whatever is waiting for review (Claude's changes or the last shuffle): ask first.
+    const waiting = ctx.pendingChanges?.() || 0;
+    if (waiting && !confirm(`Replace the ${waiting} change${waiting === 1 ? "" : "s"} waiting for review?`)) return;
     last.set(dayId, swaps.map((x) => x.out.id + ">" + x.in.id).sort().join(","));
     const ops = swaps.flatMap((x) => {
       const why = `Same kind of place${x.near ? `, near your other Day ${n} stops` : ""}${loveCount(x.in) ? " and one you liked" : ""}`;

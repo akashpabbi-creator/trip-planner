@@ -66,7 +66,10 @@ try {
   ok(/Find places in text/.test(sheet) && /The text goes to Gemini \(or Claude\) once and isn't saved/.test(sheet), "heading and privacy line");
   ok(/WhatsApp tips, a video transcript, a blog post or someone's itinerary/.test(await p.getAttribute("#pasteText", "placeholder")), "hint in the box");
   ok(!(await p.$("[data-action=pasteGemini]")) && (await p.isVisible("[data-action=pasteClaude]")), "no Find with Gemini without a key; Ask Claude is there");
-  ok((await p.getAttribute("#pasteText", "maxlength")) === "20000", "box is capped at 20,000 characters");
+  await p.fill("#pasteText", "x".repeat(20500));
+  ok(/Only the first 20,000 characters will be read/.test(await p.textContent("#pasteCut")), "long text: a note says only the first 20,000 characters are read");
+  await p.fill("#pasteText", "");
+  ok(await p.isHidden("#pasteCut"), "short text: no note");
   await p.click("[data-close]");
 
   await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: { key: "K", model: "m" } }));
