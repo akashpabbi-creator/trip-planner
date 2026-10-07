@@ -765,6 +765,12 @@ function viewBudget() {
   </div>`;
 }
 
+// Friends (no AI) never see Gemini or Claude, so activity lines that name them are reworded.
+function plainLog(text) {
+  if (S.aiUser) return text;
+  if (/^(connected|disconnected)\b.*\b(Gemini|Claude)\b/i.test(text)) return "changed the planner settings";
+  return text.replace(/\b(Gemini|Claude)['\u2019]s\b/g, "the planner's").replace(/\b(Gemini|Claude)\b/g, "the planner");
+}
 function viewChanges() {
   if (!S.activity.length) return `<p class="empty">Changes either of you make will show up here with the time.</p>`;
   let lastDay = "";
@@ -772,7 +778,7 @@ function viewChanges() {
     const d = new Date(a.at).toDateString();
     const head = d !== lastDay ? `<li class="feed-day">${new Date(a.at).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}</li>` : "";
     lastDay = d;
-    return `${head}<li><span class="f-time">${new Date(a.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span><span class="f-who">${esc(who(a.by))}</span> ${esc(a.text)}</li>`;
+    return `${head}<li><span class="f-time">${new Date(a.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span><span class="f-who">${esc(who(a.by))}</span> ${esc(plainLog(a.text))}</li>`;
   }).join("")}</ol>`;
 }
 
@@ -2099,6 +2105,14 @@ function takeJoin() {
   try { sessionStorage.setItem("tp-join", m[1]); } catch {}
   history.replaceState(null, "", location.pathname + location.search);
 }
+// The same links opened while the app is already running (pasted into the address bar, or tapped from another app).
+window.addEventListener("hashchange", () => {
+  if (/[#&]join=([\w-]{8,})/.test(location.hash)) { takeJoin(); handleJoin(); return; }
+  const linked = (location.hash.match(/[#&]trip=([\w-]+)/) || [])[1];
+  if (!linked || !S.me || linked === S.tripId) return;
+  if (S.trips.some((t) => t.id === linked)) openTrip(linked);
+  else notInvited(linked, S.me.email);
+});
 const pendingJoin = () => { try { return sessionStorage.getItem("tp-join") || ""; } catch { return ""; } };
 async function handleJoin() {
   const code = pendingJoin();

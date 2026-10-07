@@ -702,7 +702,8 @@ dialog .bq-row .btn-s { border-radius: 99px; padding: 8px 16px; }
 }
 
 /* Friends: invite link, members, iPhone tip */
-.members li { margin: 4px 0; }
+.members { min-width: 0; }
+.members li { margin: 4px 0; overflow-wrap: anywhere; }
 .members .btn-s { margin-left: 6px; padding: 2px 8px; }
 .join-sec { margin: 14px 0 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 .join-sec h4 { margin: 0 0 4px; }
