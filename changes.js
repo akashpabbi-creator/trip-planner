@@ -287,17 +287,19 @@ function claudeRequest(request, { text = "", lead = "", extra = "" } = {}) {
     + "\n\nReply with the json block only, so it can be pasted straight back into our trip planner.";
 }
 // Asks Claude for a `changes` block. `request` is the short line shown in the app; `onDone` runs once the request is sent or the answer is in.
-export async function askClaudeFor(request, { text = "", lead = "", extra = "", onDone } = {}) {
+export async function askClaudeFor(request, { text = "", lead = "", extra = "", onDone, retried = false } = {}) {
   const { S } = ctx, t = S.trip;
   if (t.bridge?.token) {
     await S.store.txTrip(S.tripId, (cur) => ({ bridge: { ...cur.bridge, ask: { request: str(request, 300), ...(text ? { text: str(text, 8000) } : {}), at: Date.now(), by: S.me.name } }, ...ctx.stampMe() }));
     ctx.bridgeSyncNow?.();
-    navigator.clipboard?.writeText(claudeRequest(request, { text, lead, extra })).catch(() => {});
     onDone?.();
     ctx.render();
-    ctx.toast("Saved for Claude. In Claude, say “check my trip planner”. Claude's changes will show up here to review.", 7000);
+    if (!ctx.openClaude) ctx.toast("Saved for Claude. In Claude, say “check my trip planner”. Claude's changes will show up here to review.", 7000);
+    else ctx.openClaude("Please handle our new request in the trip planner: " + str(request, 200));
     return;
   }
+  // Link off: the first time, offer to connect (then this runs again with the link on); "Not now" goes on to copy/paste.
+  if (!retried && ctx.openClaude?.(request, { fallback: () => askClaudeFor(request, { text, lead, extra, onDone, retried: true }), onConnected: () => askClaudeFor(request, { text, lead, extra, onDone }) })) return;
   window.open("https://claude.ai/new", "_blank", "noopener");
   lastRequest = claudeRequest(request, { text, lead, extra });
   navigator.clipboard?.writeText(lastRequest).catch(() => {});

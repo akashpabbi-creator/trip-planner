@@ -122,6 +122,8 @@ try {
   await p.click("[data-action=pasteOpen]");
   await p.fill("#pasteText", TIPS);
   await p.click("[data-action=pasteClaude]");
+  await p.waitForSelector("#modalForm button[value=cancel]");
+  await p.click("#modalForm button[value=cancel]"); // "Not now" on the connect nudge
   await p.waitForSelector("#modalForm textarea[name=answer]");
   const copied = await p.evaluate(() => window.__copied);
   ok(copied.includes(TIPS) && /"type":"add"/.test(copied) && /vegetarian/.test(copied) && /Find places in pasted text/.test(copied), "copied request has the pasted text, the add format and the veg rule");
@@ -153,7 +155,7 @@ try {
   await p.waitForFunction((t) => (JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t]?.snapshot || "").includes('"requests"'), tok, { timeout: 10000 });
   const snap = await p.evaluate((t) => JSON.parse(JSON.parse(localStorage.getItem("tripplanner-demo-v1")).bridges[t].snapshot).requests[0], tok);
   ok(snap.request === "Find places in pasted text" && snap.text === ask.text, "the snapshot's requests carry the text for Claude");
-  ok(/Saved for Claude/.test(await p.textContent("#toast")), "toast says it is saved for Claude");
+  ok(/Claude opened with your trip/.test(await p.textContent("#toast")), "toast says Claude opened");
 } catch (e) {
   fails++;
   console.log("  FAIL exception:", e.stack || e.message);

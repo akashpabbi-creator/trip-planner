@@ -115,6 +115,29 @@ try {
   ok(snap.days[0].schedule.some((s) => s.id === seed.colo && s.title === "Colosseum") && snap.ideasNotScheduled.some((s) => s.id === seed.trevi), "snapshot has the days, stop ids and ideas");
   ok(snap.reactions?.[seed.colo]?.votes?.Sanj === "love", "snapshot has votes keyed by first name");
   ok(snap.howToSend?.ops?.move && snap.howToSend?.payloadKinds?.changes && snap.preferences, "snapshot carries the op/payload formats and preferences");
+
+  console.log("one-tap buttons in the connected modal");
+  await p.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(u); return null; }; });
+  const btns = await p.$$eval("#modalForm .bq", (els) => els.map((e) => e.textContent.trim()));
+  ok(btns.join("|") === "Review our plan|Plan our empty days|Top places & vegetarian restaurants", "quick buttons: " + btns.join(" | ") + " (no Handle our requests without an ask)");
+  ok(/Copy instead/.test(await p.textContent("#modalForm")) && /Make it permanent/.test(await p.textContent("#modalForm")), "Copy instead and the permanent tip are there");
+  await p.screenshot({ path: "/mnt/project-files/trip-planner-build/shots/claude-one-tap.png" });
+  const lastOpen = async (n) => { await p.waitForFunction((k) => window.__opened.length === k, n, { timeout: 5000 }); return p.evaluate(() => ({ url: window.__opened.at(-1), copied: window.__copied })); };
+  await p.click("#modalForm .bq >> text=Review our plan");
+  let o = await lastOpen(1);
+  let q = decodeURIComponent(o.url.split("?q=")[1] || "");
+  ok(o.url.startsWith("https://claude.ai/new?q=") && q.includes("token: " + tok) && q.endsWith("Request: Review our plan") && o.copied === q, "Review our plan opens Claude with the token and request; the clipboard has the same text");
+  await p.click("#modalForm .bq >> text=Top places");
+  o = await lastOpen(2);
+  ok(/vegetarian restaurants/.test(decodeURIComponent(o.url)), "Top places button sends its request");
+  await p.fill("#bridgeFree", "make day 2 slower");
+  await p.press("#bridgeFree", "Enter");
+  o = await lastOpen(3);
+  ok(decodeURIComponent(o.url).endsWith("Request: make day 2 slower") && await p.isVisible("#modalForm"), "free-text Enter opens Claude and leaves the sheet open");
+  ok(/Claude opened with your trip\. Tap send/.test(await p.textContent("#toast")), "toast says Claude opened");
+  await p.click("details.about summary >> text=Make it permanent");
+  await p.click("[data-action=bridgeCopyProject]");
+  ok(/^For our trip planner, always use these details/.test(await p.evaluate(() => window.__copied)) && (await p.evaluate(() => window.__copied)).includes("token: " + tok), "Copy for a Claude project copies standing instructions with the token");
   await p.click("[data-close]");
 
   console.log("the Python script (from the skill doc) reads and sends");
@@ -236,7 +259,7 @@ try {
   // 5. paste fallback (a fenced answer, and an old-style plan answer)
   await p.click(".tabs-bar [data-action=moreToggle]");
   await p.click(".more-sheet [data-action=bridgeOpen]");
-  await p.click("details.about summary");
+  await p.click("details.about summary >> text=Claude has no internet");
   await p.fill("[name=paste]", "Here you go:\n```json\n" + JSON.stringify({ kind: "changes", request: "pasted", summary: "s", ops: [{ type: "check", text: "Sunscreen", group: "pack" }, { type: "move", itemId: "ghost", toDay: 1 }] }) + "\n```");
   await p.click("#modalForm button[value=ok]");
   await p.waitForFunction(() => window.__tripCtx.S.trip.changes?.request === "pasted", null, { timeout: 10000 });
@@ -265,6 +288,18 @@ try {
   await p2.context().close();
 
   // 7. ask for a change with the link on
+  const n0 = await p.evaluate(() => window.__opened.length);
+  await p.click(".tabs-bar [data-tab=plan]");
+  await p.evaluate(() => { const x = document.createElement("button"); x.dataset.action = "claudePlan"; document.body.append(x); x.click(); x.remove(); }); // the days are full by now, so the button itself is gone
+  o = await lastOpen(n0 + 1);
+  ok(decodeURIComponent(o.url).endsWith("Request: Plan our empty days") && !(await p.$("#modalForm textarea[name=answer]")), "Plan with Claude with the link on skips the paste modal");
+  await p.click(".tabs-bar [data-action=moreToggle]");
+  await p.click(".more-sheet [data-tab=smart]");
+  await p.waitForSelector("[data-action=copyForClaude][data-id=review]", { state: "attached" });
+  await p.evaluate(() => document.querySelector("[data-action=copyForClaude][data-id=review]").click());
+  o = await lastOpen(n0 + 2);
+  ok(decodeURIComponent(o.url).endsWith("Request: Review our plan"), "Smart tab's plan review button opens Claude");
+  await p.click(".tabs-bar [data-tab=plan]");
   await p.click("#changeInput");
   await p.fill("#changeInput", "swap lunch and dinner on day 2");
   ok(await p.isVisible("[data-action=chgClaude]") && await p.isVisible("[data-action=chgGemini]"), "typing in the box shows Ask Gemini (key set) and Ask Claude");
@@ -273,6 +308,12 @@ try {
   await p.waitForFunction(() => window.__tripCtx.S.trip.bridge?.ask?.request === "swap lunch and dinner on day 2");
   await p.waitForFunction(async (u) => { const j = await (await fetch(u)).json(); return /swap lunch and dinner/.test(j.fields?.snapshot?.stringValue || "") && /requests/.test(j.fields.snapshot.stringValue); }, `${FS}/bridges/${tok}`, { timeout: 15000 });
   ok(true, "Ask Claude with the link on saves the request, and it reaches the snapshot as `requests`");
+  const n7 = await p.evaluate(() => window.__opened.length);
+  ok(n7 >= 1 && decodeURIComponent(await p.evaluate(() => window.__opened.at(-1))).includes("Request: Please handle our new request in the trip planner: swap lunch and dinner on day 2"), "...and opens Claude with that request");
+  await p.click(".tabs-bar [data-action=moreToggle]");
+  await p.click(".more-sheet [data-action=bridgeOpen]");
+  ok(/Handle our requests/.test(await p.textContent("#modalForm")) && /Waiting for Claude: “swap lunch and dinner on day 2”/.test(await p.textContent("#modalForm")), "'Handle our requests' shows with the waiting request");
+  await p.click("[data-close]");
 
   // 8. turn off
   await p.click(".tabs-bar [data-action=moreToggle]");

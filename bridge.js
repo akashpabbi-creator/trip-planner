@@ -218,26 +218,65 @@ function newToken() {
   const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   return [...a].map((n) => abc[n % 64]).join("");
 }
-function claudeMessage() {
+function claudeMessage(token = tokenOf(), standing = false) {
   const { S } = ctx, t = S.trip, cfg = window.FIREBASE_CONFIG || {};
   const base = location.origin + location.pathname.replace(/[^/]*$/, "");
   return [
-    `Please use your "${SKILL_NAME}" skill to help with my trip "${t.name}"${t.destination ? ` (${t.destination})` : ""}. First read the plan, then send me proposals (never edit the plan directly).`,
+    standing
+      ? `For our trip planner, always use these details. When I ask about our trip "${t.name}"${t.destination ? ` (${t.destination})` : ""} (for example "review our plan"), use your "${SKILL_NAME}" skill: first read the plan, then send me proposals (never edit the plan directly).`
+      : `Please use your "${SKILL_NAME}" skill to help with my trip "${t.name}"${t.destination ? ` (${t.destination})` : ""}. First read the plan, then send me proposals (never edit the plan directly).`,
     ``,
     `project: ${cfg.projectId || ""}`,
     `apiKey: ${cfg.apiKey || ""}`,
-    `token: ${t.bridge.token}`,
+    `token: ${token}`,
     `app: ${location.origin + location.pathname}`,
     ...(window.FIREBASE_EMULATORS ? [`host: http://127.0.0.1:8080`] : []),
     ``,
     `If you don't have the skill, read it here: ${base}docs/claude-skill.md`,
   ].join("\n");
 }
+
+/* ---------------------------------------------------------------- one tap */
+const PREFILL_MAX = 7000; // claude.ai/new?q= drops longer text
+const nudged = () => { try { return !!localStorage.getItem("tp-claude-nudged"); } catch { return true; } };
+// Opens a Claude chat with the trip link and `request` already filled in. The same text is copied: if an app
+// intercepts the link the prefill can be lost, and pasting is the fallback.
+function launchClaude(request, token = tokenOf()) {
+  const text = claudeMessage(token) + "\n\nRequest: " + request;
+  const q = encodeURIComponent(text);
+  window.open("https://claude.ai/new" + (q.length < PREFILL_MAX ? "?q=" + q : ""), "_blank", "noopener");
+  navigator.clipboard?.writeText(text).catch(() => {});
+  ctx.toast("Claude opened with your trip. Tap send. (If it's empty, paste: it's copied.)", 7000);
+}
+// Link on: opens Claude and returns true. Link off: the first time, offers to connect (Connect continues with
+// `onConnected`, or opens Claude; "Not now" runs `fallback`) and returns true; after that returns false so the
+// caller does its own copy/paste.
+export function openClaude(request, { fallback, onConnected } = {}) {
+  if (tokenOf()) return launchClaude(request), true;
+  if (nudged() || !ctx.S.tripId || !ctx.S.trip) return false;
+  try { localStorage.setItem("tp-claude-nudged", "1"); } catch {}
+  let connected = false;
+  consentModal(async () => {
+    connected = true;
+    const tok = await turnOn();
+    for (let i = 0; i < 30 && !tokenOf(); i++) await new Promise((r) => setTimeout(r, 100));
+    if (onConnected) onConnected();
+    else launchClaude(request, tok);
+  }, "Connect once and every Claude button opens Claude with your trip ready.", "Not now");
+  const closed = () => { // a close event still queued from the sheet this replaced fires while the modal is open: ignore it
+    if (ctx.$modal.open) return;
+    ctx.$modal.removeEventListener("close", closed);
+    if (!connected) fallback?.();
+  };
+  ctx.$modal.addEventListener("close", closed);
+  return true;
+}
 async function turnOn() {
   const { S } = ctx, token = newToken();
   await S.store.createBridge(token, newDoc(token));
   await S.store.updateTrip(S.tripId, { bridge: { token, by: S.me.email, at: Date.now() }, ...ctx.stampMe() });
   await ctx.log("connected Claude to the plan");
+  return token;
 }
 async function turnOff() {
   const { S } = ctx, tok = tokenOf();
@@ -247,30 +286,38 @@ async function turnOff() {
   await S.store.updateTrip(S.tripId, { bridge: null, ...ctx.stampMe() });
   await ctx.log("disconnected Claude from the plan");
 }
+function consentModal(onConnect, lead = "", cancel = "") {
+  ctx.openModal(`<h3>🟠 Connect Claude</h3>
+    ${lead ? `<p><b>${ctx.esc(lead)}</b></p>` : ""}
+    <p class="small">Link this trip to a Claude chat (the Claude desktop app or Cowork) so Claude can plan, answer change requests, suggest top places, check restaurants for vegetarian food and read links, screenshots and booking emails. All of it is free with your Claude account.</p>
+    <ul class="small">
+      <li>Claude reads a copy of your plan (never your Gemini key or anyone's email).</li>
+      <li>Everything Claude sends arrives as a proposal. Nothing changes until you tap Apply.</li>
+      <li>Turn it off any time and the link stops working.</li>
+    </ul>`, onConnect);
+  ctx.$form.querySelector("button[value=ok]").textContent = "Connect Claude";
+  if (cancel) ctx.$form.querySelector("button[value=cancel]").textContent = cancel;
+}
 function openBridge() {
   const { S, esc } = ctx;
   if (!S.tripId || !S.trip) return ctx.toast("Open a trip first.");
   const tok = tokenOf();
-  if (!tok) {
-    ctx.openModal(`<h3>🟠 Connect Claude</h3>
-      <p class="small">Link this trip to a Claude chat (the Claude desktop app or Cowork) so Claude can plan, answer change requests, suggest top places, check restaurants for vegetarian food and read links, screenshots and booking emails. All of it is free with your Claude account.</p>
-      <ul class="small">
-        <li>Claude reads a copy of your plan (never your Gemini key or anyone's email).</li>
-        <li>Everything Claude sends arrives as a proposal. Nothing changes until you tap Apply.</li>
-        <li>Turn it off any time and the link stops working.</li>
-      </ul>`, async () => { await turnOn(); setTimeout(openBridge, 400); });
-    ctx.$form.querySelector("button[value=ok]").textContent = "Connect Claude";
-    return;
-  }
-  const at = remote?.snapshotAt;
+  if (!tok) return consentModal(async () => { await turnOn(); setTimeout(openBridge, 400); });
+  const at = remote?.snapshotAt, ask = ctx.S.trip.bridge?.ask;
+  const empty = ctx.S.trip.days.some((d) => !ctx.dayItems(d.id).length);
+  const quick = [["Review our plan", "Review our plan"], ...(empty ? [["Plan our empty days", "Plan our empty days"]] : []),
+    ["Top places & vegetarian restaurants", "Find the top places and vegetarian restaurants for our trip"],
+    ...(ask ? [["Handle our requests", "Please handle our new request in the trip planner: " + ask.request]] : [])];
   ctx.openModal(`<h3>🟠 Claude is connected</h3>
     <p class="small">${at ? `Claude can see your plan as of ${esc(ctx.ago(at))}.` : "Your plan is being copied for Claude…"} Anything Claude sends shows up for you to review.</p>
-    <ol class="small">
-      <li>Tap <b>Copy for Claude</b>.</li>
-      <li>Paste it into a chat in the Claude desktop app (or Cowork) that has the “${SKILL_NAME}” skill.</li>
-      <li>Ask for what you want: “plan my days”, “make Day 2 slower”, “find top vegetarian restaurants”.</li>
-    </ol>
-    <div class="row"><button type="button" class="btn-s primary" data-action="bridgeCopy">Copy for Claude</button></div>
+    <div class="bq-list">${quick.map(([label, req]) => `<button type="button" class="btn-s bq" data-action="bridgeAsk" data-req="${esc(req)}">${esc(label)}</button>`).join("")}
+      ${ask ? `<p class="muted small bq-ask">Waiting for Claude: “${esc(ask.request)}”</p>` : ""}</div>
+    <div class="bq-row"><input id="bridgeFree" placeholder="Ask Claude anything…" aria-label="Ask Claude anything"><button type="button" class="btn-s primary" data-action="bridgeAskFree">Open</button></div>
+    <div class="row"><button type="button" class="btn-s" data-action="bridgeCopy">Copy instead</button></div>
+    <details class="about"><summary>Make it permanent</summary>
+      <p class="small">Use Claude without opening the app: in Claude, create a project called Trip planner, paste this into its instructions, then just say “review our plan” in any chat there.</p>
+      <p class="small"><button type="button" class="btn-s" data-action="bridgeCopyProject">Copy for a Claude project</button></p>
+    </details>
     <details class="about"><summary>Claude has no internet? Paste its answer here</summary>
       <label>Paste from Claude<textarea name="paste" rows="5" placeholder="Paste the json block Claude gave you (a plan, changes, picks or a review)"></textarea></label>
     </details>
@@ -283,14 +330,34 @@ function openBridge() {
 }
 
 /* --------------------------------------------------------------------- init */
+const CSS = `
+.bq-list{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.bq-list .bq{text-align:left;width:100%}
+.bq-ask{margin:0}
+.bq-row{display:flex;gap:6px;margin:8px 0}
+.bq-row input{flex:1;min-width:0}`;
+
 export function init(c) {
   ctx = c;
   ctx.bridgeIngest = ingest;
   ctx.bridgeSyncNow = () => scheduleSnapshot(300);
   ctx.action("bridgeOpen", () => openBridge());
+  ctx.openClaude = openClaude;
+  document.head.append(Object.assign(document.createElement("style"), { id: "css-bridge", textContent: CSS }));
   ctx.action("bridgeCopy", async () => {
     await navigator.clipboard.writeText(claudeMessage());
     ctx.toast("Copied. Paste it into Claude.");
+  });
+  ctx.action("bridgeCopyProject", async () => {
+    await navigator.clipboard.writeText(claudeMessage(tokenOf(), true));
+    ctx.toast("Copied. Paste it into your Claude project's instructions.");
+  });
+  ctx.action("bridgeAsk", (b) => openClaude(b.dataset.req));
+  document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id === "bridgeFree") { e.preventDefault(); ctx.$form.querySelector("[data-action=bridgeAskFree]").click(); } });
+  ctx.action("bridgeAskFree", () => {
+    const v = ctx.$form.querySelector("#bridgeFree")?.value.trim();
+    if (!v) return ctx.toast("Type what to ask Claude first.");
+    openClaude(v);
   });
   ctx.action("bridgeOff", async () => {
     if (!confirm("Turn off the Claude link? Claude will no longer see or change anything.")) return;

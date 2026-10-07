@@ -500,7 +500,7 @@ function viewNav(tabs, cur, counts) {
   const rest = tabs.filter((x) => x.more);
   const moreN = rest.filter((x) => x.warn).reduce((s, x) => s + counts.get(x.id), 0);
   const moreOn = S.moreOpen || rest.some((x) => x.id === cur?.id);
-  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}</nav>
+  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button></nav>
     <nav class="tabs tabs-bar">${tabs.filter((x) => !x.more).map(btn).join("")}
       <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">${NAV_SVG.more}</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
     </nav>
@@ -896,7 +896,8 @@ async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
 }
 
 // Claude plans in the Claude app (free with a Claude account, no key): the app hands over the request and reads the answer back.
-function claudePlan() {
+function claudePlan(manual) {
+  if (!manual && ctx.openClaude("Plan our empty days", { fallback: () => claudePlan(true) })) return; // one tap when the Claude link is on
   const t = S.trip;
   const { p, opts } = planInputs(t);
   const prompt = planPrompt(t, profileText(p), opts).replace("Use Google Search for", "Search the web for")
@@ -2034,6 +2035,7 @@ document.addEventListener("click", async (e) => {
       case "aiReview": return runAiReview();
       case "aiApply": return applyAi(+id);
       case "copyForClaude": {
+        if (id === "review" && S.trip.bridge?.token) return ctx.openClaude("Review our plan");
         const ask = id === "drive"
           ? `This is our final plan for ${S.trip.destination || "our trip"}. Use the Trip Sheet (travel-itinerary-planner) skill to turn it into a Trip Sheet, and file it in my Google Drive under Travel - Sanj_Akash with the usual folder naming. Keep our choices; fill in real times, legs, costs and bookings.`
           : `Please review our trip plan for ${S.trip.destination || "our trip"}. Check pacing, opening hours and best times, how we get between places (car, train, taxi, walking), must-dos, balance between what each of us wanted, budget and anything missing. Tell us exactly what to change, by day.`;
