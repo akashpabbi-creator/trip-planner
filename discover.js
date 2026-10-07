@@ -9,9 +9,17 @@ const WIKI = "https://en.wikipedia.org/api/rest_v1/page/summary/";
 const WV = "https://en.wikivoyage.org/w/api.php?action=parse&prop=wikitext&redirects=1&format=json&origin=*&page=";
 const WV_IMG = "https://commons.wikimedia.org/wiki/Special:FilePath/";
 
-// Wikipedia's lead image for a country is often its flag, and for regions a locator map: never use those as a cover.
-export const BAD_COVER = /Flag_of|Coat_of_arms|_location_|Locator|_map|Map_of|Emblem|\.svg/i;
-export const goodCover = (u) => !!u && !BAD_COVER.test(decodeURIComponent(String(u)).replace(/ /g, "_"));
+// Wikipedia's lead image for a country is often its flag, and for regions a locator map; small places only have taluk, census
+// or district maps. Never use those, nor diagrams, logos or plans, as a cover. Words must stand alone: Mapusa and Mapleton pass.
+export const BAD_COVER = /Flag_of|Coat_of_arms|_location_|Locator|Map_of|Emblem|\.svg|(^|[_\s\-(.,/])(maps?|taluks?|taluka|census|hobli|panchayat|districts?|diagrams?|logos?|seals?|charts?|graphs?|plans?|flags?|emblems?|locators?)([_\s\-).,]|$)/i;
+const decoded = (u) => { try { return decodeURIComponent(String(u)); } catch { return String(u); } };
+// w and h are optional: when known, portrait images and ones narrower than 900px are rejected too.
+export const goodCover = (u, w, h) => {
+  if (!u || BAD_COVER.test(decoded(u).replace(/ /g, "_"))) return false;
+  if (w > 0 && h > 0 && h > w * 1.05) return false;
+  if (w > 0 && w < 900) return false;
+  return true;
+};
 const WVP = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageprops&redirects=1&format=json&origin=*&titles=";
 // The hand-made panorama at the top of a Wikivoyage page ("Italy banner.jpg"); the generic default banner doesn't count.
 export async function fetchBanner(dest) {
@@ -29,15 +37,47 @@ export async function fetchBanner(dest) {
   }
   return "";
 }
-// Ordered cover candidates: Wikivoyage banner, famous listings' photos, the Wikipedia photo (unless it's a flag or map).
-export function coverList(banner, listings, wikiImage) {
-  const out = [];
-  const add = (u) => { if (u && goodCover(u) && !out.includes(u)) out.push(u); };
-  add(banner);
-  [...(listings || [])].filter((l) => l.image && (l.type === "see" || l.type === "do")).sort((a, b) => (b.fame || 0) - (a.fame || 0)).slice(0, 4).forEach((l) => add(l.image.replace(/width=\d+/, "width=1280")));
-  add(wikiImage);
-  return out.slice(0, 6);
+const WPAPI = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=geosearch&ggsradius=10000&ggslimit=30&prop=pageimages&piprop=original&ggscoord=";
+const COMMONS = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=30&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1600&gsrsearch=";
+const landscape = (w, h) => w > 0 && h > 0 && w >= 1.2 * h;
+// Landmark photos from Wikipedia articles within 10 km (the API maximum), nearest first, with the article title as caption.
+export async function fetchNearby(lat, lng) {
+  const r = await fetch(WPAPI + encodeURIComponent(lat + "|" + lng));
+  if (!r.ok) return [];
+  const j = await r.json();
+  return Object.values(j.query?.pages || {})
+    .filter((p) => {
+      const o = p.original;
+      return o?.source && /\.jpe?g(\?|$)/i.test(o.source) && landscape(o.width, o.height) && o.width >= 900 && goodCover(o.source, o.width, o.height);
+    })
+    .sort((a, b) => (a.index || 0) - (b.index || 0))
+    .map((p) => ({ url: p.original.source, caption: p.title || "" }));
 }
+// Photos of the place itself from Wikimedia Commons (1600px thumbnails).
+export async function fetchCommons(dest) {
+  const name = String(dest || "").split(",")[0].trim();
+  if (!name) return [];
+  const r = await fetch(COMMONS + encodeURIComponent(name + " filetype:bitmap"));
+  if (!r.ok) return [];
+  const j = await r.json();
+  return Object.values(j.query?.pages || {})
+    .map((p) => ({ p, i: p.imageinfo?.[0] }))
+    .filter(({ p, i }) => i?.thumburl && i.mime === "image/jpeg" && landscape(i.width, i.height) && i.width >= 1200 && goodCover(p.title || i.url, i.width, i.height) && goodCover(i.url) && goodCover(i.thumburl))
+    .sort((a, b) => (a.p.index || 0) - (b.p.index || 0))
+    .map(({ p, i }) => ({ url: i.thumburl, caption: decoded(String(p.title || "")).replace(/^File:/i, "").replace(/\.\w+$/, "").replace(/_/g, " ").trim() }));
+}
+// Ordered cover candidates with captions: Wikivoyage banner, famous listings' photos (3), the Wikipedia photo, nearby landmarks (4), Commons (4).
+export function coverEntries(banner, listings, wikiImage, nearby = [], commons = []) {
+  const out = [];
+  const add = (u, caption = "") => { if (u && goodCover(u) && !out.some((x) => x.url === u)) out.push({ url: u, caption }); };
+  add(banner);
+  [...(listings || [])].filter((l) => l.image && (l.type === "see" || l.type === "do")).sort((a, b) => (b.fame || 0) - (a.fame || 0)).slice(0, 3).forEach((l) => add(l.image.replace(/width=\d+/, "width=1280"), l.name || ""));
+  add(wikiImage);
+  (nearby || []).slice(0, 4).forEach((x) => add(x.url, x.caption));
+  (commons || []).slice(0, 4).forEach((x) => add(x.url, x.caption));
+  return out.slice(0, 10);
+}
+export const coverList = (...a) => coverEntries(...a).map((x) => x.url);
 
 const variants = (dest) => {
   const parts = String(dest || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -196,7 +236,7 @@ async function wvPage(title) {
 // Bumped when the guide reader changes enough that saved guides should be read again.
 
 // Bumped when the guide reader changes enough that saved guides should be read again.
-export const GUIDE_V = 5;
+export const GUIDE_V = 6;
 const WVV = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageviews&redirects=1&format=json&formatversion=2&origin=*&titles=";
 const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
 // Wikimedia answers bursts of requests with 429 and a retry-after: wait it out once.
@@ -318,14 +358,18 @@ export async function loadDestination(trip) {
     lat = g?.lat;
     lng = g?.lng;
   }
-  const [weather, guide, banner] = await Promise.all([
+  const [weather, guide, banner, nearby, commons] = await Promise.all([
     lat != null ? fetchWeather(lat, lng, trip.startDate, trip.days.length).catch(() => null) : null,
     fetchGuide(dest).catch(() => ({ listings: [], source: "" })),
     fetchBanner(dest).catch(() => ""),
+    lat != null ? fetchNearby(lat, lng).catch(() => []) : [],
+    fetchCommons(dest).catch(() => []),
   ]);
-  const covers = coverList(banner, guide.listings, place?.image);
+  const entries = coverEntries(banner, guide.listings, place?.image, nearby, commons);
+  const covers = entries.map((x) => x.url);
   const base = place ? { ...place, lat, lng, for: dest } : { title: dest, lat, lng, for: dest };
   base.image = covers[0] || "";
   base.covers = covers;
+  base.coverCaptions = entries.map((x) => x.caption || "");
   return { place: base, weather, guide: { ...guide, for: dest, at: Date.now(), v: GUIDE_V } };
 }
