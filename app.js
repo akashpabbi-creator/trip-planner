@@ -1944,6 +1944,7 @@ const ctx = {
   action: (name, fn) => { REG.actions[name] = fn; },
   on: (event, fn) => { (REG.events[event] ||= []).push(fn); },
   slot: (name, fn) => { (REG.slots[name] ||= []).push(fn); },
+  renderSlot: slot,
   // ctx.costs(fn) registers extra cost rows; ctx.costs() returns the totals.
   costs: (fn) => (typeof fn === "function" ? void REG.costs.push(fn) : costs()),
 };
