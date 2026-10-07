@@ -35,6 +35,13 @@ A free, private web app for planning a trip together. Both of you edit the same 
 - **Connect Claude.** More → Connect Claude links the trip to a Claude chat so Claude can plan, answer change requests, find top places, check restaurants for vegetarian food and read links, screenshots and booking emails, all free with your Claude account. See "Claude link" below.
 - **Easy on the phone.** A bottom bar (Plan, Map, Ideas, Kit, More), a small "Saved / Saving / Offline" indicator at the top, one-tap Directions on every stop and big enough buttons to hit with a thumb.
 
+## Offline
+
+- The app shell, the Firebase SDK and the fonts are cached by the service worker, so the app opens with no signal (after one online visit). Trips you've opened are kept on the phone.
+- You can keep editing offline: changes show straight away, are queued, and sync when you're back online (the top indicator says "Offline / Saving / Saved"). If two people edit the same list offline, the last one to sync wins.
+- Deleting a trip, the Claude link and link previews need a connection. On iPhone, add the app to the Home Screen and open it once online so it can cache itself.
+- Updates: when a new version is deployed, an open app shows "New version ready · Refresh". Tap it to load the new code. (Maintainers: bump `CACHE` in `sw.js` on each release.)
+
 ## Link previews: what works
 
 | Source | What you get |

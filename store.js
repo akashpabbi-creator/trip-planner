@@ -42,6 +42,23 @@ async function firebaseStore(config) {
     p.then(done, done);
     return p;
   };
+  // Firestore write promises only resolve on a server ack, so offline they'd hang (pop-ups stay open, follow-up writes never issue).
+  // settle() lets callers continue when offline, or after 3s online (flaky signal); the write itself stays queued in the SDK.
+  // Errors that land after we settled can't reach the caller, so they go to onWriteError callbacks.
+  const errCbs = new Set();
+  const settle = (p) =>
+    new Promise((res, rej) => {
+      let done = false;
+      const fin = () => { if (!done) { done = true; clearTimeout(t); res(); } };
+      const t = setTimeout(fin, 3000);
+      if (!navigator.onLine) fin();
+      p.then(fin, (e) => {
+        if (!done) { done = true; clearTimeout(t); return rej(e); }
+        console.error(e);
+        errCbs.forEach((cb) => cb(e));
+      });
+    });
+  const wr = (p, val) => settle(track(p)).then(() => val);
   window.addEventListener("online", syncEmit);
   window.addEventListener("offline", syncEmit);
   fs.onSnapshotsInSync(db, syncEmit);
@@ -54,6 +71,10 @@ async function firebaseStore(config) {
       syncCbs.add(cb);
       cb(syncState());
       return () => syncCbs.delete(cb);
+    },
+    onWriteError(cb) {
+      errCbs.add(cb);
+      return () => errCbs.delete(cb);
     },
     onUser(cb) {
       return authMod.onAuthStateChanged(auth, (u) =>
@@ -82,9 +103,9 @@ async function firebaseStore(config) {
       const q = fs.query(fs.collection(db, "trips"), fs.where("members", "array-contains", email));
       return fs.onSnapshot(q, (s) => cb(s.docs.map(snapToObj)), onErr);
     },
-    async createTrip(data) {
-      const ref = await fs.addDoc(fs.collection(db, "trips"), data);
-      return ref.id;
+    createTrip(data) {
+      const ref = fs.doc(fs.collection(db, "trips"));
+      return wr(fs.setDoc(ref, data), ref.id);
     },
     updateTrip: (id, patch) => fs.updateDoc(tripRef(id), patch),
     async deleteTrip(id) {
@@ -98,12 +119,22 @@ async function firebaseStore(config) {
       await fs.deleteDoc(tripRef(id));
     },
     // Read-modify-write on the trip doc so two people changing days at once don't overwrite each other.
+    // Offline (transactions need the server) it falls back to cache read + updateDoc; two people editing the same list field
+    // offline may overwrite each other (last sync wins).
     txTrip(id, fn) {
-      return fs.runTransaction(db, async (tx) => {
-        const snap = await tx.get(tripRef(id));
+      const viaCache = async () => {
+        const snap = await fs.getDocFromCache(tripRef(id)).catch(() => fs.getDoc(tripRef(id)));
         const patch = fn({ id, ...snap.data() });
-        if (patch) tx.update(tripRef(id), patch);
-      });
+        if (patch) await fs.updateDoc(tripRef(id), patch);
+      };
+      if (!navigator.onLine) return viaCache();
+      return fs
+        .runTransaction(db, async (tx) => {
+          const snap = await tx.get(tripRef(id));
+          const patch = fn({ id, ...snap.data() });
+          if (patch) tx.update(tripRef(id), patch);
+        })
+        .catch((e) => (e.code === "unavailable" || e.code === "failed-precondition" || /offline/i.test(e.message || "") ? viaCache() : Promise.reject(e)));
     },
     watchTrip: (id, cb, onErr) => fs.onSnapshot(tripRef(id), (d) => cb(d.exists() ? snapToObj(d) : null), onErr),
     watchItems: (id, cb) => fs.onSnapshot(sub(id, "items"), (s) => cb(s.docs.map(snapToObj))),
@@ -111,23 +142,23 @@ async function firebaseStore(config) {
       fs.onSnapshot(fs.query(sub(id, "activity"), fs.orderBy("at", "desc"), fs.limit(200)), (s) => cb(s.docs.map(snapToObj))),
     watchPresence: (id, cb) => fs.onSnapshot(sub(id, "presence"), (s) => cb(s.docs.map(snapToObj))),
 
-    async addItem(tripId, data) {
-      const ref = await fs.addDoc(sub(tripId, "items"), data);
-      return ref.id;
+    addItem(tripId, data) {
+      const ref = fs.doc(sub(tripId, "items"));
+      return wr(fs.setDoc(ref, data), ref.id);
     },
     updateItem: (tripId, itemId, patch) => fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), patch),
     deleteItem: (tripId, itemId) => fs.deleteDoc(fs.doc(db, "trips", tripId, "items", itemId)),
-    async batchUpdateItems(tripId, updates) {
+    batchUpdateItems(tripId, updates) {
       const b = fs.writeBatch(db);
       for (const [itemId, patch] of updates) b.update(fs.doc(db, "trips", tripId, "items", itemId), patch);
-      await b.commit();
+      return b.commit();
     },
     // Sets (or, when value is undefined, deletes) one nested field. Emails contain dots, so the path goes in as segments.
     setItemPath: (tripId, itemId, path, value) =>
       fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), new fs.FieldPath(...path), value === undefined ? fs.deleteField() : value),
     arrayAdd: (tripId, itemId, field, value) => fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), { [field]: fs.arrayUnion(value) }),
     arrayRemove: (tripId, itemId, field, value) => fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), { [field]: fs.arrayRemove(value) }),
-    log: (tripId, entry) => fs.addDoc(sub(tripId, "activity"), entry),
+    log: (tripId, entry) => wr(fs.setDoc(fs.doc(sub(tripId, "activity")), entry)),
     heartbeat: (tripId, me) =>
       fs.setDoc(fs.doc(db, "trips", tripId, "presence", me.email), { email: me.email, name: me.name, at: Date.now() }),
 
@@ -145,9 +176,9 @@ async function firebaseStore(config) {
         return inbox;
       }),
   };
-  for (const k of ["updateTrip", "addItem", "updateItem", "deleteItem", "batchUpdateItems", "setItemPath", "arrayAdd", "arrayRemove", "log", "txTrip"]) {
+  for (const k of ["updateTrip", "updateItem", "deleteItem", "batchUpdateItems", "setItemPath", "arrayAdd", "arrayRemove", "txTrip"]) {
     const fn = store[k];
-    store[k] = (...a) => track(fn(...a));
+    store[k] = (...a) => settle(track(fn(...a)));
   }
   return store;
 }

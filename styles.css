@@ -297,6 +297,7 @@ dialog label input, dialog label select, dialog label textarea { color: var(--in
 .members { padding-left: 18px; margin: 0; }
 
 .toast { position: fixed; left: 50%; bottom: max(84px, calc(env(safe-area-inset-bottom) + 84px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; z-index: 50; max-width: calc(100vw - 32px); font-size: 14px; box-shadow: var(--shadow); }
+.toast.upd { bottom: max(132px, calc(env(safe-area-inset-bottom) + 132px)); z-index: 51; }
 
 /* phones: tabs become a bottom bar */
 @media (max-width: 700px) {
