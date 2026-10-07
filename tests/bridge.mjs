@@ -199,7 +199,7 @@ try {
     return {
       trevi: [dayN(it("Trevi Fountain")), it("Trevi Fountain").time], pant: [it("Pantheon").dayId, it("Pantheon").travel?.mode, it("Pantheon").travel?.minutes], colo: it("Colosseum").time,
       day2: S.trip.days[1], grill: [it("Meat Grill House").veg, it("Meat Grill House").vegNote], trat: it("Trattoria Monti").notes,
-      ros: it("Roscioli") && [dayN(it("Roscioli")), it("Roscioli").time, it("Roscioli").veg, Number.isFinite(it("Roscioli").lat)], borg: it("Villa Borghese") && [it("Villa Borghese").dayId, Number.isFinite(it("Villa Borghese").lat)], nowhere: !!it("Nowhere Land Cafe"),
+      ros: it("Roscioli") && [dayN(it("Roscioli")), it("Roscioli").time, it("Roscioli").veg, Number.isFinite(it("Roscioli").lat)], borg: it("Villa Borghese") && [it("Villa Borghese").dayId, Number.isFinite(it("Villa Borghese").lat)], nowhere: it("Nowhere Land Cafe") && [!!it("Nowhere Land Cafe"), Number.isFinite(it("Nowhere Land Cafe").lat)],
       bookings: S.trip.bookings, check: S.trip.checklist, log: S.activity.map((a) => a.text),
     };
   });
@@ -210,7 +210,7 @@ try {
   ok(st.grill[0] === "no" && st.grill[1] === "Mostly meat" && st.trat === "", "veg op applied; the skipped note op did not run");
   ok(st.ros && st.ros[0] === 2 && st.ros[1] === "20:00" && st.ros[2] === "yes" && st.ros[3], "add to Day 2 at 20:00 geocoded, veg kept");
   ok(st.borg && st.borg[0] == null && st.borg[1], "add to Ideas geocoded");
-  ok(!st.nowhere, "add that can't be found on the map is dropped");
+  ok(st.nowhere && st.nowhere[0] && !st.nowhere[1], "add that can't be found on the map is kept in Ideas without a pin");
   ok(st.bookings?.length === 1 && st.bookings[0].ref === "BK1" && st.bookings[0].kind === "hotel" && st.bookings[0].id && st.bookings[0].by && st.bookings[0].at, "booking op wrote trip.bookings with the spec's shape");
   ok(st.check?.length === 1 && st.check[0].text === "Travel adapter" && st.check[0].group === "pack" && st.check[0].done === false && st.check[0].auto === false && "who" in st.check[0] && st.check[0].at, "check op wrote trip.checklist with the spec's shape");
   ok(st.log.some((t) => /applied Claude's change: moved “Trevi Fountain” to Day 3/.test(t)), "applied changes are logged in Activity");
