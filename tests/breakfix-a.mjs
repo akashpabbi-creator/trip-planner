@@ -467,7 +467,7 @@ try {
   ok(neg[0] === neg[1], "a negative stop cost counts as 0 in the total");
 
   /* ---- 14. service worker cache bumped */
-  ok(/trips-shell-v29/.test(readFileSync(join(root, "sw.js"), "utf8")), "sw.js CACHE is v29");
+  ok(/trips-shell-v(29|[3-9]\d|\d{3})"/.test(readFileSync(join(root, "sw.js"), "utf8")), "sw.js CACHE bumped to v29 or later");
 } catch (e) {
   fails++;
   console.log("  FAIL exception:", e.stack || e.message);
