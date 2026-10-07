@@ -137,7 +137,7 @@ Return ONLY a JSON array in a \`\`\`json block, one entry per place in the same 
 
 // Drafts the whole trip day by day from our preferences, grounded in Google Search. The app's rules check it
 // (profile.js checkDraft) before it is shown as a proposal.
-export function planPrompt(trip, prefs, { dates = [], saved = [], guide = [], cities = [], shapes = [], weather = [] } = {}) {
+export function planPrompt(trip, prefs, { dates = [], saved = [], loved = [], vetoed = [], guide = [], cities = [], shapes = [], weather = [] } = {}) {
   const n = trip.days.length;
   return `You are an expert travel planner. Plan a ${n}-day trip to ${trip.destination} for a couple${trip.startDate ? `, day 1 is ${trip.startDate}` : ""}${trip.budget ? `, total budget ${trip.budget} ${trip.currency || ""} for two` : ""}.
 Our preferences and hard rules:
@@ -153,6 +153,8 @@ ${shapes.length ? shapes.map((s, i) => `- Day ${i + 1}: ${s.sights} sights${weat
 ${cities.length > 1 || n >= 5 ? `- If this is a country or region, pick the best 1 city per 2-3 days (e.g. ${cities.join(", ") || "the top cities"}), move between cities at most every 2 days, and set "base" for each day.` : `- Set "base" to the town you sleep in.`}
 - Check opening days: ${dates.length ? dates.map((d, i) => `day ${i + 1} is a ${d}`).join(", ") : "avoid places closed on the day you use them"}.
 ${saved.length ? `- We saved these places; put each on the best day (keep the name exactly): ${JSON.stringify(saved)}` : ""}
+${loved.length ? `- We both marked these as loved: include every one of them (keep the name exactly): ${JSON.stringify(loved)}` : ""}
+${vetoed.length ? `- We voted these down: never use them, and nothing very similar: ${JSON.stringify(vetoed)}` : ""}
 ${guide.length ? `- Travel guide places you may use: ${JSON.stringify(guide.slice(0, 40))}` : ""}
 Return ONLY a JSON object in a \`\`\`json block:
 {"summary": "2 sentences on the shape of the trip", "days": [{"day": 1, "base": "city", "theme": "3-5 words", "items": [{"name": string, "category": "sight"|"activity"|"food"|"shopping"|"nature", "time": "HH:MM", "durationMin": number, "address": "street and area", "approxCost": number in ${trip.currency || "INR"} for two or null, "why": "one sentence", "closedDays": "e.g. Mondays" or "", "bookAhead": true|false, "veg": "yes"|"no"|"" (food only), "vegNote": "what to order, up to 10 words", "splurge": "food"|"experience"|"", "market": true|false}]}], "stays": [{"name": string, "base": "city", "address": string, "approxCost": number per night or null, "why": string, "splurge": true|false}]}

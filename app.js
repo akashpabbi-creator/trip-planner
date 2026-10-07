@@ -541,8 +541,10 @@ function viewIdeas() {
     const sched = all.filter((i) => S.trip.days.some((d) => d.id === i.dayId));
     return `<span class="stat"><b>${esc(who(m))}</b>: ${sched.length} of ${all.length} picks planned</span>`;
   });
-  return `<div class="stats">${stats.join("")}</div>
-    ${list.length ? `<div class="cards">${list.map((it) => card(it)).join("")}</div>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.</p>`}`;
+  const bar = socialMod.ideasBar(list, members, CATEGORIES);
+  const shown = socialMod.arrangeIdeas(list, members);
+  return `<div class="stats">${stats.join("")}</div>${bar}
+    ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.</p>`}`;
 }
 
 function viewBudget() {
@@ -684,7 +686,7 @@ async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.
   if (!listings.length) return toast("The travel guide hasn't loaded for this destination yet.");
   const empty = new Set(t.days.filter((d) => !dayItems(d.id).length).map((d) => d.id));
   if (!empty.size && !auto) return toast("Every day already has plans. Clear a day to fill it with a sample.");
-  const built = buildSample(t, listings, profileOf(t));
+  const built = buildSample(t, listings, { ...profileOf(t), vetoed: socialMod.vetoedNames(S.items) });
   const n = await writePlan(tripId, built, empty);
   if (n) await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `built a sample ${built.mode === "slow" ? "slow-paced" : "full"} itinerary for ${t.destination || "the trip"} from our preferences (${n} stops)` });
   if (!auto) toast(n ? `Sample itinerary added: ${built.mode === "slow" ? "slow pace, 2–3 stops a day" : "full days, 3–4 sights a day"}, with a rest block timed to the weather.` : "Nothing new to add from the travel guide.");
@@ -727,7 +729,7 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
   if (updates.length) await S.store.batchUpdateItems(tripId, updates);
   // Your own saved links come first: put them on days too, taking over guide picks where needed.
   await new Promise((r) => setTimeout(r, 300));
-  for (const it of ideas().filter((x) => !x.suggestedBy && !x.mustDo)) if ((await placeIdea(it))?.dayIndex != null) placed++;
+  for (const it of socialMod.byLove(ideas().filter((x) => !x.suggestedBy && !x.mustDo && !socialMod.isVetoed(x)), t.members)) if ((await placeIdea(it))?.dayIndex != null) placed++;
   return added + placed;
 }
 
@@ -736,12 +738,14 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
 function planInputs(t) {
   const p = profileOf(t);
   const dates = t.days.map((_, i) => dayDate(i)?.toLocaleDateString("en-GB", { weekday: "long" })).filter(Boolean);
-  const saved = S.items.filter((i) => !i.suggestedBy && !["stay", "transport", "other"].includes(i.category) && !i.rest).map((i) => i.title).slice(0, 25);
-  const guide = (t.guide?.listings || []).filter((l) => ["see", "do", "eat"].includes(l.type)).map((l) => (l.city ? `${l.name} (${l.city})` : l.name));
+  const vetoed = socialMod.vetoedNames(S.items).slice(0, 25);
+  const loved = socialMod.lovedNames(S.items, t.members).slice(0, 25);
+  const saved = socialMod.byLove(S.items.filter((i) => !i.suggestedBy && !["stay", "transport", "other"].includes(i.category) && !i.rest && !socialMod.isVetoed(i)), t.members).map((i) => i.title).slice(0, 25);
+  const guide = (t.guide?.listings || []).filter((l) => ["see", "do", "eat"].includes(l.type) && !vetoed.some((v) => socialMod.sameName(v, l.name))).map((l) => (l.city ? `${l.name} (${l.city})` : l.name));
   const cities = [...new Set((t.guide?.listings || []).map((l) => l.city).filter(Boolean))];
   const mode = chooseMode(p, t);
   const shapes = t.days.map((_, i) => dayShape(t.weather?.days?.[i], mode));
-  return { p, dates, opts: { dates, saved, guide, cities, shapes, weather: t.weather?.days || [] } };
+  return { p, dates, opts: { dates, saved, loved, vetoed, guide, cities, shapes, weather: t.weather?.days || [] } };
 }
 
 // Gemini drafts the trip; the rules check it; every place is found on the map; the result waits on the trip as a proposal.
@@ -793,7 +797,10 @@ function claudePlan() {
 async function finishDraft(tripId, draft, source, { quiet = false } = {}) {
   const t = S.trip;
   const { p, dates } = planInputs(t);
+    const veto = socialMod.dropVetoed(draft, S.items); // places either of you voted 👎 never reach the plan
+    draft = veto.draft;
     const checked = checkDraft(draft, t, p, dates, t.guide?.listings || []);
+    if (veto.dropped.length) checked.notes.unshift(`Left out ${veto.dropped.map((n) => "“" + n + "”").join(", ")}: you voted 👎 on ${veto.dropped.length > 1 ? "them" : "it"}.`);
     // Only places that can be found on the map make it into the plan.
     const todo = checked.plan.filter((x) => x.listing && !inTrip(x.listing.name) && !Number.isFinite(x.listing.lat));
     let k = 0;
