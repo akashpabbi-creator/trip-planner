@@ -337,7 +337,7 @@ Op reference (every op may also carry `why`, one plain sentence the couple see):
 |---|---|---|
 | `move` | `itemId`, `toDay` (1-based), `time?` | puts a stop on a day (at the end, or in time order if `time`) |
 | `remove` | `itemId` | takes a stop off its day back to Ideas. **Never deletes.** |
-| `add` | `place{name, category, location, durationMin, cost, why, veg, vegNote, url}`, `toDay` (1-based or `null` for Ideas), `time?` | adds a new place. The app looks it up on the map and drops it with a note if it can't find it, so give a street address. `category`: sight, activity, food, stay, shopping, nature, transport, other. `cost` is in the trip currency, for two. For `food`, `veg` must be `"yes"`. |
+| `add` | `place{name, category, location, durationMin, cost, why, veg, vegNote, url}`, `toDay` (1-based or `null` for Ideas), `time?` | adds a new place. The app looks it up on the map. If it can't find it, the place is still added, without a map pin (a day add goes to Ideas instead), so a street address still helps. `category`: sight, activity, food, stay, shopping, nature, transport, other. `cost` is in the trip currency, for two. For `food`, `veg` must be `"yes"`. |
 | `time` | `itemId`, `time` ("HH:MM", or `""` to clear) | sets or clears a fixed time |
 | `transport` | `itemId`, `mode`, `minutes`, `cost?` | how to get TO that stop from the one before it. `mode`: walk, transit, bus, train, car, rental, taxi, bike, ferry, flight |
 | `day` | `day`, `title?`, `base?`, `notes?` | names a day, sets the town they stay in, adds a note |

@@ -3,10 +3,27 @@
 // (applyOp / opText), shared with the Claude link (bridge.js).
 import { call, parseJson, QuotaError, geminiWait } from "./ai.js";
 import { geocode, has } from "./smart.js";
+import { voteRow, thread, summary } from "./proposal-social.js";
 
 let ctx;
 const BOOKING_KINDS = ["flight", "hotel", "train", "bus", "ferry", "car", "tickets", "other"];
 const OP_TYPES = ["move", "remove", "add", "time", "transport", "day", "veg", "note", "booking", "check"];
+
+// Maps words like "hotel" or "homestay" to the app's categories. Returns "" when it doesn't know the word.
+const CAT_WORDS = {
+  stay: "hotel, hotels, homestay, homestays, home stay, resort, resorts, lodging, lodge, accommodation, guesthouse, guest house, villa, hostel, stays, estate stay",
+  food: "restaurant, restaurants, cafe, café, dining, eat",
+  sight: "attraction, attractions, sightseeing, sights",
+  activity: "activities, experience, tour, tours",
+  nature: "park, viewpoint, trek, waterfall",
+  shopping: "shop, market",
+};
+const CAT_MAP = {};
+for (const [cat, words] of Object.entries(CAT_WORDS)) for (const w of words.split(", ")) CAT_MAP[w] = cat;
+export function normCategory(raw, cats = ctx?.CATEGORIES) {
+  const c = String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return (cats ? cats[c] : ["sight", "activity", "food", "stay", "shopping", "nature", "transport", "other"].includes(c)) ? c : CAT_MAP[c] || "";
+}
 
 // The change formats, written once for every prompt and for the Claude snapshot.
 export const OP_FORMATS = {
@@ -51,7 +68,7 @@ export function cleanOp(o) {
     const p = o.place || {};
     Object.assign(out, {
       place: {
-        name: str(p.name ?? p.title, 140), category: str(p.category, 12).toLowerCase(), location: str(p.location ?? p.address, 200),
+        name: str(p.name ?? p.title, 140), category: normCategory(p.category) || str(p.category, 20).toLowerCase(), location: str(p.location ?? p.address, 200),
         durationMin: Math.round(num(p.durationMin)) || 60, cost: num(p.cost), why: str(p.why, 240),
         ...(p.veg ? { veg: str(p.veg, 4).toLowerCase() } : {}), ...(p.vegNote ? { vegNote: str(p.vegNote, 160) } : {}), ...(p.url ? { url: str(p.url, 400) } : {}),
       },
@@ -178,19 +195,22 @@ export async function applyOp(op, { source = "" } = {}) {
     }
     case "add": {
       const p = op.place, t = S.trip;
-      const cat = ctx.CATEGORIES[p.category] ? p.category : "sight";
+      const cat = normCategory(p.category) || "sight";
       let g = null;
       try { g = await geocode(`${p.location || p.name}${(p.location || "").includes(t.destination) ? "" : ", " + t.destination}`); } catch {}
       if (!g) try { g = await geocode(`${p.name}, ${t.destination}`); } catch {}
-      if (!g) return { ok: false, note: `Couldn't find ${q(p.name)} on the map, so it isn't added.` };
       const [added] = await ctx.addPlaces([{
-        title: p.name, location: p.location, category: cat, durationMin: p.durationMin, cost: p.cost, notes: p.why, url: p.url || "", lat: g.lat, lng: g.lng,
+        title: p.name, location: p.location, category: cat, durationMin: p.durationMin, cost: p.cost, notes: p.why, url: p.url || "", ...(g ? { lat: g.lat, lng: g.lng } : { noGeo: true }),
         ...(cat === "food" && p.veg ? { veg: p.veg, vegNote: p.vegNote || "", vegSource: (source || "app").toLowerCase() } : {}),
       }], { source: source || "change", autoPlace: false });
-      if (op.toDay) {
+      if (op.toDay && g) {
         const id = dayId(op.toDay), time = hhmm(op.time);
         await new Promise((r) => setTimeout(r, 150));
         await store.updateItem(tripId, added.id, { dayId: id, order: time ? ctx.orderForTime(id, time) : ctx.nextOrder(id), ...(time ? { time } : {}), userEdited: true, ...me });
+      }
+      if (!g) {
+        await ctx.log(`applied ${by}: added ${q(p.name)} to ideas without a map pin`);
+        return { ok: true, note: op.toDay ? `Couldn't find ${q(p.name)} on the map, so it's in Ideas.` : `Added ${q(p.name)} to Ideas without a map pin.` };
       }
       return done(`added ${q(p.name)} to ${op.toDay ? "Day " + op.toDay : "ideas"}`);
     }
@@ -328,11 +348,14 @@ export function openChanges() {
   if (!c) return;
   ctx.openModal(`<h3>💬 ${lbl(c) ? esc(lbl(c)) + "'s suggested" : "Suggested"} changes</h3>
     <div id="chgHead"></div><div id="chgList"></div>
+    <div id="chgAll" class="ps-all"></div>
+    <div id="chgThread"></div>
     <div class="row"><button type="button" class="btn-s" data-action="chgDiscard">Discard all</button></div>`, async () => {
     await applyAll();
     return false;
   });
   paintChanges();
+  document.getElementById("chgThread").innerHTML = thread(c, "changes"); // painted once; later updates only touch the comment list
 }
 function paintChanges() {
   const { S, esc } = ctx, c = S.trip.changes;
@@ -347,8 +370,9 @@ function paintChanges() {
     const state = done.has(i) ? `<span class="muted small">✓ Applied</span>` : skip.has(i) ? `<span class="muted small">Skipped</span>`
       : bad ? `<span class="small chg-bad">Can't apply: ${esc(bad)}</span>`
       : `<span class="chg-act"><button type="button" class="btn-s primary" data-action="chgApply" data-id="${i}">Apply</button><button type="button" class="btn-s" data-action="chgSkip" data-id="${i}">Skip</button></span>`;
-    return `<div class="chg-op ${bad ? "bad" : ""} ${done.has(i) || skip.has(i) ? "off" : ""}"><div class="chg-t">${esc(opText(op))}${op.why ? `<div class="muted small">${esc(op.why)}</div>` : ""}</div>${state}</div>`;
+    return `<div class="chg-op ${bad ? "bad" : ""} ${done.has(i) || skip.has(i) ? "off" : ""}"><div class="chg-t">${esc(opText(op))}${op.why ? `<div class="muted small">${esc(op.why)}</div>` : ""}</div><span class="chg-side">${voteRow(c, String(i), "changes")}${state}</span></div>`;
   }).join("");
+  document.getElementById("chgAll").innerHTML = `<b>What do you both think?</b>${voteRow(c, "all", "changes")}<span class="muted small">Votes are just opinions. Nothing applies until you tap Apply.</span>`;
   const ok = ctx.$form.querySelector("button[value=ok]");
   if (ok) { ok.textContent = left.length > 1 ? `Apply all ${left.length}` : "Apply"; ok.disabled = !left.length; }
 }
@@ -369,7 +393,8 @@ async function applyAll() {
   for (const [k, { op, i }] of todo.entries()) {
     const r = await applyOp(op, { source: lbl(c) });
     if (r.ok) { n++; await mark("applied", [i]); }
-    else { notes.push(r.note); await mark("skipped", [i]); }
+    else await mark("skipped", [i]);
+    if (r.note) notes.push(r.note);
     if (k < todo.length - 1) await new Promise((r2) => setTimeout(r2, 150)); // let the stop list catch up before the next change reads it
   }
   if (document.getElementById("chgList")) ctx.$modal.close();
@@ -388,6 +413,7 @@ const CSS = `
 .chg-op.off .chg-t { color: var(--muted); text-decoration: line-through; }
 .chg-op.bad { opacity: .75; }
 .chg-bad { color: var(--warn); text-align: right; }
+.chg-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
 .chg-act { display: flex; gap: 6px; flex-shrink: 0; }
 `;
 function box() {
@@ -409,7 +435,8 @@ function banner() {
   if (!c) return "";
   const n = pending().length;
   if (!n) return "";
-  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(lbl(c) || ctx.firstName(c.byName) || "Someone")} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}</span><b>Review</b></button>`;
+  const sum = summary(c, S.trip.members);
+  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(lbl(c) || ctx.firstName(c.byName) || "Someone")} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}${sum ? `<span class="ps-sum">${esc(sum)}</span>` : ""}</span><b>Review</b></button>`;
 }
 
 export function init(c) {

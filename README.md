@@ -123,6 +123,7 @@ Leave `config.js` as is and open `index.html` through any local web server (`pyt
 - `smart.js`: the Smart plan engine
 - `map.js`, `along.js`: the Map tab and Stops along the way
 - `social.js`: reactions, votes and comments
+- `proposal-social.js`: 👍/👎 votes and a comment thread on proposed changes and drafted plans (advisory only)
 - `capture.js`: screenshots and shared images
 - `bookings.js`, `kit.js`: bookings, price checks, Today, checklist, spending log and exports
 - `changes.js`, `bridge.js`: Ask for a change and the Claude link

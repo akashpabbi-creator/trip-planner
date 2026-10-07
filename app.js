@@ -14,6 +14,7 @@ import * as bridgeMod from "./bridge.js";
 import * as bookingsMod from "./bookings.js";
 import * as pasteMod from "./paste.js";
 import * as shuffleMod from "./shuffle.js";
+import * as psocialMod from "./proposal-social.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -333,9 +334,27 @@ function coversOf(t) {
   }
   return list;
 }
+// A photo link pasted by the trip's people wins over the picked cover.
 function coverOf(t) {
+  if (safeUrl(t?.coverUrl)) return t.coverUrl;
   const list = coversOf(t);
   return list.length ? list[(Number(t.coverIdx) || 0) % list.length] : "";
+}
+function coverPicker() {
+  const t = S.trip, list = coversOf(t), p = t.place || {};
+  const cur = safeUrl(t.coverUrl) ? "" : coverOf(t);
+  const cap = (u) => { const i = (p.covers || []).indexOf(u); return (p.coverCaptions || [])[i] || ""; };
+  openModal(`<h3>Choose a cover</h3>
+    ${list.length ? `<div class="cover-grid">${list.map((u, i) => `<button type="button" class="cover-opt ${u === cur ? "on" : ""}" data-action="coverPick" data-i="${i}" aria-label="Use cover ${i + 1}${cap(u) ? ": " + esc(cap(u)) : ""}" aria-pressed="${u === cur}"><img src="${esc(safeUrl(u))}" alt="" loading="lazy" referrerpolicy="no-referrer">${cap(u) ? `<span>${esc(cap(u))}</span>` : ""}</button>`).join("")}</div>`
+      : `<p class="muted small">No photos found for this place. Paste a photo link instead.</p>`}
+    <label>Use a photo link<input name="coverUrl" type="url" inputmode="url" placeholder="https://…/photo.jpg" value="${esc(safeUrl(t.coverUrl))}"></label>
+    ${safeUrl(t.coverUrl) ? `<button type="button" class="link danger" data-action="coverClear">Remove</button>` : ""}`,
+    async (f) => {
+      const u = (f.coverUrl || "").trim();
+      if (u === (t.coverUrl || "")) return;
+      if (u && !/^https:\/\//i.test(u)) return toast("Use an https:// photo link."), false;
+      await S.store.updateTrip(S.tripId, { coverUrl: u, ...stampMe() });
+    });
 }
 function renderPresence() {
   const el = document.getElementById("presence");
@@ -394,7 +413,6 @@ function viewTrip() {
   const counts = new Map(tabs.map((x) => [x.id, (x.count && x.count()) || 0]));
   const end = dayDate(t.days.length - 1);
   const cover = coverOf(t);
-  const nCovers = coversOf(t).length;
   const w = t.weather?.days || [];
   const temps = w.length ? `${Math.min(...w.map((d) => d.min))}–${Math.max(...w.map((d) => d.max))}°C` : "";
   const bases = [...new Set(t.days.map((d) => (d.base || "").trim()).filter(Boolean))];
@@ -413,7 +431,7 @@ function viewTrip() {
             <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip">⚙️</button>
           </div>
         </div>
-        ${nCovers > 1 ? `<button class="chip ghost round cover-btn" data-action="coverNext" title="Change cover photo" aria-label="Change cover photo">🖼️</button>` : ""}
+        <button class="chip ghost round cover-btn" data-action="coverPick" title="Choose a cover" aria-label="Choose a cover">🖼️</button>
         <div class="hero-main">
           <div class="eyebrow">${esc(eyebrow)}</div>
           <h1>${esc(t.name)}</h1>
@@ -627,7 +645,7 @@ function viewPlan() {
   return `
     ${slot("planToday")}
     <div class="asst">
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days</span><b>Review</b></button>` : ""}
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days${psocialMod.summary(t.proposal, t.members) ? `<span class="ps-sum">${esc(psocialMod.summary(t.proposal, t.members))}</span>` : ""}</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
     ${S.planning && !t.proposal ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
@@ -970,9 +988,11 @@ function openProposal() {
     ${pr.summary ? `<p>${esc(pr.summary)}</p>` : ""}
     ${pr.notes?.length ? `<div class="checks">${pr.notes.map((n) => `<div class="check info">${esc(n)}</div>`).join("")}</div>` : ""}
     <div class="proposal">${t.days.map((d, i) => `<section class="day"><header class="day-head"><div><div class="day-n">Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}</div>${pr.bases?.find((b) => b.dayIndex === i) ? `<div class="day-title muted">staying in ${esc(pr.bases.find((b) => b.dayIndex === i).base)}</div>` : ""}</div>
-      ${done.has(i) ? `<span class="muted small">✓ In your plan</span>` : `<button type="button" class="btn-s" data-action="acceptDay" data-day="${i}">Use this day</button>`}</header>
+      <span class="pday-side">${psocialMod.voteRow(pr, "d" + i, "proposal")}${done.has(i) ? `<span class="muted small">✓ In your plan</span>` : `<button type="button" class="btn-s" data-action="acceptDay" data-day="${i}">Use this day</button>`}</span></header>
       <ul class="prop-list">${day(i).map(row).join("") || `<li class="muted">Nothing planned.</li>`}</ul></section>`).join("")}</div>
     ${ideas.length ? `<p class="muted small">Also goes to Ideas: ${ideas.map((x) => esc(x.listing.name)).join(", ")}</p>` : ""}
+    <div class="ps-all"><b>What do you both think?</b>${psocialMod.voteRow(pr, "all", "proposal")}<span class="muted small">Votes are just opinions. Nothing is used until you tap a button.</span></div>
+    ${psocialMod.thread(pr, "proposal")}
     <div class="row">${S.aiUser ? `<button type="button" class="btn-s" data-action="regenPlan">🔁 Try again</button>` : ""}<button type="button" class="btn-s" data-action="dropPlan">Discard this draft</button></div>`, () => acceptProposal(t.days.map((_, i) => i).filter((i) => !done.has(i))));
   const ok = $form.querySelector("button[value=ok]");
   if (ok) ok.textContent = "Use the whole plan";
@@ -991,7 +1011,8 @@ async function acceptProposal(dayIdxs) {
   const bases = pr.bases.filter((b) => dayIdxs.includes(b.dayIndex));
   if (bases.length) await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = bases.find((x) => x.dayIndex === i); return b ? { ...d, base: b.base } : d; }), ...stampMe() }));
   const done = [...new Set([...(pr.done || []), ...dayIdxs])];
-  await S.store.updateTrip(tripId, { proposal: done.length >= t.days.length ? null : { ...pr, done }, ...stampMe() });
+  // Read-modify-write so votes and comments the other phone added meanwhile survive.
+  await S.store.txTrip(tripId, (cur) => (cur.proposal ? { proposal: done.length >= t.days.length ? null : { ...cur.proposal, done }, ...stampMe() } : null));
   await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `used ${planWho(t.proposal)} for ${dayIdxs.length === t.days.length ? "every day" : dayIdxs.map((i) => "Day " + (i + 1)).join(", ")} (${n} stops)` });
   toast(`${planWho(t.proposal)[0].toUpperCase() + planWho(t.proposal).slice(1)} is on ${dayIdxs.length === 1 ? "Day " + (dayIdxs[0] + 1) : dayIdxs.length + " days"}.`);
 }
@@ -1762,7 +1783,7 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
       ...(source ? { via: source } : {}),
       fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
     };
-    if (!has(data)) {
+    if (!has(data) && !p.noGeo) {
       const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
       if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
     }
@@ -2014,11 +2035,14 @@ document.addEventListener("click", async (e) => {
         markStrip(i);
         return $app.querySelectorAll(".day")[i]?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
-      case "coverNext": {
-        const n = coversOf(S.trip).length;
-        if (n < 2) return;
-        return S.store.updateTrip(S.tripId, { coverIdx: ((Number(S.trip.coverIdx) || 0) + 1) % n, ...stampMe() });
+      case "coverPick": {
+        if (b.dataset.i == null) return coverPicker();
+        $modal.close();
+        return S.store.updateTrip(S.tripId, { coverIdx: Number(b.dataset.i) || 0, coverUrl: "", ...stampMe() });
       }
+      case "coverClear":
+        $modal.close();
+        return S.store.updateTrip(S.tripId, { coverUrl: "", ...stampMe() });
       case "signout":
         S.userMenu = false;
         goHome();
@@ -2256,7 +2280,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, shuffleMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, shuffleMod, psocialMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
