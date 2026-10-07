@@ -60,15 +60,15 @@ export function cleanOp(o) {
   else if (type === "remove") out.itemId = id();
   else if (type === "time") Object.assign(out, { itemId: id(), time: str(o.time, 8) });
   else if (type === "transport") Object.assign(out, { itemId: id(), mode: str(o.mode, 20), minutes: Math.round(num(o.minutes)), ...(o.cost != null && o.cost !== "" ? { cost: num(o.cost) } : {}) });
-  else if (type === "day") Object.assign(out, { day: Math.round(num(o.day)), ...["title", "base", "notes"].reduce((a, k) => (o[k] != null ? { ...a, [k]: str(o[k], k === "notes" ? 400 : 120) } : a), {}) });
+  else if (type === "day") Object.assign(out, { day: Math.round(num(o.day)), ...["title", "base", "notes"].reduce((a, k) => (o[k] != null ? { ...a, [k]: str(o[k], k === "notes" ? 300 : 120) } : a), {}) });
   else if (type === "veg") Object.assign(out, { itemId: id(), veg: str(o.veg, 4).toLowerCase(), note: str(o.note ?? o.vegNote, 160) });
-  else if (type === "note") Object.assign(out, { itemId: id(), notes: str(o.notes ?? o.note, 600) });
+  else if (type === "note") Object.assign(out, { itemId: id(), notes: str(o.notes ?? o.note, 300) });
   else if (type === "check") Object.assign(out, { text: str(o.text, 140), group: str(o.group, 6) === "pack" ? "pack" : "todo" });
   else if (type === "add") {
     const p = o.place || {};
     Object.assign(out, {
       place: {
-        name: str(p.name ?? p.title, 140), category: normCategory(p.category) || str(p.category, 20).toLowerCase(), location: str(p.location ?? p.address, 200),
+        name: str(p.name ?? p.title, 120), category: normCategory(p.category) || str(p.category, 20).toLowerCase(), location: str(p.location ?? p.address, 200),
         durationMin: Math.round(num(p.durationMin)) || 60, cost: num(p.cost), why: str(p.why, 240),
         ...(p.veg ? { veg: str(p.veg, 4).toLowerCase() } : {}), ...(p.vegNote ? { vegNote: str(p.vegNote, 160) } : {}), ...(p.url ? { url: str(p.url, 400) } : {}),
       },
@@ -79,7 +79,7 @@ export function cleanOp(o) {
     const b = o.booking || {};
     out.booking = {
       kind: str(b.kind, 10).toLowerCase(), title: str(b.title, 140), ref: str(b.ref, 60), start: str(b.start, 16), end: str(b.end, 16),
-      from: str(b.from, 120), to: str(b.to, 120), address: str(b.address, 200), cost: num(b.cost), currency: str(b.currency, 4).toUpperCase(), notes: str(b.notes, 400),
+      from: str(b.from, 120), to: str(b.to, 120), address: str(b.address, 200), cost: num(b.cost), currency: str(b.currency, 4).toUpperCase(), notes: str(b.notes, 300),
     };
   }
   return out;
@@ -127,7 +127,7 @@ const dayId2 = (it) => it && ctx.S.trip.days.some((d) => d.id === it.dayId);
 
 // A change in plain words.
 export function opText(op) {
-  const d = (n) => `Day ${n}`;
+  const d = (n) => `Day ${Number.isInteger(n) && n >= 1 ? n : "?"}`;
   const at = (t) => (t && hhmm(t) ? ` at ${hhmm(t)}` : "");
   switch (op?.type) {
     case "move": return `Move ${q(nameFor(op.itemId))} to ${d(op.toDay)}${at(op.time)}`;
@@ -226,15 +226,20 @@ export async function proposeChanges({ source, request = "", summary = "", ops }
   const clean = cleanOps(ops);
   if (!clean.length) throw new Error("There were no changes in the answer.");
   const { S } = ctx;
+  const usable = clean.filter((op) => !problem(op));
+  if (!usable.length) {
+    const why = clean.map((op) => problem(op)).find(Boolean);
+    throw new Error(`None of those changes could be applied${why ? ": " + why : "."}`);
+  }
   const had = pending().length;
   await S.store.updateTrip(S.tripId, {
     changes: { at: Date.now(), by: S.me.email, byName: S.me.name, source, request: str(request, 300), summary: str(summary, 500), ops: clean, applied: [], skipped: [] },
     ...ctx.stampMe(),
   });
   if (source === "Claude" && ctx.bridgeAsk?.()) ctx.setBridgeAsk(null);
-  const n = `${clean.length} change${clean.length > 1 ? "s" : ""}`;
+  const n = `${usable.length} change${usable.length > 1 ? "s" : ""}`;
   await ctx.log(source === "Shuffle" ? `shuffled a day: ${n} to review${request ? " (" + str(request, 80) + ")" : ""}` : `${source === "Claude" ? "Claude suggested" : "asked " + source + " for"} ${n}${request ? ": " + str(request, 80) : ""}`);
-  return { count: clean.length, replaced: had > 0 };
+  return { count: usable.length, replaced: had > 0 };
 }
 // Changes still waiting: not applied, not skipped, and still possible.
 function pending() {
@@ -242,6 +247,58 @@ function pending() {
   if (!c) return [];
   const gone = new Set([...(c.applied || []), ...(c.skipped || [])]);
   return c.ops.map((op, i) => ({ op, i })).filter(({ op, i }) => !gone.has(i) && !problem(op));
+}
+// Taking a change is one transaction on the trip, so two taps (or two phones) can't both apply it.
+const inflight = new Set();
+let applyingAll = false;
+const samePlace = (a, b) => String(a || "").trim().toLowerCase().replace(/\s+/g, " ") === String(b || "").trim().toLowerCase().replace(/\s+/g, " ");
+const isGone = (c, i) => (c.applied || []).includes(i) || (c.skipped || []).includes(i);
+async function claim(c, i) {
+  let got = false;
+  await ctx.S.store.txTrip(ctx.S.tripId, (cur) => {
+    got = false;
+    const cc = cur.changes;
+    if (!cc || cc.at !== c.at || cc.by !== c.by || isGone(cc, i)) return null;
+    got = true;
+    return { changes: { ...cc, applied: [...(cc.applied || []), i] }, ...ctx.stampMe() };
+  });
+  return got;
+}
+// Gives a taken change back (it failed): to "skipped" when it can't be done, or to the waiting list when it was a hiccup.
+async function release(c, i, skip) {
+  await ctx.S.store.txTrip(ctx.S.tripId, (cur) => {
+    const cc = cur.changes;
+    if (!cc || cc.at !== c.at || cc.by !== c.by) return null;
+    const next = { ...cc, applied: (cc.applied || []).filter((x) => x !== i), skipped: skip ? [...new Set([...(cc.skipped || []), i])] : cc.skipped || [] };
+    const gone = new Set([...next.applied, ...next.skipped]);
+    const left = next.ops.some((op, k) => !gone.has(k) && !problem(op));
+    return { changes: left ? next : null, ...ctx.stampMe() };
+  });
+}
+// Applies change `i` of proposal `c` once. Returns { ok, note, dup } or null when someone else already has it.
+async function runOne(c, i, op) {
+  const key = `${c.at}:${c.by}:${i}`;
+  if (inflight.has(key)) return null;
+  inflight.add(key);
+  try {
+    const cur = ctx.S.trip?.changes;
+    if (!cur || cur.at !== c.at || isGone(cur, i)) return null;
+    if (!(await claim(c, i))) return null;
+    let r;
+    try {
+      // An "add" for a place that's already in the trip (the other phone just added it) is marked done, not added twice.
+      if (op.type === "add" && ctx.S.items.some((it) => samePlace(it.title, op.place?.name))) r = { ok: true, dup: true, note: `${q(op.place.name)} is already in your trip.` };
+      else r = await applyOp(op, { source: lbl(c) });
+    } catch (e) {
+      await release(c, i, false).catch(() => {});
+      throw e;
+    }
+    if (r.ok) await mark("applied", [i]);
+    else await release(c, i, true);
+    return r;
+  } finally {
+    inflight.delete(key);
+  }
 }
 async function mark(field, idxs) {
   await ctx.S.store.txTrip(ctx.S.tripId, (cur) => {
@@ -290,7 +347,8 @@ async function askGemini() {
     const res = await proposeChanges({ source: "Gemini", request, summary: r.summary, ops: r.ops });
     draft = "";
     ctx.toast(`Gemini suggests ${res.count} change${res.count > 1 ? "s" : ""}. Review them on the Plan tab.`, 5000);
-    setTimeout(openChanges, 300);
+    // A late answer must not replace a form someone is typing in: with a window open, the banner is enough.
+    if (!ctx.$modal.open) setTimeout(() => { if (!ctx.$modal.open) openChanges(); }, 300);
   } catch (e) {
     console.warn(e);
     ctx.toast(e instanceof QuotaError ? e.message : "Gemini couldn't do that: " + e.message, e instanceof QuotaError ? 9000 : 5000);
@@ -302,6 +360,7 @@ async function askGemini() {
 
 // Claude: through the Claude link when it's on (the request waits in the snapshot), otherwise copy a request to paste into Claude.
 // `text` is anything Claude should read besides the plan (pasted tips). The link carries a capped copy of it in the request.
+export const CLAUDE_TEXT_MAX = 8000;
 let lastRequest = "";
 function claudeRequest(request, { text = "", lead = "", extra = "" } = {}) {
   return (lead || `Please change our trip plan: “${request}”`) + "\n\n" + changePrompt(ctx.planSnapshot(), request, ctx.profileText(ctx.profileOf(ctx.S.trip)), "Search the web for real places and opening hours.")
@@ -312,7 +371,7 @@ function claudeRequest(request, { text = "", lead = "", extra = "" } = {}) {
 export async function askClaudeFor(request, { text = "", lead = "", extra = "", onDone, retried = false } = {}) {
   const { S } = ctx, t = S.trip;
   if (ctx.bridgeToken()) {
-    ctx.setBridgeAsk({ request: str(request, 300), ...(text ? { text: str(text, 8000) } : {}), at: Date.now(), by: S.me.name });
+    ctx.setBridgeAsk({ request: str(request, 300), ...(text ? { text: str(text, CLAUDE_TEXT_MAX) } : {}), at: Date.now(), by: S.me.name });
     ctx.bridgeSyncNow?.();
     onDone?.();
     ctx.render();
@@ -379,26 +438,40 @@ function paintChanges() {
 async function applyOne(i) {
   const c = ctx.S.trip.changes, op = c?.ops[i];
   if (!op) return;
-  const r = await applyOp(op, { source: lbl(c) });
-  if (r.ok) await mark("applied", [i]);
-  else { ctx.toast(r.note, 5000); await mark("skipped", [i]); }
-  if (r.ok && r.note) ctx.toast(r.note);
+  try {
+    const r = await runOne(c, i, op);
+    if (!r) return;
+    if (!r.ok) ctx.toast(r.note, 5000);
+    else if (r.note) ctx.toast(r.note);
+  } catch (e) {
+    console.warn("apply", e);
+    ctx.toast("Couldn't apply that. Check your connection and try again.", 5000);
+  }
 }
 async function applyAll() {
   const c = ctx.S.trip.changes;
-  if (!c) return;
-  let n = 0;
+  if (!c || applyingAll) return;
+  applyingAll = true;
+  const ok = ctx.$form.querySelector("button[value=ok]");
+  if (ok) ok.disabled = true;
+  let n = 0, ran = 0;
   const notes = [];
-  const todo = pending();
-  for (const [k, { op, i }] of todo.entries()) {
-    const r = await applyOp(op, { source: lbl(c) });
-    if (r.ok) { n++; await mark("applied", [i]); }
-    else await mark("skipped", [i]);
-    if (r.note) notes.push(r.note);
-    if (k < todo.length - 1) await new Promise((r2) => setTimeout(r2, 150)); // let the stop list catch up before the next change reads it
+  try {
+    const todo = pending();
+    for (const [k, { op, i }] of todo.entries()) {
+      const r = await runOne(c, i, op).catch((e) => { console.warn("apply", e); return { ok: false, note: "Couldn't apply one of them. Check your connection and try again." }; });
+      if (r) {
+        ran++;
+        if (r.ok && !r.dup) n++;
+        if (r.note && !r.dup) notes.push(r.note);
+      }
+      if (k < todo.length - 1) await new Promise((r2) => setTimeout(r2, 150)); // let the stop list catch up before the next change reads it
+    }
+  } finally {
+    applyingAll = false;
   }
   if (document.getElementById("chgList")) ctx.$modal.close();
-  ctx.toast(`${n} change${n === 1 ? "" : "s"} applied.${notes.length ? " " + notes.join(" ") : ""}`, 6000);
+  if (ran) ctx.toast(`${n} change${n === 1 ? "" : "s"} applied.${notes.length ? " " + notes.join(" ") : ""}`, 6000);
 }
 
 /* --------------------------------------------------------------------- UI */
@@ -410,6 +483,7 @@ const CSS = `
 .chg.open .chg-btns, .chg:focus-within .chg-btns { display: flex; }
 .chg-note { margin: 6px 4px 0; }
 .chg-op { display: flex; gap: 10px; justify-content: space-between; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+.chg-t { min-width: 0; overflow-wrap: anywhere; }
 .chg-op.off .chg-t { color: var(--muted); text-decoration: line-through; }
 .chg-op.bad { opacity: .75; }
 .chg-bad { color: var(--warn); text-align: right; }
@@ -460,7 +534,7 @@ export function init(c) {
   ctx.action("chgGemini", askGemini);
   ctx.action("chgClaude", askClaude);
   ctx.action("chgOpen", () => openChanges());
-  ctx.action("chgApply", async (b, id) => { await applyOne(+id); paintChanges(); });
+  ctx.action("chgApply", async (b, id) => { b.disabled = true; if (b.nextElementSibling) b.nextElementSibling.disabled = true; await applyOne(+id); paintChanges(); });
   ctx.action("chgSkip", async (b, id) => { await mark("skipped", [+id]); paintChanges(); });
   ctx.action("chgDiscard", async () => {
     await ctx.S.store.updateTrip(ctx.S.tripId, { changes: null, ...ctx.stampMe() });
@@ -484,4 +558,5 @@ export function init(c) {
   });
   // The review list stays in step when the other phone applies or skips something.
   ctx.on("trip", () => { if (document.getElementById("chgList")) paintChanges(); });
+  ctx.on("items", () => { if (document.getElementById("chgList")) paintChanges(); });
 }

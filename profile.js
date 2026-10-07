@@ -246,19 +246,19 @@ export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listing
   let total = 0;
   const splurge = { food: 0, experience: 0, stay: 0 };
   let market = false;
-  const drafted = new Set((draft.days || []).flatMap((d) => (d.items || []).map((x) => String(x?.name || "").trim().toLowerCase())));
+  const drafted = new Set((Array.isArray(draft.days) ? draft.days : []).flatMap((d) => (Array.isArray(d?.items) ? d.items : []).map((x) => String(x?.name || "").trim().toLowerCase())));
   const listing = (x, cat) => ({
-    name: String(x.name).trim().slice(0, 140), content: x.why || "", address: x.address || "", category: cat, type: TYPE_OF[cat] || "see",
-    price: x.approxCost ? String(x.approxCost) : "", hours: x.closedDays ? `Closed ${x.closedDays}` : "", ai: true,
+    name: String(x.name).trim().slice(0, 120), content: String(x.why || "").slice(0, 240), address: String(x.address || "").slice(0, 200), category: cat, type: TYPE_OF[cat] || "see",
+    price: x.approxCost ? String(x.approxCost) : "", hours: x.closedDays ? `Closed ${String(x.closedDays).slice(0, 80)}` : "", ai: true,
     durationMin: Number(x.durationMin) || 0, cost: Number(x.approxCost) || 0, ...(cat === "food" && x.veg ? { veg: x.veg === "no" ? "no" : "yes" } : {}),
-    vegNote: x.vegNote || "", bookAhead: !!x.bookAhead,
+    vegNote: String(x.vegNote || "").slice(0, 160), bookAhead: !!x.bookAhead,
   });
-  (draft.days || []).slice(0, trip.days.length).forEach((d, k) => {
+  (Array.isArray(draft.days) ? draft.days : []).filter((d) => d && typeof d === "object").slice(0, trip.days.length).forEach((d, k) => {
     const i = Number.isInteger(d.day) && d.day >= 1 && d.day <= trip.days.length ? d.day - 1 : k;
     if (d.base) bases.push({ dayIndex: i, base: String(d.base).slice(0, 60) });
     let anchors = 0;
     const from = plan.length;
-    const items = (d.items || []).filter((x) => x?.name).sort((a, b) => (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600));
+    const items = (Array.isArray(d.items) ? d.items : []).filter((x) => x && typeof x === "object" && x.name).sort((a, b) => (toMin(a.time) ?? 600) - (toMin(b.time) ?? 600));
     for (const x of items) {
       const cat = TYPE_OF[x.category] ? x.category : "sight";
       const key = String(x.name).trim().toLowerCase();

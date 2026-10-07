@@ -1,6 +1,6 @@
 // capture: screenshots to places (the 📷 button and the Android image share target).
 // Images are shrunk in the browser, sent to Gemini once, and never stored (not on the trip, not in a cache).
-import { call, parseJson, QuotaError, geminiWait } from "./ai.js";
+import { call, parseJson, cleanPlace, QuotaError, geminiWait } from "./ai.js";
 
 const MAX_IMAGES = 6;
 const CSS = `
@@ -16,7 +16,7 @@ Only real, named places, at most 10. If the screenshot shows one place, return j
   const parts = base64s.map((data) => ({ inline_data: { mime_type: "image/jpeg", data } }));
   const { text } = await call(key, prompt, { search: true, parts });
   const out = parseJson(text);
-  return Array.isArray(out.places) ? out.places.filter((x) => x && x.name).slice(0, 10) : [];
+  return Array.isArray(out.places) ? out.places.filter((x) => x && typeof x === "object" && x.name).slice(0, 10).map(cleanPlace) : [];
 }
 
 // Shrinks a picture to at most 1600 px and returns base64 JPEG (no data: prefix).
@@ -82,7 +82,7 @@ export function init(ctx) {
       if (!found.length) return toast("I couldn't find any places in that screenshot. Try a clearer one.", 5000);
       if (!fresh.length) return toast("Those places are already saved.");
       const places = fresh.map((p) => ({
-        title: String(p.name).slice(0, 140), category: ctx.CATEGORIES[p.category] ? p.category : "sight",
+        title: String(p.name).slice(0, 120), category: ctx.CATEGORIES[p.category] ? p.category : "sight",
         location: [p.address, t.destination].filter(Boolean).join(", "), durationMin: Number(p.durationMin) || 90,
         cost: Number(p.approxCost) || 0, bestTime: p.bestTime || "",
         notes: [p.hours, p.bestTime && `Best at ${p.bestTime}`].filter(Boolean).join(" · "), description: p.why || "",

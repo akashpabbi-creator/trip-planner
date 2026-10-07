@@ -184,7 +184,8 @@ try {
   const [fc] = await Promise.all([d.waitForEvent("filechooser"), d.click("[data-action=capturePick]")]);
   ok(fc.isMultiple(), "file picker allows several images");
   await fc.setFiles([png1, png2]);
-  await d.waitForFunction(() => window.__tripCtx.S.items.some((i) => i.title === "Trevi Fountain"), null, { timeout: 15000 });
+  await d.waitForFunction(() => ["Trevi Fountain", "Roscioli Salumeria"].every((n) => window.__tripCtx.S.items.some((i) => i.title === n)), null, { timeout: 15000 });
+  await d.waitForFunction(() => !window.__tripCtx.S.busy, null, { timeout: 15000 });
   await d.waitForTimeout(500);
   const call = gem.find((g) => g.parts.some((x) => x.inline_data));
   ok(call && call.parts.filter((x) => x.inline_data).length === 2, "Gemini got both images");

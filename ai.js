@@ -73,11 +73,60 @@ export async function call(key, prompt, { json = false, search = false, model, p
   if (quota) throw new QuotaError(quotaMessage(quota));
   throw lastErr;
 }
+// The first balanced {...} or [...] block in `s` that parses as JSON, or undefined.
+function firstJsonBlock(s) {
+  for (let from = s.search(/[[{]/); from >= 0 && from < s.length; ) {
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let i = from; i < s.length; i++) {
+      const ch = s[i];
+      if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true;
+      else if (ch === "{" || ch === "[") depth++;
+      else if (ch === "}" || ch === "]") { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end > 0) {
+      try { const v = JSON.parse(s.slice(from, end + 1)); if (v && typeof v === "object") return v; } catch {}
+    }
+    const next = s.slice(from + 1).search(/[[{]/);
+    if (next < 0) return undefined;
+    from = from + 1 + next;
+  }
+  return undefined;
+}
+// Reads the JSON in an AI answer: fenced or not, with or without chatter around it. Throws a plain-words error.
 export function parseJson(text) {
-  const m = text.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, text];
-  const s = m[1].trim();
-  const start = s.search(/[[{]/);
-  return JSON.parse(s.slice(start));
+  const t = String(text ?? "");
+  const fences = [...t.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((m) => m[1]);
+  for (const chunk of [...fences, t]) {
+    const v = firstJsonBlock(chunk);
+    if (v !== undefined) return v;
+  }
+  throw new Error("The answer wasn't readable. Try again.");
+}
+
+// AI answers can be long or odd: keep each text field to a sane length before it reaches the trip.
+export const clip = (v, n) => (v == null ? "" : String(v).slice(0, n)).trim();
+export const LIMITS = { name: 120, location: 200, notes: 300, why: 240 };
+// A place from a link or screenshot answer (extractLink / readImage shape).
+export function cleanPlace(x) {
+  return {
+    ...x, name: clip(x.name, LIMITS.name), address: clip(x.address, LIMITS.location), hours: clip(x.hours, LIMITS.notes), why: clip(x.why, LIMITS.why),
+    bestTime: clip(x.bestTime, 20), vegetarian: clip(x.vegetarian, 8).toLowerCase(),
+  };
+}
+// The "action" of a review suggestion: same limits for the place, and a time that is a real HH:MM or nothing.
+export function cleanAction(a) {
+  if (!a || typeof a !== "object") return { type: "none" };
+  const out = { ...a };
+  if (out.time != null && out.time !== "") {
+    const m = String(out.time).trim().match(/^(\d{1,2}):(\d{2})$/);
+    out.time = m && +m[1] <= 23 && +m[2] <= 59 ? m[1].padStart(2, "0") + ":" + m[2] : "";
+  }
+  if (out.place && typeof out.place === "object") {
+    const p = out.place;
+    out.place = { ...p, name: clip(p.name ?? p.title, LIMITS.name), location: clip(p.location ?? p.address, LIMITS.location), why: clip(p.why, LIMITS.why), notes: clip(p.notes, LIMITS.notes) };
+  }
+  return out;
 }
 
 export async function testKey(key) {
@@ -109,7 +158,7 @@ Return JSON: {"summary": "2-3 sentence overall verdict", "suggestions": [{"title
 Give 4 to 10 suggestions, most important first. Use only itemIds that appear in the plan.`;
   const { text } = await call(key, prompt, { json: true });
   const out = parseJson(text);
-  return { summary: out.summary || "", suggestions: Array.isArray(out.suggestions) ? out.suggestions : [] };
+  return { summary: clip(out.summary, 600), suggestions: (Array.isArray(out.suggestions) ? out.suggestions : []).filter((x) => x && typeof x === "object").map((x) => ({ ...x, title: clip(x.title, 140), detail: clip(x.detail, 400), action: cleanAction(x.action) })) };
 }
 
 // Reads a shared link (the page itself, plus the preview we already have) and lists the places in it.
@@ -121,7 +170,7 @@ Return ONLY a JSON object in a \`\`\`json block: {"places": [{"name": string, "c
 Only real, named places, at most 10. If the link is about one place, return just that place.`;
   const { text } = await call(key, prompt, { search: "url" });
   const out = parseJson(text);
-  return Array.isArray(out.places) ? out.places.filter((x) => x && x.name).slice(0, 10) : [];
+  return Array.isArray(out.places) ? out.places.filter((x) => x && typeof x === "object" && x.name).slice(0, 10).map(cleanPlace) : [];
 }
 
 // Checks whether restaurants serve good vegetarian food (they don't have to be pure vegetarian).
