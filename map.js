@@ -82,7 +82,7 @@ function data(ctx) {
   const shown = M.sel === "all" ? days : days.filter((x) => x.i === M.sel);
   const ideas = M.ideas ? ctx.ideas() : [];
   const all = [...shown.flatMap((x) => x.stops), ...ideas];
-  return { days, shown, ideas, unmapped: all.filter((it) => !has(it)) };
+  return { days, shown, ideas, unmapped: all.filter((it) => !has(it) && !it.rest) };
 }
 
 function view(ctx) {
