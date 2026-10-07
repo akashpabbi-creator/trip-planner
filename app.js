@@ -1999,6 +1999,7 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
     return;
   }
   S.store.onSync?.((st) => { S.sync = st; renderSync(); });
+  S.store.onWriteError?.((e) => toast("A change didn't save: " + e.message, 6000));
   let tripsUnsub = null;
   S.store.onUser((u) => {
     S.me = u;
@@ -2028,7 +2029,23 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
     });
     render();
   });
-  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    const hadCtl = !!navigator.serviceWorker.controller; // false on first install: no notice then
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadCtl || performance.now() < 15000 || document.getElementById("upd")) return; // network-first shell already loaded new files if it fired right after load
+      const t = document.createElement("div");
+      t.id = "upd";
+      t.className = "toast upd";
+      t.innerHTML = `New version ready · <button class="link light" type="button">Refresh</button>`;
+      t.querySelector("button").onclick = () => location.reload();
+      document.body.appendChild(t);
+    });
+    navigator.serviceWorker.register("sw.js").then((reg) => {
+      const up = () => reg.update().catch(() => {});
+      document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && up());
+      setInterval(up, 30 * 60 * 1000);
+    }).catch(() => {});
+  }
 })();
 
 // After a trip opens, pick up a link that was shared into the app.
