@@ -13,7 +13,7 @@ const CSS = `
 .al-panel { margin-top: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: grid; gap: 8px; }
 .al-panel p { margin: 0; }
 .al-row { display: flex; gap: 10px; align-items: center; }
-.al-row .al-ic { flex: none; font-size: 20px; }
+.al-row .al-ico { flex: none; font-size: 20px; }
 .al-row .al-t { flex: 1; min-width: 0; }
 .al-row .al-t b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .al-row .btn-s { flex: none; }
@@ -73,7 +73,7 @@ function panel(ctx, it) {
   const res = st.results;
   if (!res.length) return `<div class="al-panel">${head}<p class="muted small">Nothing notable found near this route.${st.straight ? " (Straight line: the route service didn't answer.)" : ""}</p></div>`;
   return `<div class="al-panel">${head}
-    ${res.map((r, k) => `<div class="al-row"><span class="al-ic">${r.icon}</span><div class="al-t"><b>${esc(r.name)}</b><span class="muted small">${esc(r.kind)} · about ${r.detour} min detour${r.known ? " · well known" : ""}</span></div><button class="btn-s primary" data-action="alongAdd" data-id="${it.id}" data-k="${k}">Add to this day</button></div>`).join("")}
+    ${res.map((r, k) => `<div class="al-row"><span class="al-ico">${r.icon}</span><div class="al-t"><b>${esc(r.name)}</b><span class="muted small">${esc(r.kind)} · about ${r.detour} min detour${r.known ? " · well known" : ""}</span></div><button class="btn-s primary" data-action="alongAdd" data-id="${it.id}" data-k="${k}">Add to this day</button></div>`).join("")}
     <p class="muted small">From OpenStreetMap${st.straight ? " (straight line, the route service didn't answer)" : ""}. Nothing is added until you tap.</p></div>`;
 }
 

@@ -458,7 +458,7 @@ The same box is also offered after "Ask Claude" (under the Plan tab's "Ask for a
 
 ## 10. If something goes wrong
 
-- `HTTP 403` on read: the link is off or the Firestore rules for the Claude link aren't published. Ask the user to check More, Connect Claude, or to run the rules update (HANDOFF-rules-update.md in the app's repository).
+- `HTTP 403` on read: the link is off or the Firestore rules for the Claude link aren't published. Ask the user to check More, Connect Claude, or to run the rules update (HANDOFF-rules-update.md in the project files).
 - `HTTP 404`: wrong token, or the user turned the link off or made a new one. Ask for a fresh "Copy for Claude".
 - "The plan isn't ready": the app writes the snapshot a few seconds after the trip is open. Ask them to open the trip, wait, retry.
 - Nothing shows up in the app: it processes the inbox only while the trip is open. Ask them to open it.

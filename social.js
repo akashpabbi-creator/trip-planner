@@ -116,7 +116,8 @@ export function arrangeIdeas(list, members) {
 /* --------------------------------------------------------------------- init */
 const CSS = `
 .rx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 6px; }
-.rx { border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 99px; padding: 1px 8px; font-size: 13px; line-height: 1.6; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; filter: grayscale(1); opacity: 0.7; min-height: 28px; }
+.rx { border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 99px; padding: 1px 8px; font-size: 13px; line-height: 1.6; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; filter: grayscale(1); opacity: 0.7; min-height: 32px; }
+@media (max-width: 700px) { .rx { min-height: 36px; min-width: 36px; justify-content: center; } }
 .rx:hover { opacity: 1; background: var(--accent-soft); }
 .rx.has { opacity: 1; }
 .rx.on { background: var(--accent-soft); border-color: var(--line); color: var(--ink); filter: none; opacity: 1; }

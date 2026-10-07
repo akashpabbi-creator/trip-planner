@@ -398,7 +398,7 @@ function banner() {
   if (!c) return "";
   const n = pending().length;
   if (!n) return "";
-  return `<button class="smart-banner" data-action="chgOpen">💬 ${esc(c.source)} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""} <b>Review</b></button>`;
+  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen">💬 ${esc(c.source)} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""} <b>Review</b></button>`;
 }
 
 export function init(c) {
@@ -406,6 +406,7 @@ export function init(c) {
   document.head.append(Object.assign(document.createElement("style"), { id: "css-changes", textContent: CSS }));
   ctx.applyOp = applyOp;
   ctx.opText = opText;
+  ctx.pendingChanges = () => pending().length;
   ctx.slot("planTop", () => banner() + box());
   ctx.action("chgGemini", askGemini);
   ctx.action("chgClaude", askClaude);

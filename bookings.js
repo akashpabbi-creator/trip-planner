@@ -180,7 +180,7 @@ export function parseBookingText(text, trip = {}) {
 
 /* ------------------------------------------------------------ price links */
 const ymdOf = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
-const gFlights = (home, dest, from, to) => `https://www.google.com/travel/flights?q=${encodeURIComponent(`Flights from ${home} to ${dest}${from ? ` on ${from}` : ""}${to ? ` through ${to}` : ""}`)}`;
+const gFlights = (home, dest, from, to) => `https://www.google.com/travel/flights?q=${encodeURIComponent(`Flights ${home ? `from ${home} ` : ""}to ${dest}${from ? ` on ${from}` : ""}${to ? ` through ${to}` : ""}`)}`;
 const gHotels = (place, cin, cout) => `https://www.google.com/travel/search?q=${encodeURIComponent(`hotels in ${place}${cin ? ` ${cin} to ${cout}` : ""}`)}`;
 const bookingCom = (place, cin, cout) => `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(place)}${cin ? `&checkin=${cin}&checkout=${cout}` : ""}&group_adults=2`;
 export const priceLinks = { gFlights, gHotels, bookingCom };
@@ -311,12 +311,13 @@ export function init(ctx) {
     return `<details class="d-sec bk-chk" id="chk-sec" ${chkOpen ? "open" : ""}>
       <summary class="d-head"><h3>🔎 Check prices</h3><span class="muted small">${chkOpen ? "" : "flight and hotel searches"}</span></summary>
       <div class="bk-chk-body">
-        <label>Flying from
-          <input id="homeCity" value="${esc(home)}" placeholder="e.g. Mumbai" autocomplete="off"></label>
+        <label>Flying from (optional)
+          <input id="homeCity" value="${esc(home)}" placeholder="Home city, e.g. Mumbai" autocomplete="off"></label>
         <div class="bk-links">
-          ${home && dest
+          ${dest
             ? `<a class="btn-s" href="${esc(gFlights(home, dest, first?.cin, last?.cout ? ymdOf(new Date(new Date(last.cout + "T00:00:00").getTime() - 86400000)) : ""))}" target="_blank" rel="noopener">✈️ Flights to ${esc(dest)}</a>`
-            : `<span class="muted small">Add your home city and a destination to search flights.</span>`}
+            : `<span class="muted small">Add a destination to search flights.</span>`}
+          ${dest && !home ? `<span class="muted small">Add your home city above to start from there.</span>` : ""}
         </div>
         ${(rows.length ? rows : [{ base: dest, cin: first?.cin, cout: last?.cout }]).filter((r) => r.base).map((r) => `<div class="bk-links">
           <span class="small">🏨 ${esc(r.base)}${r.cin ? ` <span class="muted">${esc(niceDate(r.cin))} to ${esc(niceDate(r.cout))}</span>` : ""}</span>

@@ -432,7 +432,7 @@ function runView(tab) {
 function viewAddLink() {
   return `<div class="add-link">
     <span class="al-ic">🔗</span>
-    <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link from Instagram, Maps or any site" ${S.busy ? "disabled" : ""}>
+    <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link" ${S.busy ? "disabled" : ""}>
     <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
     <button class="icon" data-action="pasteLink" title="Paste from clipboard">📋</button>
     <button class="icon" data-action="newItem" title="Add a place without a link">＋</button>
@@ -444,6 +444,12 @@ function viewAddLink() {
 function directionsUrl(it) {
   const dest = Number.isFinite(it.lat) && Number.isFinite(it.lng) ? `${it.lat},${it.lng}` : decodeURIComponent(mapsQ(it.location || it.title || ""));
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+}
+// Who suggested a stop that came from a helper, not typed or shared by one of us.
+function suggestedFrom(it) {
+  if (it.suggestedBy === "ai") return it.aiSource || (it.siteName === "Claude" ? "Claude" : "Gemini");
+  if (it.suggestedBy) return "the travel guide";
+  return it.via === "Claude" || it.via === "Gemini" ? it.via : "";
 }
 function card(it, opts = {}) {
   const cat = CATEGORIES[it.category] || CATEGORIES.other;
@@ -470,17 +476,19 @@ function card(it, opts = {}) {
       ${it.description ? `<p class="c-desc">${esc(it.description.slice(0, 220))}${it.description.length > 220 ? "…" : ""}</p>` : ""}
       ${it.notes ? `<p class="c-notes">📝 ${esc(it.notes)}</p>` : ""}
       ${it.category === "food" && it.vegNote ? `<p class="c-notes">🥗 ${esc(it.vegNote)}</p>` : ""}
-      ${slot("card", it, opts)}
+    </div>
+    <div class="c-links">
+        <a class="btn-s dir-link" href="${directionsUrl(it)}" target="_blank" rel="noopener" title="Directions in Google Maps">🧭 Directions</a>
+        ${safeUrl(it.url) ? `<a class="btn-s c-out" href="${esc(it.url)}" target="_blank" rel="noopener" title="Open the original link">Link ↗</a>` : ""}
+        ${slot("card", it, opts)}
+      </div>
       <div class="c-foot">
-        <span class="muted small">${it.suggestedBy ? (it.suggestedBy === "ai" ? "Suggested by Gemini" : "Suggested by the travel guide") : `Added by ${esc(who(it.addedBy))}`} ${ago(it.addedAt)}${it.updatedAt && it.updatedAt !== it.addedAt ? ` · edited by ${esc(who(it.updatedBy))} ${ago(it.updatedAt)}` : ""}</span>
+        <span class="muted small c-by">${suggestedFrom(it) ? `Suggested by ${esc(suggestedFrom(it))}` : `Added by ${esc(who(it.addedBy))}`} ${ago(it.addedAt)}${it.updatedAt && it.updatedAt !== it.addedAt ? ` · edited by ${esc(who(it.updatedBy))} ${ago(it.updatedAt)}` : ""}</span>
         <span class="c-actions">
-          <a class="btn-s dir-link" href="${directionsUrl(it)}" target="_blank" rel="noopener" title="Directions in Google Maps">Directions</a>
-          ${safeUrl(it.url) ? `<a class="btn-s" href="${esc(it.url)}" target="_blank" rel="noopener">Open</a>` : ""}
-          ${opts.inDay ? `<button class="btn-s" data-action="up" data-id="${it.id}" title="Move earlier">↑</button><button class="btn-s" data-action="down" data-id="${it.id}" title="Move later">↓</button>` : `<button class="btn-s primary" data-action="schedule" data-id="${it.id}">Add to day</button>`}
+          ${opts.inDay ? `<button class="btn-s" data-action="up" data-id="${it.id}" title="Move earlier" aria-label="Move earlier">↑</button><button class="btn-s" data-action="down" data-id="${it.id}" title="Move later" aria-label="Move later">↓</button>` : `<button class="btn-s primary" data-action="schedule" data-id="${it.id}">Add to day</button>`}
           <button class="btn-s" data-action="editItem" data-id="${it.id}">Edit</button>
         </span>
       </div>
-    </div>
   </article>`;
 }
 
@@ -502,15 +510,25 @@ function viewPlan() {
   const ch = checks().filter((c) => c.level !== "info").slice(0, 4);
   const nSmart = smartList().filter((x) => x.changes.length).length;
   const todayI = today();
+  // A calm stack: Today first, then at most one prominent banner, the ask box, and quiet extras last.
+  const chgN = ctx.pendingChanges?.() || 0;
+  const lead = t.proposal ? "plan" : chgN ? "changes" : nSmart ? "smart" : "";
+  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="tab" data-tab="smart">✨ ${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan <b>Review</b></button>` : "";
+  const checkBox = !ch.length ? "" : ch.length === 1
+    ? `<div class="check ${ch[0].level}">${esc(ch[0].text)}</div>`
+    : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}">⚠️ ${ch.length} things to check</summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
   return `
+    ${slot("planToday")}
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 ${esc(t.proposal.source || "Gemini")} drafted a plan for your days <b>Review</b></button>` : ""}
+    ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
-    ${ch.length ? `<div class="checks">${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</div>` : ""}
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 ${esc(t.proposal.source || "Gemini")} drafted a plan for your days <b>Review</b></button>` : S.planning ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
+    ${S.planning && !t.proposal ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
+    ${checkBox}
     ${!t.proposal && !S.planning && t.days.some((d) => !dayItems(d.id).length) ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>
       <button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days</button>
       ${t.ai?.key ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
       <button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button></div>` : ""}
-    ${nSmart ? `<button class="smart-banner" data-action="tab" data-tab="smart">✨ ${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan <b>Review</b></button>` : ""}
+    ${lead !== "smart" ? smart : ""}
     <div class="days">
     ${t.days.map((d, i) => {
       const sch = schedule(d.id);
@@ -521,7 +539,8 @@ function viewPlan() {
             <div class="day-n">Day ${i + 1}${date ? ` · ${fmtDay(date)}` : ""}${i === todayI ? ` <span class="tag today-tag">Today</span>` : ""}${dayWeather(i)}</div>
             <div class="day-title">${esc(d.title || "")}${d.base ? ` <span class="muted">· staying in ${esc(d.base)}</span>` : ""}</div>
           </div>
-          <div class="day-side"><span class="muted small">${dayCost(d.id) ? money(dayCost(d.id)) : ""}</span>${slot("dayHead", d, i)}<button class="btn-s" data-action="editDay" data-id="${d.id}">⋯</button></div>
+          <button class="btn-s day-more" data-action="editDay" data-id="${d.id}" title="Edit this day" aria-label="Edit this day">⋯</button>
+          <div class="day-side">${dayCost(d.id) ? `<span class="muted small day-cost">${money(dayCost(d.id))}</span>` : ""}${slot("dayHead", d, i)}</div>
         </header>
         ${sch.length ? sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><span class="muted">From yesterday:</span> ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</div>` : "") + card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto })).join("") : `<p class="empty small">Nothing planned yet. Add something from Ideas.</p>`}
         <div class="day-foot"><button class="link" data-action="pickForDay" data-id="${d.id}">+ Add from ideas</button><button class="link" data-action="newItem" data-day="${d.id}">+ New stop</button>${slot("dayFoot", d, i)}</div>
@@ -671,14 +690,14 @@ function guideToItem(l) {
     suggestedBy: "guide", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
   };
 }
-function aiToItem(p) {
+function aiToItem(p, source = "Gemini") {
   return {
-    title: String(p.name).slice(0, 140), description: p.why || "", image: "", siteName: "Gemini",
+    title: String(p.name).slice(0, 140), description: p.why || "", image: "", siteName: source,
     location: [p.address || p.area, S.trip.destination].filter(Boolean).join(", "), url: "",
     category: CATEGORIES[p.category] ? p.category : "sight", dayId: null, order: 0, time: "",
     durationMin: Number(p.durationMin) || 90, cost: Number(p.approxCost) || 0, mustDo: false,
     rating: Number(p.rating) || null, reviews: Number(p.reviews) || null, notes: [p.priceLevel, p.area].filter(Boolean).join(" · "),
-    suggestedBy: "ai", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
+    suggestedBy: "ai", aiSource: source, addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
   };
 }
 // Fills empty days with a sample plan built from our preferences (profile.js), and puts stays and backups in Ideas.
@@ -693,7 +712,7 @@ async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.
   if (!auto) toast(n ? `Sample itinerary added: ${built.mode === "slow" ? "slow pace, 2–3 stops a day" : "full days, 3–4 sights a day"}, with a rest block timed to the weather.` : "Nothing new to add from the travel guide.");
 }
 // Writes a plan (from buildSample or checkDraft) onto the given days; entries without a day go to Ideas.
-async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas = true } = {}) {
+async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas = true, source = "Gemini" } = {}) {
   const t = S.trip;
   // Multi-city: name the town you're staying in on each empty day.
   const setBases = bases.filter((b) => empty.has(t.days[b.dayIndex]?.id) && !t.days[b.dayIndex].base);
@@ -722,7 +741,7 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
     }
     const l = x.listing;
     const it = l.ai
-      ? { ...guideToItem(l), siteName: "Gemini", suggestedBy: "ai", durationMin: l.durationMin || GUIDE_MIN[l.type] || 60, cost: l.cost || 0, ...(l.vegNote ? { vegNote: l.vegNote, vegSource: "gemini" } : {}), ...(l.veg ? { veg: l.veg } : {}) }
+      ? { ...guideToItem(l), siteName: source, suggestedBy: "ai", aiSource: source, durationMin: l.durationMin || GUIDE_MIN[l.type] || 60, cost: l.cost || 0, ...(l.vegNote ? { vegNote: l.vegNote, vegSource: source.toLowerCase() } : {}), ...(l.veg ? { veg: l.veg } : {}) }
       : guideToItem(l);
     await S.store.addItem(tripId, { ...it, ...placing, sample: true, notes: [x.note, it.notes].filter(Boolean).join(" · "), mustDo: /(food|experience) splurge/i.test(x.note || "") });
     added++;
@@ -851,7 +870,7 @@ async function acceptProposal(dayIdxs) {
   const gone = new Set(out.map((i) => i.id));
   await waitFor(() => !S.items.some((i) => gone.has(i.id)));
   const firstAccept = !(pr.done || []).length;
-  const n = await writePlan(tripId, { plan: pr.plan, bases: pr.bases.filter((b) => dayIdxs.includes(b.dayIndex)).map((b) => ({ ...b })) }, ids, { ideas: firstAccept });
+  const n = await writePlan(tripId, { plan: pr.plan, bases: pr.bases.filter((b) => dayIdxs.includes(b.dayIndex)).map((b) => ({ ...b })) }, ids, { ideas: firstAccept, source: pr.source || "Gemini" });
   // writePlan only names a base on a day without one; Gemini's base wins for accepted days.
   const bases = pr.bases.filter((b) => dayIdxs.includes(b.dayIndex));
   if (bases.length) await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = bases.find((x) => x.dayIndex === i); return b ? { ...d, base: b.base } : d; }), ...stampMe() }));
@@ -992,12 +1011,13 @@ function editProfile() {
   openModal(`<h3>💚 Our preferences</h3>
     <p class="muted small">Used for the sample itinerary, Gemini's picks and reviews, and the plan checks. Both of you can change these.</p>
     <label>Pace<select name="pace">${[["auto", "Pick per destination (cities full, beaches and hills slow)"], ["dense", "Full days"], ["slow", "Slow"]].map(([v, l]) => `<option value="${v}" ${p.pace === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label>Home city (for flight price links)<input name="home" value="${esc(p.home || "")}" placeholder="e.g. Mumbai" autocomplete="off"></label>
     ${ta("diet", "Food we eat")}${ta("food", "Where we like to eat")}${ta("stays", "Stays")}${ta("interests", "Interests")}
     <label class="row"><input type="checkbox" name="rest" ${p.rest ? "checked" : ""}> A rest block every day</label>
     <label class="row"><input type="checkbox" name="splurges" ${p.splurges ? "checked" : ""}> One splurge each in food, stay and experience</label>
     <label class="row"><input type="checkbox" name="autoPlace" ${p.autoPlace !== false ? "checked" : ""}> Put places from shared links straight onto the best day</label>`,
     async (f) => {
-      const next = { ...p, pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges, autoPlace: !!f.autoPlace };
+      const next = { ...p, home: (f.home || "").trim(), pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges, autoPlace: !!f.autoPlace };
       await S.store.txTrip(S.tripId, () => ({ profile: next, ...stampMe() }));
       await log("updated the trip preferences");
     });
@@ -1107,7 +1127,7 @@ async function applyAi(idx) {
   if (a.type === "time") await S.store.updateItem(S.tripId, a.itemId, { time: a.time.padStart(5, "0"), ...stampMe() });
   if (a.type === "add") {
     const p = a.place;
-    await S.store.addItem(S.tripId, { ...aiToItem({ name: p.name, category: p.category, address: p.location, durationMin: p.durationMin, approxCost: p.cost, why: sug.detail }), dayId, order: dayId ? nextOrder(dayId) : 0 });
+    await S.store.addItem(S.tripId, { ...aiToItem({ name: p.name, category: p.category, address: p.location, durationMin: p.durationMin, approxCost: p.cost, why: sug.detail }, rev.source || "Gemini"), dayId, order: dayId ? nextOrder(dayId) : 0 });
   }
   await S.store.txTrip(S.tripId, (cur) => ({ aiReview: { ...cur.aiReview, applied: [...new Set([...(cur.aiReview?.applied || []), idx])] }, ...stampMe() }));
   await log(`applied ${rev.source || "Gemini"}'s suggestion: ${sug.title}`);
@@ -1862,7 +1882,7 @@ document.addEventListener("click", async (e) => {
         const list = b.dataset.src === "ai" ? S.trip.aiPicks.items : S.trip.guide.listings;
         const x = list[+id];
         if (!x || inTrip(x.name)) return;
-        await S.store.addItem(S.tripId, b.dataset.src === "ai" ? aiToItem(x) : guideToItem(x));
+        await S.store.addItem(S.tripId, b.dataset.src === "ai" ? aiToItem(x, S.trip.aiPicks.source || "Gemini") : guideToItem(x));
         await log(`added “${x.name}” to ideas from ${b.dataset.src === "ai" ? (S.trip.aiPicks.source || "Gemini") + "'s picks" : "the travel guide"}`);
         toast("Added to Ideas.");
         return touchTrip();

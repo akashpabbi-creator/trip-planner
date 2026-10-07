@@ -2,7 +2,7 @@
 // Saved on each trip as `profile`, so both of you see and edit the same preferences.
 
 export const DEFAULT_PROFILE = {
-  home: "Bengaluru (BLR)",
+  home: "", // home city; empty until you add it (used for flight price links)
   travellers: 2,
   pace: "auto", // auto | dense | slow
   diet: "Vegetarian, eats eggs. No meat or fish.",
@@ -19,7 +19,7 @@ export const profileOf = (trip) => ({ ...DEFAULT_PROFILE, ...(trip?.profile || {
 
 export function profileText(p) {
   return [
-    `Travellers: ${p.travellers} adults (a couple) from ${p.home}.`,
+    `Travellers: ${p.travellers} adults (a couple)${p.home ? ` from ${p.home}` : ""}.`,
     `Diet: ${p.diet} Restaurants don't need to be pure vegetarian, but must serve good vegetarian dishes. Watch for hidden fish sauce, dashi, shrimp paste, lard, gelatin and meat stock.`,
     `Food style: ${p.food}`,
     `Stays: ${p.stays}`,

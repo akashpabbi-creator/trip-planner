@@ -47,7 +47,7 @@ try {
   console.log("desktop");
   const d = await newPage({ width: 1200, height: 800 });
   await makeTrip(d, "2026-11-10");
-  ok(JSON.stringify(await tabLabels(d, ".tabs-desk")) === JSON.stringify(["Plan", "Ideas", "Discover", "Smart", "Budget", "Itinerary", "Activity"]), "desktop tabs without Map/Kit until modules register them");
+  ok(JSON.stringify(await tabLabels(d, ".tabs-desk")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity"]), "desktop tabs include the Map and Kit modules");
   ok(!(await d.isVisible(".tabs-bar")), "bottom bar hidden on desktop");
   ok(await d.isVisible("#sync") && /Saved/.test(await d.textContent("#sync")), "sync indicator shows Saved");
   await d.evaluate(() => {
@@ -97,6 +97,12 @@ try {
   const hrefs = await d.$$eval(".card .dir-link", (as) => as.map((a) => a.href));
   ok(hrefs.some((h) => h.includes("destination=41.8902%2C12.4922")), "Directions uses lat,lng when known: " + hrefs[0]);
   ok(hrefs.some((h) => /destination=Mystery.*Rome/.test(decodeURIComponent(h).replace(/\+/g, " ")) || /destination=Somewhere/.test(decodeURIComponent(h))), "Directions falls back to location + destination");
+  const foot = await d.evaluate(() => {
+    const c = window.__tripCtx, base = { id: "z", title: "T", category: "sight", addedBy: c.S.me.email, addedAt: Date.now() };
+    const f = (x) => /<span class="muted small c-by">([^<]*)/.exec(c.card({ ...base, ...x }))?.[1].trim().replace(/ .*ago.*| just now/, "");
+    return [f({ suggestedBy: "ai", aiSource: "Claude", siteName: "Claude" }), f({ suggestedBy: "ai", siteName: "Gemini" }), f({ via: "Claude" }), f({ suggestedBy: "guide" }), f({})];
+  });
+  ok(foot[0].startsWith("Suggested by Claude") && foot[1].startsWith("Suggested by Gemini") && foot[2].startsWith("Suggested by Claude") && foot[3].startsWith("Suggested by the travel guide") && foot[4].startsWith("Added by"), "card footer names the source: " + foot.join(" | "));
   const snap = await d.evaluate(() => window.__tripCtx.planSnapshot());
   ok(snap.extra === 1, "snapshot slot can mutate the snapshot");
   const ev = await d.evaluate(() => window.__events);
@@ -159,7 +165,10 @@ try {
   ok(!(await ph.isVisible(".more-sheet")) && (await ph.isVisible(".budget")), "More item switches tab and closes the sheet");
   await ph.click(".tabs-bar [data-action=moreToggle]");
   await ph.click(".more-sheet [data-action=bridgeOpen]");
-  ok(/Coming soon/.test(await ph.textContent("#toast")), "Connect Claude with no handler says Coming soon");
+  await ph.waitForSelector("#modal[open]");
+  ok(/Claude/.test(await ph.textContent("#modalForm")), "Connect Claude opens the bridge sheet");
+  await ph.keyboard.press("Escape");
+  await ph.waitForFunction(() => !document.getElementById("modal").open);
   await ph.click(".tabs-bar [data-tab=plan]");
   await ph.waitForSelector(".day.today");
   await ph.waitForTimeout(300);

@@ -2,6 +2,7 @@ name: Real data check
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 jobs:
   real-data:

@@ -1,6 +1,6 @@
 // Minimal service worker: makes the app installable (needed for "Share to Trips" on Android)
 // and keeps the app shell available offline. Data sync is handled by Firestore itself.
-const CACHE = "trips-shell-v17";
+const CACHE = "trips-shell-v18";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "store.js", "unfurl.js", "smart.js", "discover.js", "ai.js", "profile.js", "linkinfo.js", "map.js", "along.js", "social.js", "capture.js", "kit.js", "changes.js", "bridge.js", "bookings.js", "config.js", "manifest.webmanifest", "icons/icon.svg"];
 // Android "Share" to the installed app arrives as a POST (multipart: images + title/text/url). Images wait in
 // Cache "share-inbox" until the app reads them (capture.js); text and links ride along in the redirect URL.

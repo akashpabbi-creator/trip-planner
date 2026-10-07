@@ -229,6 +229,7 @@ try {
   // Priya pays in INR
   await Bp.click(".tabs-desk [data-tab=budget]");
   await Bp.waitForSelector("#kit-spend .k-row");
+  await Bp.click("[data-action=kSpendForm]");
   await Bp.fill("#kSpAmt", "1000");
   await Bp.selectOption("#kSpCur", "INR");
   await Bp.fill("#kSpLabel", "Gelato");

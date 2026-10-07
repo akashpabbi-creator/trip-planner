@@ -173,7 +173,10 @@ try {
   ok(/needs a free Gemini key/.test(await d.textContent("#modalForm")) && (await d.isVisible("#modalForm [data-action=bridgeOpen]")), "no key: explains and offers 'Send to Claude instead'");
   ok(/never saved anywhere/.test(await d.textContent("#modalForm")), "the modal says the picture is never saved");
   await d.click("#modalForm [data-action=bridgeOpen]");
-  ok(!(await d.evaluate(() => document.getElementById("modal").open)) && /Coming soon/.test(await toastText(d)), "'Send to Claude instead' closes the sheet and fires bridgeOpen");
+  await d.waitForFunction(() => /Link this trip to a Claude chat/.test(document.getElementById("modalForm").textContent));
+  ok(await d.evaluate(() => document.getElementById("modal").open), "'Send to Claude instead' swaps the sheet for Connect Claude");
+  await d.keyboard.press("Escape");
+  await d.waitForFunction(() => !document.getElementById("modal").open);
 
   /* ---- with Gemini */
   await d.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { ai: { key: "TESTKEY", model: "x" } }));
@@ -282,7 +285,7 @@ try {
   await d.click("#chk-sec summary");
   const fl = await d.getAttribute("#chk-sec a[href*='travel/flights']", "href");
   const flq = new URL(fl).searchParams.get("q");
-  ok(fl.startsWith("https://www.google.com/travel/flights?q=") && flq === "Flights from Bengaluru (BLR) to Rome on 2026-11-10 through 2026-11-13", "flights link: " + flq);
+  ok(fl.startsWith("https://www.google.com/travel/flights?q=") && flq === "Flights to Rome on 2026-11-10 through 2026-11-13", "flights link works with no home city (no default origin): " + flq);
   await d.fill("#homeCity", "Mumbai");
   await d.dispatchEvent("#homeCity", "change");
   await d.waitForFunction(() => window.__tripCtx.S.trip.profile?.home === "Mumbai");

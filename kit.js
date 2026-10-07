@@ -42,7 +42,7 @@ export function init(c) {
   document.head.append(Object.assign(document.createElement("style"), { id: "css-kit", textContent: CSS }));
 
   ctx.tab({ id: "kit", icon: "🎒", label: "Kit", order: 50, view: viewKit });
-  ctx.slot("planTop", todayCard);
+  ctx.slot("planToday", todayCard);
   ctx.slot("dayHead", routeLink);
   ctx.slot("itinActions", exportButtons);
   ctx.slot("budget", spendSection);
@@ -161,7 +161,7 @@ function todayCard() {
 function viewKit() {
   return `<div class="kit">
     ${ctx.renderSlot("kit")}
-    <div class="k-suggest"><button class="btn-s" data-action="kSuggest">Suggest items</button><span class="muted small">Ideas for packing and to-dos from the weather, your plan and where you're going.</span></div>
+    <div class="k-suggest"><button class="btn-s" data-action="kSuggest">✨ Suggest items</button><span class="muted small">Packing and to-do ideas from the weather, your plan and where you're going.</span></div>
     ${checklistSection("pack", "Packing", "Nothing to pack yet. Add things yourself, or tap Suggest items.", "Add something to pack")}
     ${checklistSection("todo", "To-dos", "No to-dos yet. Visas, tickets and things to book before you go can live here.", "Add a to-do")}
   </div>`;
@@ -171,7 +171,7 @@ function checklistSection(group, title, empty, ph) {
   const E = ctx.esc, items = list(group), done = items.filter((x) => x.done).length;
   const me = S.me.email;
   return `<section class="d-sec k-sec" id="kit-${group}">
-    <div class="d-head"><h3>${title}</h3>${items.length ? `<span class="muted small">${done} of ${items.length} done</span>` : ""}</div>
+    <div class="d-head"><h3>${group === "pack" ? "🎒" : "✅"} ${title}</h3>${items.length ? `<span class="muted small">${done} of ${items.length} done</span>` : ""}</div>
     ${items.length ? `<ul class="k-list">${items.map((x) => `<li class="k-row ${x.done ? "done" : ""}" data-kid="${x.id}">
       <label><input type="checkbox" data-action="kTick" data-id="${x.id}" ${x.done ? "checked" : ""}><span class="k-t">${E(x.text)}</span></label>
       <span class="muted small k-meta">${[x.who ? "for " + E(ctx.who(x.who)) : "", x.done && x.doneBy ? "ticked by " + E(ctx.who(x.doneBy)) : ""].filter(Boolean).join(" · ")}</span>
@@ -367,7 +367,7 @@ function spendSection() {
       ${s.by === me ? `<button class="k-x" data-action="kSpendDel" data-id="${s.id}" title="Delete" aria-label="Delete ${E(s.label)}">✕</button>` : ""}</div>`;
   }).join("");
   const today = ctx.today(), defDate = ymd(today >= 0 ? ctx.dayDate(today) : new Date());
-  const form = ui.spendForm || spends.length ? `<div class="k-spend-form">
+  const form = ui.spendForm ? `<div class="k-spend-form">
       <input id="kSpAmt" data-kd="1" type="number" inputmode="decimal" min="0" step="any" placeholder="Amount">
       <select id="kSpCur" data-kd="1" aria-label="Currency">${[...new Set([lastCur || cur, cur, ...ctx.CURRENCIES])].map((c) => `<option ${c === (drafts.kSpCur || lastCur || cur) ? "selected" : ""}>${c}</option>`).join("")}</select>
       <input id="kSpLabel" data-kd="1" class="wide" placeholder="What was it? e.g. Dinner">
@@ -377,7 +377,7 @@ function spendSection() {
       <button class="primary wide" data-action="kSpendAdd">Add spend</button></div>` : "";
   const owe = t.prefs?.split ? owes(spends, members()) : null;
   return `<section class="d-sec k-sec" id="kit-spend">
-    <div class="d-head"><h3>Spent so far</h3>${spends.length ? "" : `<button class="btn-s" data-action="kSpendForm">${ui.spendForm ? "Close" : "Add a spend"}</button>`}</div>
+    <div class="d-head"><h3>💳 Spent so far</h3><button class="btn-s" data-action="kSpendForm">${ui.spendForm ? "Close" : "+ Add a spend"}</button></div>
     ${spends.length ? `<div class="k-sum"><span><span class="muted small">Spent</span><br><b>${ctx.money(spent, cur)}</b></span><span><span class="muted small">Planned</span><br><b>${ctx.money(planned, cur)}</b></span>${budget ? `<span><span class="muted small">${spent > budget ? "Over budget by" : "Left of budget"}</span><br><b class="${spent > budget ? "bad" : "good"}">${ctx.money(Math.abs(budget - spent), cur)}</b></span>` : ""}</div>${pending ? `<p class="muted small">${pending} spend${pending > 1 ? "s" : ""} waiting for an exchange rate, not in the total yet.</p>` : ""}` : `<p class="empty small">Nothing logged yet. Add what you pay as you go, in any currency, and it's converted to ${E(cur)}.</p>`}
     ${form}${rows}
     <label class="row small" style="margin-top:10px"><input type="checkbox" data-action="kSplit" ${t.prefs?.split ? "checked" : ""}> Show who owes whom</label>
