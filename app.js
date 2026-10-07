@@ -4,6 +4,14 @@ import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js"
 import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather, GUIDE_V } from "./discover.js";
 import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip, planPrompt, parsePlan, QuotaError, geminiWait } from "./ai.js";
+import * as mapMod from "./map.js";
+import * as alongMod from "./along.js";
+import * as socialMod from "./social.js";
+import * as captureMod from "./capture.js";
+import * as kitMod from "./kit.js";
+import * as changesMod from "./changes.js";
+import * as bridgeMod from "./bridge.js";
+import * as bookingsMod from "./bookings.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -47,6 +55,10 @@ const S = {
   flash: new Set(),
   vegTried: new Set(),
 };
+// Feature modules plug in through these registries (see ctx at the bottom).
+const REG = { tabs: [], actions: {}, events: {}, slots: {}, costs: [] };
+const emit = (name, ...args) => (REG.events[name] || []).forEach((fn) => { try { fn(...args); } catch (e) { console.error(name, e); } });
+const slot = (name, ...args) => (REG.slots[name] || []).map((fn) => { try { return fn(...args) || ""; } catch (e) { console.error("slot " + name, e); return ""; } }).join("");
 const $app = document.getElementById("app");
 const $modal = document.getElementById("modal");
 const $form = document.getElementById("modalForm");
@@ -143,8 +155,12 @@ function costs() {
     transport += Number(it.travel?.cost) || 0;
   }
   const extras = (S.trip.extras || []).reduce((s, e) => s + (Number(e.cost) || 0), 0);
-  const total = Object.values(byCat).reduce((a, b) => a + b, 0) + transport + extras;
-  return { byCat, transport, extras, total };
+  const extraRows = [];
+  for (const fn of REG.costs) {
+    try { extraRows.push(...(fn() || []).filter((r) => Number(r.amount))); } catch (e) { console.error("costs", e); }
+  }
+  const total = Object.values(byCat).reduce((a, b) => a + b, 0) + transport + extras + extraRows.reduce((s, r) => s + Number(r.amount), 0);
+  return { byCat, transport, extras, extraRows, total };
 }
 function dayCost(dayId) {
   return dayItems(dayId).reduce((s, it) => s + (Number(it.cost) || 0) + (Number(it.travel?.cost) || 0), 0);
@@ -173,6 +189,7 @@ function checks() {
 
 /* ----------------------------------------------------------- subscriptions */
 function stopTrip() {
+  const prev = S.tripId;
   S.unsubs.forEach((u) => u && u());
   S.unsubs = [];
   clearInterval(S.hb);
@@ -180,10 +197,13 @@ function stopTrip() {
   S.items = [];
   S.activity = [];
   S.presence = [];
+  if (prev) emit("close", prev);
 }
 function openTrip(id) {
   stopTrip();
   S.tripId = id;
+  S.scrollToday = true;
+  S.moreOpen = false;
   localSet("trip", id);
   if (location.hash !== "#trip=" + id) history.replaceState(null, "", "#trip=" + id);
   let prevItems = new Map();
@@ -196,6 +216,7 @@ function openTrip(id) {
       }
       S.trip = { days: [], members: [], memberNames: {}, ...t };
       render();
+      emit("trip", S.trip);
       ensureDestination();
     }, (e) => {
       toast("No access to this trip.");
@@ -212,6 +233,7 @@ function openTrip(id) {
       prevItems = new Map(items.map((i) => [i.id, i]));
       S.items = items;
       render();
+      emit("items", items);
       setTimeout(() => { S.flash.clear(); }, 2500);
       // New restaurants get a vegetarian check from Gemini a few seconds after they appear.
       if (S.trip?.ai?.key && items.some((x) => x.category === "food" && x.vegSource !== "gemini" && !S.vegTried.has(x.id))) {
@@ -225,6 +247,7 @@ function openTrip(id) {
   const beat = () => S.store.heartbeat(id, S.me).catch(() => {});
   beat();
   S.hb = setInterval(beat, 20000);
+  emit("open", id);
 }
 function goHome() {
   stopTrip();
@@ -252,6 +275,35 @@ function render() {
   window.scrollTo(0, scroll);
   renderUser();
   renderPresence();
+  renderSync();
+  scrollToToday();
+  emit("render");
+}
+// Plan opens on today's day during the trip (once per opened trip).
+function scrollToToday() {
+  if (!S.scrollToday || !S.trip || S.tab !== "plan" || !S.items) return;
+  S.scrollToday = false;
+  const i = today();
+  const el = i >= 0 ? $app.querySelector(`.day[data-day="${S.trip.days[i].id}"]`) : null;
+  if (el) el.scrollIntoView({ block: "start" });
+}
+// 0-based index of today within the trip dates, or -1. `?today=YYYY-MM-DD` overrides the date for testing.
+const TODAY_OVERRIDE = (new URLSearchParams(location.search).get("today") || "").match(/^\d{4}-\d{2}-\d{2}$/)?.[0] || "";
+function today() {
+  const t = S.trip;
+  if (!t?.startDate || !t.days?.length) return -1;
+  const now = new Date();
+  const ymd = TODAY_OVERRIDE || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const i = Math.round((new Date(ymd + "T00:00:00") - new Date(t.startDate + "T00:00:00")) / 86400000);
+  return i >= 0 && i < t.days.length ? i : -1;
+}
+function renderSync() {
+  const el = document.getElementById("sync");
+  if (!el) return;
+  const st = S.sync || "saved";
+  el.hidden = !S.me;
+  el.className = "sync " + st;
+  el.innerHTML = `<span class="sync-dot"></span><span class="sync-l">${{ saved: "Saved", saving: "Saving…", offline: "Offline · changes will sync" }[st] || "Saved"}</span>`;
 }
 function renderUser() {
   const box = document.getElementById("userBox");
@@ -306,16 +358,9 @@ function viewTrip() {
   const c = costs();
   const budget = Number(t.budget) || 0;
   const pct = budget ? Math.min(100, (c.total / budget) * 100) : 0;
-  const nFix = smartList().filter((x) => x.level === "fix").length;
-  const tabs = [
-    ["plan", "🗓️", "Plan"],
-    ["discover", "🧭", "Discover"],
-    ["smart", "✨", "Smart", nFix],
-    ["ideas", "💡", "Ideas", ideas().length],
-    ["budget", "💰", "Budget"],
-    ["itinerary", "📄", "Itinerary"],
-    ["changes", "🕘", "Activity"],
-  ];
+  const tabs = [...REG.tabs].sort((x, y) => x.order - y.order);
+  const cur = tabs.find((x) => x.id === S.tab) || tabs.find((x) => x.id === "plan");
+  const counts = new Map(tabs.map((x) => [x.id, (x.count && x.count()) || 0]));
   const end = dayDate(t.days.length - 1);
   const cover = safeUrl(t.place?.image);
   const w = t.weather?.days || [];
@@ -355,22 +400,57 @@ function viewTrip() {
 
     ${viewAddLink()}
 
-    <nav class="tabs">${tabs.map(([k, ic, l, n]) => `<button class="${S.tab === k ? "on" : ""}" data-action="tab" data-tab="${k}"><span class="t-ic">${ic}</span><span class="t-l">${l}</span>${n ? `<span class="count ${k === "smart" ? "warnc" : ""}">${n}</span>` : ""}</button>`).join("")}</nav>
-    <div class="tab-body">${({ plan: viewPlan, discover: viewDiscover, smart: viewSmart, ideas: viewIdeas, budget: viewBudget, changes: viewChanges, itinerary: viewItinerary }[S.tab] || viewPlan)()}</div>
+    ${viewNav(tabs, cur, counts)}
+    <div class="tab-body">${runView(cur)}</div>
     <p class="foot muted small">${t.updatedAt ? `Last change ${ago(t.updatedAt)} by ${esc(who(t.updatedBy))}` : ""}</p>
   </section>`;
+}
+
+// Desktop: every tab inline. Phones: a bottom bar (tabs that aren't "more") plus a More sheet for the rest.
+function viewNav(tabs, cur, counts) {
+  const btn = (x) => {
+    const n = counts.get(x.id);
+    return `<button class="${cur?.id === x.id ? "on" : ""}" data-action="tab" data-tab="${x.id}"><span class="t-ic">${x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`;
+  };
+  const rest = tabs.filter((x) => x.more);
+  const moreN = rest.filter((x) => x.warn).reduce((s, x) => s + counts.get(x.id), 0);
+  const moreOn = S.moreOpen || rest.some((x) => x.id === cur?.id);
+  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}</nav>
+    <nav class="tabs tabs-bar">${tabs.filter((x) => !x.more).map(btn).join("")}
+      <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">⋯</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
+    </nav>
+    ${S.moreOpen ? `<div class="more-back" data-action="moreClose"></div>
+    <div class="more-sheet" role="menu">
+      ${rest.map((x) => { const n = counts.get(x.id); return `<button class="${cur?.id === x.id ? "on" : ""}" role="menuitem" data-action="tab" data-tab="${x.id}"><span class="t-ic">${x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`; }).join("")}
+      <button role="menuitem" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button>
+    </div>` : ""}`;
+}
+function runView(tab) {
+  try { return tab.view(); } catch (e) { console.error("view " + tab.id, e); return `<p class="empty">Couldn't show this tab. ${esc(e.message)}</p>`; }
 }
 
 function viewAddLink() {
   return `<div class="add-link">
     <span class="al-ic">🔗</span>
-    <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link from Instagram, Maps or any site" ${S.busy ? "disabled" : ""}>
+    <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link" ${S.busy ? "disabled" : ""}>
     <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
     <button class="icon" data-action="pasteLink" title="Paste from clipboard">📋</button>
     <button class="icon" data-action="newItem" title="Add a place without a link">＋</button>
+    ${slot("addBar")}
   </div>${typeof S.busy === "string" ? `<p class="muted small busy-line">⏳ ${esc(S.busy)}</p>` : ""}`;
 }
 
+// One-tap Google Maps directions to a stop: its coordinates when known, else its place name near the destination.
+function directionsUrl(it) {
+  const dest = Number.isFinite(it.lat) && Number.isFinite(it.lng) ? `${it.lat},${it.lng}` : decodeURIComponent(mapsQ(it.location || it.title || ""));
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`;
+}
+// Who suggested a stop that came from a helper, not typed or shared by one of us.
+function suggestedFrom(it) {
+  if (it.suggestedBy === "ai") return it.aiSource || (it.siteName === "Claude" ? "Claude" : "Gemini");
+  if (it.suggestedBy) return "the travel guide";
+  return it.via === "Claude" || it.via === "Gemini" ? it.via : "";
+}
 function card(it, opts = {}) {
   const cat = CATEGORIES[it.category] || CATEGORIES.other;
   const img = safeUrl(it.image);
@@ -396,15 +476,19 @@ function card(it, opts = {}) {
       ${it.description ? `<p class="c-desc">${esc(it.description.slice(0, 220))}${it.description.length > 220 ? "…" : ""}</p>` : ""}
       ${it.notes ? `<p class="c-notes">📝 ${esc(it.notes)}</p>` : ""}
       ${it.category === "food" && it.vegNote ? `<p class="c-notes">🥗 ${esc(it.vegNote)}</p>` : ""}
+    </div>
+    <div class="c-links">
+        <a class="btn-s dir-link" href="${directionsUrl(it)}" target="_blank" rel="noopener" title="Directions in Google Maps">🧭 Directions</a>
+        ${safeUrl(it.url) ? `<a class="btn-s c-out" href="${esc(it.url)}" target="_blank" rel="noopener" title="Open the original link">Link ↗</a>` : ""}
+        ${slot("card", it, opts)}
+      </div>
       <div class="c-foot">
-        <span class="muted small">${it.suggestedBy ? (it.suggestedBy === "ai" ? "Suggested by Gemini" : "Suggested by the travel guide") : `Added by ${esc(who(it.addedBy))}`} ${ago(it.addedAt)}${it.updatedAt && it.updatedAt !== it.addedAt ? ` · edited by ${esc(who(it.updatedBy))} ${ago(it.updatedAt)}` : ""}</span>
+        <span class="muted small c-by">${suggestedFrom(it) ? `Suggested by ${esc(suggestedFrom(it))}` : `Added by ${esc(who(it.addedBy))}`} ${ago(it.addedAt)}${it.updatedAt && it.updatedAt !== it.addedAt ? ` · edited by ${esc(who(it.updatedBy))} ${ago(it.updatedAt)}` : ""}</span>
         <span class="c-actions">
-          ${safeUrl(it.url) ? `<a class="btn-s" href="${esc(it.url)}" target="_blank" rel="noopener">Open</a>` : ""}
-          ${opts.inDay ? `<button class="btn-s" data-action="up" data-id="${it.id}" title="Move earlier">↑</button><button class="btn-s" data-action="down" data-id="${it.id}" title="Move later">↓</button>` : `<button class="btn-s primary" data-action="schedule" data-id="${it.id}">Add to day</button>`}
+          ${opts.inDay ? `<button class="btn-s" data-action="up" data-id="${it.id}" title="Move earlier" aria-label="Move earlier">↑</button><button class="btn-s" data-action="down" data-id="${it.id}" title="Move later" aria-label="Move later">↓</button>` : `<button class="btn-s primary" data-action="schedule" data-id="${it.id}">Add to day</button>`}
           <button class="btn-s" data-action="editItem" data-id="${it.id}">Edit</button>
         </span>
       </div>
-    </div>
   </article>`;
 }
 
@@ -425,28 +509,41 @@ function viewPlan() {
   const t = S.trip;
   const ch = checks().filter((c) => c.level !== "info").slice(0, 4);
   const nSmart = smartList().filter((x) => x.changes.length).length;
+  const todayI = today();
+  // A calm stack: Today first, then at most one prominent banner, the ask box, and quiet extras last.
+  const chgN = ctx.pendingChanges?.() || 0;
+  const lead = t.proposal ? "plan" : chgN ? "changes" : nSmart ? "smart" : "";
+  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="tab" data-tab="smart">✨ ${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan <b>Review</b></button>` : "";
+  const checkBox = !ch.length ? "" : ch.length === 1
+    ? `<div class="check ${ch[0].level}">${esc(ch[0].text)}</div>`
+    : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}">⚠️ ${ch.length} things to check</summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
   return `
-    ${ch.length ? `<div class="checks">${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</div>` : ""}
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 ${esc(t.proposal.source || "Gemini")} drafted a plan for your days <b>Review</b></button>` : S.planning ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
+    ${slot("planToday")}
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 ${esc(t.proposal.source || "Gemini")} drafted a plan for your days <b>Review</b></button>` : ""}
+    ${lead === "smart" ? smart : ""}
+    ${slot("planTop")}
+    ${S.planning && !t.proposal ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
+    ${checkBox}
     ${!t.proposal && !S.planning && t.days.some((d) => !dayItems(d.id).length) ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>
       <button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days</button>
       ${t.ai?.key ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
       <button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button></div>` : ""}
-    ${nSmart ? `<button class="smart-banner" data-action="tab" data-tab="smart">✨ ${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan <b>Review</b></button>` : ""}
+    ${lead !== "smart" ? smart : ""}
     <div class="days">
     ${t.days.map((d, i) => {
       const sch = schedule(d.id);
       const date = dayDate(i);
-      return `<section class="day" data-day="${d.id}">
+      return `<section class="day ${i === todayI ? "today" : ""}" data-day="${d.id}">
         <header class="day-head">
           <div>
-            <div class="day-n">Day ${i + 1}${date ? ` · ${fmtDay(date)}` : ""}${dayWeather(i)}</div>
+            <div class="day-n">Day ${i + 1}${date ? ` · ${fmtDay(date)}` : ""}${i === todayI ? ` <span class="tag today-tag">Today</span>` : ""}${dayWeather(i)}</div>
             <div class="day-title">${esc(d.title || "")}${d.base ? ` <span class="muted">· staying in ${esc(d.base)}</span>` : ""}</div>
           </div>
-          <div class="day-side"><span class="muted small">${dayCost(d.id) ? money(dayCost(d.id)) : ""}</span><button class="btn-s" data-action="editDay" data-id="${d.id}">⋯</button></div>
+          <button class="btn-s day-more" data-action="editDay" data-id="${d.id}" title="Edit this day" aria-label="Edit this day">⋯</button>
+          <div class="day-side">${dayCost(d.id) ? `<span class="muted small day-cost">${money(dayCost(d.id))}</span>` : ""}${slot("dayHead", d, i)}</div>
         </header>
         ${sch.length ? sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><span class="muted">From yesterday:</span> ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</div>` : "") + card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto })).join("") : `<p class="empty small">Nothing planned yet. Add something from Ideas.</p>`}
-        <div class="day-foot"><button class="link" data-action="pickForDay" data-id="${d.id}">+ Add from ideas</button><button class="link" data-action="newItem" data-day="${d.id}">+ New stop</button></div>
+        <div class="day-foot"><button class="link" data-action="pickForDay" data-id="${d.id}">+ Add from ideas</button><button class="link" data-action="newItem" data-day="${d.id}">+ New stop</button>${slot("dayFoot", d, i)}</div>
       </section>`;
     }).join("")}
     </div>
@@ -464,8 +561,10 @@ function viewIdeas() {
     const sched = all.filter((i) => S.trip.days.some((d) => d.id === i.dayId));
     return `<span class="stat"><b>${esc(who(m))}</b>: ${sched.length} of ${all.length} picks planned</span>`;
   });
-  return `<div class="stats">${stats.join("")}</div>
-    ${list.length ? `<div class="cards">${list.map((it) => card(it)).join("")}</div>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.</p>`}`;
+  const bar = socialMod.ideasBar(list, members, CATEGORIES);
+  const shown = socialMod.arrangeIdeas(list, members);
+  return `<div class="stats">${stats.join("")}</div>${bar}
+    ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.</p>`}`;
 }
 
 function viewBudget() {
@@ -474,7 +573,7 @@ function viewBudget() {
   const budget = Number(t.budget) || 0;
   const rows = Object.entries(CATEGORIES)
     .map(([k, v]) => [v.icon + " " + v.label, c.byCat[k] || 0])
-    .concat([["🚕 Getting around (legs between stops)", c.transport], ["➕ Other costs", c.extras]])
+    .concat([["🚕 Getting around (legs between stops)", c.transport], ["➕ Other costs", c.extras]], c.extraRows.map((r) => [esc(r.label), Number(r.amount)]))
     .filter(([, v]) => v);
   const perPerson = t.members.length ? c.total / t.members.length : c.total;
   return `<div class="budget">
@@ -491,6 +590,7 @@ function viewBudget() {
     <h3>Other costs <span class="muted small">(flights home, visas, insurance…)</span></h3>
     <table class="b-table">${(t.extras || []).map((e) => `<tr><td>${esc(e.label)} <span class="muted small">· ${esc(who(e.by))}</span></td><td>${money(e.cost)}</td><td><button class="btn-s" data-action="delExtra" data-id="${e.id}">✕</button></td></tr>`).join("")}</table>
     <div class="row"><input id="extraLabel" placeholder="e.g. Return flights"><input id="extraCost" type="number" inputmode="decimal" placeholder="Cost" min="0"><button data-action="addExtra">Add</button></div>
+    ${slot("budget")}
   </div>`;
 }
 
@@ -509,7 +609,7 @@ function viewItinerary() {
   const t = S.trip;
   const c = costs();
   return `<div class="itin">
-    <div class="itin-actions"><button data-action="print">🖨️ Print / save as PDF</button><button data-action="copyItin">Copy as text</button></div>
+    <div class="itin-actions"><button data-action="print">🖨️ Print / save as PDF</button><button data-action="copyItin">Copy as text</button>${slot("itinActions")}</div>
     <div class="itin-doc" id="itinDoc">
       <h1>${esc(t.name)}</h1>
       <p class="muted">${esc(t.destination || "")}${t.startDate ? ` · ${fmtDay(dayDate(0))} – ${fmtDay(dayDate(t.days.length - 1))}` : ""} · ${t.days.length} days · ${t.members.map((m) => esc(nameOf(m))).join(" & ")}</p>
@@ -590,14 +690,14 @@ function guideToItem(l) {
     suggestedBy: "guide", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
   };
 }
-function aiToItem(p) {
+function aiToItem(p, source = "Gemini") {
   return {
-    title: String(p.name).slice(0, 140), description: p.why || "", image: "", siteName: "Gemini",
+    title: String(p.name).slice(0, 140), description: p.why || "", image: "", siteName: source,
     location: [p.address || p.area, S.trip.destination].filter(Boolean).join(", "), url: "",
     category: CATEGORIES[p.category] ? p.category : "sight", dayId: null, order: 0, time: "",
     durationMin: Number(p.durationMin) || 90, cost: Number(p.approxCost) || 0, mustDo: false,
     rating: Number(p.rating) || null, reviews: Number(p.reviews) || null, notes: [p.priceLevel, p.area].filter(Boolean).join(" · "),
-    suggestedBy: "ai", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
+    suggestedBy: "ai", aiSource: source, addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...stampMe(),
   };
 }
 // Fills empty days with a sample plan built from our preferences (profile.js), and puts stays and backups in Ideas.
@@ -606,13 +706,13 @@ async function buildSampleItinerary(tripId = S.tripId, listings = S.trip.guide?.
   if (!listings.length) return toast("The travel guide hasn't loaded for this destination yet.");
   const empty = new Set(t.days.filter((d) => !dayItems(d.id).length).map((d) => d.id));
   if (!empty.size && !auto) return toast("Every day already has plans. Clear a day to fill it with a sample.");
-  const built = buildSample(t, listings, profileOf(t));
+  const built = buildSample(t, listings, { ...profileOf(t), vetoed: socialMod.vetoedNames(S.items) });
   const n = await writePlan(tripId, built, empty);
   if (n) await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `built a sample ${built.mode === "slow" ? "slow-paced" : "full"} itinerary for ${t.destination || "the trip"} from our preferences (${n} stops)` });
   if (!auto) toast(n ? `Sample itinerary added: ${built.mode === "slow" ? "slow pace, 2–3 stops a day" : "full days, 3–4 sights a day"}, with a rest block timed to the weather.` : "Nothing new to add from the travel guide.");
 }
 // Writes a plan (from buildSample or checkDraft) onto the given days; entries without a day go to Ideas.
-async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas = true } = {}) {
+async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas = true, source = "Gemini" } = {}) {
   const t = S.trip;
   // Multi-city: name the town you're staying in on each empty day.
   const setBases = bases.filter((b) => empty.has(t.days[b.dayIndex]?.id) && !t.days[b.dayIndex].base);
@@ -641,7 +741,7 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
     }
     const l = x.listing;
     const it = l.ai
-      ? { ...guideToItem(l), siteName: "Gemini", suggestedBy: "ai", durationMin: l.durationMin || GUIDE_MIN[l.type] || 60, cost: l.cost || 0, ...(l.vegNote ? { vegNote: l.vegNote, vegSource: "gemini" } : {}), ...(l.veg ? { veg: l.veg } : {}) }
+      ? { ...guideToItem(l), siteName: source, suggestedBy: "ai", aiSource: source, durationMin: l.durationMin || GUIDE_MIN[l.type] || 60, cost: l.cost || 0, ...(l.vegNote ? { vegNote: l.vegNote, vegSource: source.toLowerCase() } : {}), ...(l.veg ? { veg: l.veg } : {}) }
       : guideToItem(l);
     await S.store.addItem(tripId, { ...it, ...placing, sample: true, notes: [x.note, it.notes].filter(Boolean).join(" · "), mustDo: /(food|experience) splurge/i.test(x.note || "") });
     added++;
@@ -649,7 +749,7 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
   if (updates.length) await S.store.batchUpdateItems(tripId, updates);
   // Your own saved links come first: put them on days too, taking over guide picks where needed.
   await new Promise((r) => setTimeout(r, 300));
-  for (const it of ideas().filter((x) => !x.suggestedBy && !x.mustDo)) if ((await placeIdea(it))?.dayIndex != null) placed++;
+  for (const it of socialMod.byLove(ideas().filter((x) => !x.suggestedBy && !x.mustDo && !socialMod.isVetoed(x)), t.members)) if ((await placeIdea(it))?.dayIndex != null) placed++;
   return added + placed;
 }
 
@@ -658,12 +758,14 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
 function planInputs(t) {
   const p = profileOf(t);
   const dates = t.days.map((_, i) => dayDate(i)?.toLocaleDateString("en-GB", { weekday: "long" })).filter(Boolean);
-  const saved = S.items.filter((i) => !i.suggestedBy && !["stay", "transport", "other"].includes(i.category) && !i.rest).map((i) => i.title).slice(0, 25);
-  const guide = (t.guide?.listings || []).filter((l) => ["see", "do", "eat"].includes(l.type)).map((l) => (l.city ? `${l.name} (${l.city})` : l.name));
+  const vetoed = socialMod.vetoedNames(S.items).slice(0, 25);
+  const loved = socialMod.lovedNames(S.items, t.members).slice(0, 25);
+  const saved = socialMod.byLove(S.items.filter((i) => !i.suggestedBy && !["stay", "transport", "other"].includes(i.category) && !i.rest && !socialMod.isVetoed(i)), t.members).map((i) => i.title).slice(0, 25);
+  const guide = (t.guide?.listings || []).filter((l) => ["see", "do", "eat"].includes(l.type) && !vetoed.some((v) => socialMod.sameName(v, l.name))).map((l) => (l.city ? `${l.name} (${l.city})` : l.name));
   const cities = [...new Set((t.guide?.listings || []).map((l) => l.city).filter(Boolean))];
   const mode = chooseMode(p, t);
   const shapes = t.days.map((_, i) => dayShape(t.weather?.days?.[i], mode));
-  return { p, dates, opts: { dates, saved, guide, cities, shapes, weather: t.weather?.days || [] } };
+  return { p, dates, opts: { dates, saved, loved, vetoed, guide, cities, shapes, weather: t.weather?.days || [] } };
 }
 
 // Gemini drafts the trip; the rules check it; every place is found on the map; the result waits on the trip as a proposal.
@@ -715,7 +817,10 @@ function claudePlan() {
 async function finishDraft(tripId, draft, source, { quiet = false } = {}) {
   const t = S.trip;
   const { p, dates } = planInputs(t);
+    const veto = socialMod.dropVetoed(draft, S.items); // places either of you voted 👎 never reach the plan
+    draft = veto.draft;
     const checked = checkDraft(draft, t, p, dates, t.guide?.listings || []);
+    if (veto.dropped.length) checked.notes.unshift(`Left out ${veto.dropped.map((n) => "“" + n + "”").join(", ")}: you voted 👎 on ${veto.dropped.length > 1 ? "them" : "it"}.`);
     // Only places that can be found on the map make it into the plan.
     const todo = checked.plan.filter((x) => x.listing && !inTrip(x.listing.name) && !Number.isFinite(x.listing.lat));
     let k = 0;
@@ -745,7 +850,7 @@ function openProposal() {
   const row = (x) => x.kind === "rest" ? `<li class="muted"><b>${esc(x.time || "")}</b> ☕ Rest &amp; recharge${x.note ? ` <span class="small">· ${esc(x.note)}</span>` : ""}</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
   const ideas = pr.plan.filter((x) => x.dayIndex == null);
   openModal(`<h3>🤖 ${esc(pr.source || "Gemini")}'s plan for ${esc(t.destination)}</h3>
-    <p class="muted small">Drafted by ${esc(pr.byName || "Gemini")} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
+    <p class="muted small">Drafted by ${esc(pr.source || "Gemini")} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
     ${pr.summary ? `<p>${esc(pr.summary)}</p>` : ""}
     ${pr.notes?.length ? `<div class="checks">${pr.notes.map((n) => `<div class="check info">${esc(n)}</div>`).join("")}</div>` : ""}
     <div class="proposal">${t.days.map((d, i) => `<section class="day"><header class="day-head"><div><div class="day-n">Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}</div>${pr.bases?.find((b) => b.dayIndex === i) ? `<div class="day-title muted">staying in ${esc(pr.bases.find((b) => b.dayIndex === i).base)}</div>` : ""}</div>
@@ -765,7 +870,7 @@ async function acceptProposal(dayIdxs) {
   const gone = new Set(out.map((i) => i.id));
   await waitFor(() => !S.items.some((i) => gone.has(i.id)));
   const firstAccept = !(pr.done || []).length;
-  const n = await writePlan(tripId, { plan: pr.plan, bases: pr.bases.filter((b) => dayIdxs.includes(b.dayIndex)).map((b) => ({ ...b })) }, ids, { ideas: firstAccept });
+  const n = await writePlan(tripId, { plan: pr.plan, bases: pr.bases.filter((b) => dayIdxs.includes(b.dayIndex)).map((b) => ({ ...b })) }, ids, { ideas: firstAccept, source: pr.source || "Gemini" });
   // writePlan only names a base on a day without one; Gemini's base wins for accepted days.
   const bases = pr.bases.filter((b) => dayIdxs.includes(b.dayIndex));
   if (bases.length) await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = bases.find((x) => x.dayIndex === i); return b ? { ...d, base: b.base } : d; }), ...stampMe() }));
@@ -854,13 +959,14 @@ function viewDiscover() {
     .sort(([a], [b]) => (a.category === "food" && !vegOk(a)) - (b.category === "food" && !vegOk(b)));
   const w = t.weather?.days || [];
   return `<div class="discover">
+    ${slot("discoverTop")}
     ${w.length ? `<div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${d.icon}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div>
       <p class="muted small">${t.weather.kind === "forecast" ? "Weather forecast for your dates." : "Weather on the same dates last year, as a guide. The forecast appears about two weeks before you go."}</p>` : ""}
     ${prefsCard()}
     <div class="chips">${filters.map(([k, l]) => `<button class="chip ${f === k ? "on" : ""}" data-action="discFilter" data-id="${k}">${l}</button>`).join("")}</div>
 
     <section class="d-sec">
-      <div class="d-head"><h3>✨ Top rated, picked by Gemini</h3>
+      <div class="d-head"><h3>✨ Top rated, picked by ${esc(t.aiPicks?.for === t.destination && t.aiPicks.source || "Gemini")}</h3>
         ${t.ai?.key ? `<button class="btn-s" data-action="aiPicks" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "picks" ? "Searching…" : picks.length ? "Refresh" : "Find top-rated picks"}</button>` : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
       ${picks.length ? `<div class="dgrid">${picks.map(([x, i]) => discoverCard(x, "ai", i)).join("")}</div>`
         : `<p class="muted small">${t.ai?.key ? "Gemini searches Google for the best-reviewed places, with ratings." : "Connect a free Gemini key to get top-rated restaurants, sights and hotels with Google ratings."}</p>`}
@@ -905,12 +1011,13 @@ function editProfile() {
   openModal(`<h3>💚 Our preferences</h3>
     <p class="muted small">Used for the sample itinerary, Gemini's picks and reviews, and the plan checks. Both of you can change these.</p>
     <label>Pace<select name="pace">${[["auto", "Pick per destination (cities full, beaches and hills slow)"], ["dense", "Full days"], ["slow", "Slow"]].map(([v, l]) => `<option value="${v}" ${p.pace === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label>Home city (for flight price links)<input name="home" value="${esc(p.home || "")}" placeholder="e.g. Mumbai" autocomplete="off"></label>
     ${ta("diet", "Food we eat")}${ta("food", "Where we like to eat")}${ta("stays", "Stays")}${ta("interests", "Interests")}
     <label class="row"><input type="checkbox" name="rest" ${p.rest ? "checked" : ""}> A rest block every day</label>
     <label class="row"><input type="checkbox" name="splurges" ${p.splurges ? "checked" : ""}> One splurge each in food, stay and experience</label>
     <label class="row"><input type="checkbox" name="autoPlace" ${p.autoPlace !== false ? "checked" : ""}> Put places from shared links straight onto the best day</label>`,
     async (f) => {
-      const next = { ...p, pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges, autoPlace: !!f.autoPlace };
+      const next = { ...p, home: (f.home || "").trim(), pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges, autoPlace: !!f.autoPlace };
       await S.store.txTrip(S.tripId, () => ({ profile: next, ...stampMe() }));
       await log("updated the trip preferences");
     });
@@ -967,7 +1074,7 @@ function planSnapshot() {
     addedBy: it.suggestedBy ? "suggestion" : nameOf(it.addedBy), notes: it.notes || undefined,
     travelToHere: it.travel?.mode ? { mode: it.travel.mode, minutes: it.travel.minutes } : undefined,
   });
-  return {
+  const snap = {
     destination: t.destination, startDate: t.startDate || undefined, currency: t.currency, budget: t.budget || undefined,
     plannedTotal: costs().total, travellers: t.members.map(nameOf), prefs: t.prefs || {}, preferences: profileText(profileOf(t)),
     days: t.days.map((d, i) => ({
@@ -977,6 +1084,10 @@ function planSnapshot() {
     })),
     ideasNotScheduled: ideas().map(stop).slice(0, 40),
   };
+  for (const fn of REG.slots.snapshot || []) {
+    try { fn(snap); } catch (e) { console.error("slot snapshot", e); }
+  }
+  return snap;
 }
 async function runAiReview() {
   S.aiBusy = "review";
@@ -1016,22 +1127,22 @@ async function applyAi(idx) {
   if (a.type === "time") await S.store.updateItem(S.tripId, a.itemId, { time: a.time.padStart(5, "0"), ...stampMe() });
   if (a.type === "add") {
     const p = a.place;
-    await S.store.addItem(S.tripId, { ...aiToItem({ name: p.name, category: p.category, address: p.location, durationMin: p.durationMin, approxCost: p.cost, why: sug.detail }), dayId, order: dayId ? nextOrder(dayId) : 0 });
+    await S.store.addItem(S.tripId, { ...aiToItem({ name: p.name, category: p.category, address: p.location, durationMin: p.durationMin, approxCost: p.cost, why: sug.detail }, rev.source || "Gemini"), dayId, order: dayId ? nextOrder(dayId) : 0 });
   }
   await S.store.txTrip(S.tripId, (cur) => ({ aiReview: { ...cur.aiReview, applied: [...new Set([...(cur.aiReview?.applied || []), idx])] }, ...stampMe() }));
-  await log(`applied Gemini's suggestion: ${sug.title}`);
+  await log(`applied ${rev.source || "Gemini"}'s suggestion: ${sug.title}`);
 }
 function viewAiReview() {
   const t = S.trip;
   const r = t.aiReview;
-  const head = `<div class="d-head"><h3>🤖 Gemini review</h3>${t.ai?.key
+  const head = `<div class="d-head"><h3>🤖 ${esc(r?.source || "Gemini")} review</h3>${t.ai?.key
     ? `<button class="btn-s ${r ? "" : "primary"}" data-action="aiReview" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "review" ? "Reviewing…" : r ? "Review again" : "Review our plan"}</button>`
     : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
     <p class="muted small">Using Claude? <button class="link" data-action="copyForClaude" data-id="review">Copy plan for a Claude review</button> or <button class="link" data-action="copyForClaude" data-id="drive">Copy plan to save in Google Drive</button>, then paste it in your Claude trip project.</p>`;
   if (!r) return `<section class="ai-box">${head}<p class="muted small">${t.ai?.key ? "Gemini reads the whole plan and suggests improvements: timing, opening hours, what to add, how to get around." : "Connect a free Gemini key for an expert review of your plan in plain language."}</p></section>`;
   return `<section class="ai-box">${head}
     <p class="ai-sum">${esc(r.summary)}</p>
-    <p class="muted small">Reviewed ${ago(r.at)}, asked by ${esc(who(r.by))}. Changes since then aren't included.</p>
+    <p class="muted small">${r.source === "Claude" ? "Sent by Claude" : "Reviewed"} ${ago(r.at)}, ${r.source === "Claude" ? "for" : "asked by"} ${esc(who(r.by))}. Changes since then aren't included.</p>
     ${r.suggestions.map((x, i) => {
       const done = (r.applied || []).includes(i);
       const can = !done && aiActionable(x.action);
@@ -1490,6 +1601,33 @@ async function move(id, dir) {
 }
 
 /* --------------------------------------------------------------- add links */
+// Adds places (from a link, a screenshot, Claude or an email) to Ideas: geocodes each one and, when autoPlace is on,
+// puts it on the best day. Callers log and touch the trip. Returns [{ id, title, where }].
+async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
+  const t = S.trip;
+  const now = Date.now();
+  const auto = autoPlace ?? profileOf(t).autoPlace !== false;
+  const out = [];
+  for (const p of places) {
+    const data = {
+      title: p.title || "Saved link", description: p.description || "", image: p.image || "", siteName: p.siteName || "",
+      location: p.location || "", ...(Number.isFinite(p.lat) ? { lat: p.lat, lng: p.lng } : {}),
+      url: p.url || url, category: p.category || "sight", dayId: null, order: 0, time: "",
+      durationMin: p.durationMin || 60, cost: p.cost || 0, mustDo: false, notes: p.notes || "", bestTime: p.bestTime || "",
+      ...(p.veg ? { veg: p.veg } : {}), ...(p.vegSource ? { vegSource: p.vegSource } : {}), ...(p.vegNote ? { vegNote: p.vegNote } : {}),
+      ...(source ? { via: source } : {}),
+      fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
+    };
+    if (!has(data)) {
+      const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
+      if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
+    }
+    const id = await S.store.addItem(S.tripId, data);
+    const where = auto && !p.unread ? await placeIdea({ ...data, id }) : null;
+    out.push({ id, title: data.title, where });
+  }
+  return out;
+}
 async function addLink(raw) {
   const url = extractUrl(raw);
   if (!url) return toast("That doesn't look like a link.");
@@ -1521,29 +1659,11 @@ async function addLink(raw) {
         console.warn("gemini link", e.message);
       }
     }
-    const now = Date.now();
-    const placedOn = [];
-    let firstId = null;
     S.busy = places.length > 1 ? `Adding ${places.length} places to the plan…` : "Adding it to the plan…";
     render();
-    for (const p of places) {
-      const data = {
-        title: p.title || "Saved link", description: p.description || "", image: p.image || "", siteName: p.siteName || "",
-        location: p.location || "", ...(Number.isFinite(p.lat) ? { lat: p.lat, lng: p.lng } : {}),
-        url: p.url || url, category: p.category || "sight", dayId: null, order: 0, time: "",
-        durationMin: p.durationMin || 60, cost: p.cost || 0, mustDo: false, notes: p.notes || "", bestTime: p.bestTime || "",
-        ...(p.veg ? { veg: p.veg } : {}), ...(p.vegSource ? { vegSource: p.vegSource } : {}),
-        fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
-      };
-      if (!has(data)) {
-        const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
-        if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
-      }
-      const id = await S.store.addItem(S.tripId, data);
-      firstId ||= id;
-      const where = profileOf(t).autoPlace !== false && !p.unread ? await placeIdea({ ...data, id }) : null;
-      placedOn.push([data.title, where]);
-    }
+    const added = await addPlaces(places, { url });
+    const placedOn = added.map((x) => [x.title, x.where]);
+    const firstId = added[0]?.id;
     await log(places.length > 1 ? `saved a link with ${places.length} places: ${places.map((p) => "“" + p.title + "”").join(", ")}` : `saved a link: “${places[0].title}”`);
     await touchTrip();
     const input = document.getElementById("linkInput");
@@ -1685,7 +1805,14 @@ document.addEventListener("click", async (e) => {
       case "invite": return invite();
       case "tab":
         S.tab = b.dataset.tab;
+        S.moreOpen = false;
         localSet("tab", S.tab);
+        return render();
+      case "moreToggle":
+        S.moreOpen = !S.moreOpen;
+        return render();
+      case "moreClose":
+        S.moreOpen = false;
         return render();
       case "addLink": return addLink(document.getElementById("linkInput").value);
       case "pasteLink": {
@@ -1755,8 +1882,8 @@ document.addEventListener("click", async (e) => {
         const list = b.dataset.src === "ai" ? S.trip.aiPicks.items : S.trip.guide.listings;
         const x = list[+id];
         if (!x || inTrip(x.name)) return;
-        await S.store.addItem(S.tripId, b.dataset.src === "ai" ? aiToItem(x) : guideToItem(x));
-        await log(`added “${x.name}” to ideas from ${b.dataset.src === "ai" ? "Gemini's picks" : "the travel guide"}`);
+        await S.store.addItem(S.tripId, b.dataset.src === "ai" ? aiToItem(x, S.trip.aiPicks.source || "Gemini") : guideToItem(x));
+        await log(`added “${x.name}” to ideas from ${b.dataset.src === "ai" ? (S.trip.aiPicks.source || "Gemini") + "'s picks" : "the travel guide"}`);
         toast("Added to Ideas.");
         return touchTrip();
       }
@@ -1789,6 +1916,13 @@ document.addEventListener("click", async (e) => {
         await navigator.clipboard.writeText(txt);
         return toast("Itinerary copied.");
       }
+      default: {
+        // Feature modules register their own actions.
+        if (a === "bridgeOpen") S.moreOpen = false;
+        const h = REG.actions[a];
+        if (h) return await h(b, id, e);
+        if (a === "bridgeOpen") { render(); return toast("Coming soon"); }
+      }
     }
   } catch (err) {
     console.error(err);
@@ -1802,6 +1936,7 @@ document.addEventListener("change", async (e) => {
   log(`set ${{ pace: "the pace", travel: "the travel style", dayEnd: "the latest finish" }[k]} to “${e.target.selectedOptions?.[0]?.text || e.target.value}”`);
 });
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.moreOpen) { S.moreOpen = false; render(); }
   if (e.key === "Enter" && e.target.id === "linkInput") addLink(e.target.value);
   if (e.key === "Enter" && e.target.id === "demoName") document.querySelector("[data-action=signin]")?.click();
 });
@@ -1819,6 +1954,41 @@ document.getElementById("homeBtn").onclick = () => S.me && goHome();
 // Keep "x min ago" labels and the online dots fresh.
 setInterval(() => { if (S.tripId && !$modal.open) render(); }, 60000);
 
+/* ----------------------------------------------- feature modules (ctx) */
+// Modules never import this file; everything they need comes through ctx.
+const ctx = {
+  S, $form, $modal,
+  esc, safeUrl, uid, money, ago, stamp, dayDate, fmtDay, toMin, fromMin, dur, nameOf, who, firstName, toast, stampMe, log, touchTrip,
+  render, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, dayLabel, mapsQ, inTrip,
+  untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
+  CATEGORIES, MODES, CURRENCIES,
+  today, directionsUrl,
+  // Registries.
+  tab: (def) => {
+    const i = REG.tabs.findIndex((x) => x.id === def.id);
+    if (i >= 0) REG.tabs[i] = def;
+    else REG.tabs.push(def);
+  },
+  action: (name, fn) => { REG.actions[name] = fn; },
+  on: (event, fn) => { (REG.events[event] ||= []).push(fn); },
+  slot: (name, fn) => { (REG.slots[name] ||= []).push(fn); },
+  renderSlot: slot,
+  // ctx.costs(fn) registers extra cost rows; ctx.costs() returns the totals.
+  costs: (fn) => (typeof fn === "function" ? void REG.costs.push(fn) : costs()),
+};
+// Built-in tabs use the same registry. Map and Kit are added by their modules.
+ctx.tab({ id: "plan", icon: "🗓️", label: "Plan", view: viewPlan, order: 10 });
+ctx.tab({ id: "ideas", icon: "💡", label: "Ideas", view: viewIdeas, count: () => ideas().length, order: 30 });
+ctx.tab({ id: "discover", icon: "🧭", label: "Discover", view: viewDiscover, order: 40, more: true });
+ctx.tab({ id: "smart", icon: "✨", label: "Smart", view: viewSmart, count: () => smartList().filter((x) => x.level === "fix").length, warn: true, order: 60, more: true });
+ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 70, more: true });
+ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
+ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
+window.__tripCtx = ctx; // handy for tests and the console
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod]) {
+  try { m.init(ctx); } catch (e) { console.error("module init", e); }
+}
+
 /* -------------------------------------------------------------------- boot */
 (async function boot() {
   takeSharedLink();
@@ -1828,6 +1998,7 @@ setInterval(() => { if (S.tripId && !$modal.open) render(); }, 60000);
     $app.innerHTML = `<div class="loading">Couldn't load. Check your connection and config.js.<br><small>${esc(e.message)}</small></div>`;
     return;
   }
+  S.store.onSync?.((st) => { S.sync = st; renderSync(); });
   let tripsUnsub = null;
   S.store.onUser((u) => {
     S.me = u;

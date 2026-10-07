@@ -28,11 +28,33 @@ async function firebaseStore(config) {
   }
 
   const snapToObj = (d) => ({ id: d.id, ...d.data() });
+  const bridgeRef = (token) => fs.doc(db, "bridges", token);
+
+  // Sync indicator: counts writes the server hasn't confirmed yet. Offline writes stay pending until we reconnect.
+  let pending = 0;
+  const syncCbs = new Set();
+  const syncState = () => (!navigator.onLine ? "offline" : pending > 0 ? "saving" : "saved");
+  const syncEmit = () => syncCbs.forEach((cb) => cb(syncState()));
+  const track = (p) => {
+    pending++;
+    syncEmit();
+    const done = () => { pending--; syncEmit(); };
+    p.then(done, done);
+    return p;
+  };
+  window.addEventListener("online", syncEmit);
+  window.addEventListener("offline", syncEmit);
+  fs.onSnapshotsInSync(db, syncEmit);
   const tripRef = (id) => fs.doc(db, "trips", id);
   const sub = (tripId, name) => fs.collection(db, "trips", tripId, name);
 
-  return {
+  const store = {
     mode: "firebase",
+    onSync(cb) {
+      syncCbs.add(cb);
+      cb(syncState());
+      return () => syncCbs.delete(cb);
+    },
     onUser(cb) {
       return authMod.onAuthStateChanged(auth, (u) =>
         cb(u ? { email: u.email.toLowerCase(), name: u.displayName || u.email.split("@")[0], photo: u.photoURL } : null)
@@ -66,6 +88,9 @@ async function firebaseStore(config) {
     },
     updateTrip: (id, patch) => fs.updateDoc(tripRef(id), patch),
     async deleteTrip(id) {
+      const snap = await fs.getDoc(tripRef(id));
+      const token = snap.data()?.bridge?.token;
+      if (token) await fs.deleteDoc(bridgeRef(token)).catch(() => {});
       for (const name of ["items", "activity", "presence"]) {
         const s = await fs.getDocs(sub(id, name));
         await Promise.all(s.docs.map((d) => fs.deleteDoc(d.ref)));
@@ -97,10 +122,34 @@ async function firebaseStore(config) {
       for (const [itemId, patch] of updates) b.update(fs.doc(db, "trips", tripId, "items", itemId), patch);
       await b.commit();
     },
+    // Sets (or, when value is undefined, deletes) one nested field. Emails contain dots, so the path goes in as segments.
+    setItemPath: (tripId, itemId, path, value) =>
+      fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), new fs.FieldPath(...path), value === undefined ? fs.deleteField() : value),
+    arrayAdd: (tripId, itemId, field, value) => fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), { [field]: fs.arrayUnion(value) }),
+    arrayRemove: (tripId, itemId, field, value) => fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), { [field]: fs.arrayRemove(value) }),
     log: (tripId, entry) => fs.addDoc(sub(tripId, "activity"), entry),
     heartbeat: (tripId, me) =>
       fs.setDoc(fs.doc(db, "trips", tripId, "presence", me.email), { email: me.email, name: me.name, at: Date.now() }),
+
+    // Claude link: a doc named by a secret token that a Claude session reads and writes.
+    createBridge: (token, data) => fs.setDoc(bridgeRef(token), data),
+    updateBridge: (token, patch) => fs.updateDoc(bridgeRef(token), patch),
+    deleteBridge: (token) => fs.deleteDoc(bridgeRef(token)),
+    watchBridge: (token, cb, onErr) => fs.onSnapshot(bridgeRef(token), (d) => cb(d.exists() ? d.data() : null), onErr),
+    // Takes everything in the inbox and empties it, in a transaction so only one phone gets each entry.
+    takeInbox: (token) =>
+      fs.runTransaction(db, async (tx) => {
+        const snap = await tx.get(bridgeRef(token));
+        const inbox = snap.exists() ? snap.data().inbox || [] : [];
+        if (inbox.length) tx.update(bridgeRef(token), { inbox: [] });
+        return inbox;
+      }),
   };
+  for (const k of ["updateTrip", "addItem", "updateItem", "deleteItem", "batchUpdateItems", "setItemPath", "arrayAdd", "arrayRemove", "log", "txTrip"]) {
+    const fn = store[k];
+    store[k] = (...a) => track(fn(...a));
+  }
+  return store;
 }
 
 /* ---------------------------------------------------------------------- Demo */
@@ -110,12 +159,13 @@ function demoStore() {
   const listeners = new Set();
   const load = () => {
     try {
-      return JSON.parse(localStorage.getItem(KEY)) || { trips: {}, items: {}, activity: {}, presence: {} };
+      return JSON.parse(localStorage.getItem(KEY)) || { trips: {}, items: {}, activity: {}, presence: {}, bridges: {} };
     } catch {
-      return { trips: {}, items: {}, activity: {}, presence: {} };
+      return { trips: {}, items: {}, activity: {}, presence: {}, bridges: {} };
     }
   };
   let state = load();
+  state.bridges ||= {};
   const save = () => {
     localStorage.setItem(KEY, JSON.stringify(state));
     chan?.postMessage("changed");
@@ -124,6 +174,7 @@ function demoStore() {
   const emit = () => listeners.forEach((fn) => fn());
   const reload = () => {
     state = load();
+    state.bridges ||= {};
     emit();
   };
   chan?.addEventListener("message", reload);
@@ -142,8 +193,24 @@ function demoStore() {
   let user = JSON.parse(sessionStorage.getItem(nameKey) || "null");
   const userCbs = new Set();
 
+  // Tests (and the console) can play the part of Claude writing to the inbox.
+  window.__demoBridgePush = (token, entry) => {
+    state = load();
+    state.bridges ||= {};
+    const b = state.bridges[token];
+    if (!b) return false;
+    (b.inbox ||= []).push(entry);
+    b.inboxAt = Date.now();
+    save();
+    return true;
+  };
+
   return {
     mode: "demo",
+    onSync(cb) {
+      cb("saved");
+      return () => {};
+    },
     onUser(cb) {
       userCbs.add(cb);
       queueMicrotask(() => cb(user));
@@ -174,6 +241,8 @@ function demoStore() {
       save();
     },
     async deleteTrip(id) {
+      const token = state.trips[id]?.bridge?.token;
+      if (token) delete state.bridges[token];
       delete state.trips[id];
       delete state.items[id];
       delete state.activity[id];
@@ -206,6 +275,55 @@ function demoStore() {
     async batchUpdateItems(tripId, updates) {
       for (const [itemId, patch] of updates) Object.assign(tripItems(tripId)[itemId], patch);
       save();
+    },
+    async setItemPath(tripId, itemId, path, value) {
+      state = load();
+      let o = tripItems(tripId)[itemId];
+      for (const k of path.slice(0, -1)) o = o[k] && typeof o[k] === "object" ? o[k] : (o[k] = {});
+      const last = path[path.length - 1];
+      if (value === undefined) delete o[last];
+      else o[last] = structuredClone(value);
+      save();
+    },
+    async arrayAdd(tripId, itemId, field, value) {
+      state = load();
+      const it = tripItems(tripId)[itemId];
+      const arr = (it[field] ||= []);
+      if (!arr.some((x) => JSON.stringify(x) === JSON.stringify(value))) arr.push(structuredClone(value));
+      save();
+    },
+    async arrayRemove(tripId, itemId, field, value) {
+      state = load();
+      const it = tripItems(tripId)[itemId];
+      it[field] = (it[field] || []).filter((x) => JSON.stringify(x) !== JSON.stringify(value));
+      save();
+    },
+    async createBridge(token, data) {
+      state.bridges[token] = structuredClone(data);
+      save();
+    },
+    async updateBridge(token, patch) {
+      state = load();
+      state.bridges ||= {};
+      if (!state.bridges[token]) throw new Error("No such bridge");
+      Object.assign(state.bridges[token], structuredClone(patch));
+      save();
+    },
+    async deleteBridge(token) {
+      delete state.bridges[token];
+      save();
+    },
+    watchBridge: (token, cb) => listen(() => cb(state.bridges[token] ? structuredClone(state.bridges[token]) : null)),
+    async takeInbox(token) {
+      state = load();
+      state.bridges ||= {};
+      const b = state.bridges[token];
+      const inbox = b?.inbox || [];
+      if (inbox.length) {
+        b.inbox = [];
+        save();
+      }
+      return structuredClone(inbox);
     },
     async log(tripId, entry) {
       (state.activity[tripId] ||= []).push({ id: uid(), ...entry });

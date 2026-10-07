@@ -21,6 +21,19 @@ A free, private web app for planning a trip together. Both of you edit the same 
 - **Discover.** Opening a trip loads a cover photo and short description of the destination (Wikipedia), the weather for your dates (Open-Meteo: a forecast close to the trip, otherwise last year's weather on the same dates) and the travel guide's picks for sights, things to do, food, drinks and places to stay (Wikivoyage). Days stay empty until you ask: "Fill empty days" builds a sample from the guide and your preferences, or plan with Gemini or Claude. With a free Gemini key, "Top rated, picked by Gemini" adds Google-rated restaurants, sights and hotels.
 - **Gemini review.** In the Smart tab, Gemini reads the whole plan and suggests changes (timing, opening hours, what to add, how to get around). Most come with an Apply button. "Copy plan for Claude" copies the plan so you can ask Claude for a review instead.
 - **Itinerary.** A clean day-by-day itinerary you can print, save as PDF or copy as text.
+- **Map.** A Map tab shows every day's stops as numbered pins in that day's colour, joined by a line, with your Ideas as grey pins. Pick a day with the chips along the top, tap a pin to add it to a day or get directions, or switch to the list. Each day has a small Map button that opens the map on that day. Places without coordinates are listed so you can find them.
+- **Stops along the way.** On a long drive (more than 25 km between two stops) a "Stops along the way" link lists viewpoints, sights, castles, waterfalls and restaurants with vegetarian food close to the road, ranked by how well known they are and how small the detour is. One tap adds a stop between the two.
+- **Reactions and comments.** Every card has a quiet row: ❤️ 👍 👎 (one choice each, tap again to clear) and 💬 for a short thread. Cards you both love get a "Both love it" badge. Ideas can be filtered by kind and sorted with both-loved first; anything either of you votes 👎 is left out when a plan is drafted.
+- **Screenshots.** The 📷 button reads places from screenshots (an Instagram reel, a map list, a magazine page) with Gemini and adds them like a shared link. The picture is never saved. On Android you can also share images straight to the app.
+- **Bookings.** Kit → Bookings keeps flights, hotels, trains and tickets in one place with times, confirmation codes (tap to copy), addresses and cost. Paste a confirmation email and the details fill in (Gemini if you have a key, otherwise a built-in reader), then you confirm. Bookings show as a small strip on the right day, count in the budget, and a hotel can set "staying in" for its nights.
+- **Price checks.** Kit → Check prices opens Google Flights, Google Hotels and Booking.com searches for your dates and each place you stay. Nothing is booked from the app. Add your home city to start the flight search from there; it's optional.
+- **Today.** While the trip is on, the Plan tab opens at today's day and starts with a Today card: the stop you're on, the next one, when to leave, one-tap Directions, today's weather and bookings with their codes. It works offline from what the phone already has.
+- **Kit checklist.** Shared packing and to-do lists with live tick boxes that show who ticked what. "Suggest items" adds rule-based ideas once (rain gear for wet days, sunscreen for hot ones, passport and insurance abroad, "download tickets" for bookings), and you can add your own.
+- **Spending log.** Budget → Spent so far logs what you actually pay, in any currency, converted to the trip currency with free exchange rates. See planned against spent against budget, a list by day, and, if you turn it on, who owes whom.
+- **Calendar and My Maps export.** The Itinerary tab gives you an `.ics` calendar file (every stop and booking with its time) and a `.kml` file for Google My Maps (a folder per day plus Ideas). Each day also has a Route link that opens the whole day as one Google Maps route.
+- **Ask for a change.** One line on the Plan tab: type "make Day 2 slower" and ask Gemini or Claude. The answer arrives as a short list of changes in plain words (move, add, remove to Ideas, new time, how to get there, a note, a booking, a packing item). Apply them one by one, all together, or discard. Nothing changes until you tap.
+- **Connect Claude.** More → Connect Claude links the trip to a Claude chat so Claude can plan, answer change requests, find top places, check restaurants for vegetarian food and read links, screenshots and booking emails, all free with your Claude account. See "Claude link" below.
+- **Easy on the phone.** A bottom bar (Plan, Map, Ideas, Kit, More), a small "Saved / Saving / Offline" indicator at the top, one-tap Directions on every stop and big enough buttons to hit with a thumb.
 
 ## Link previews: what works
 
@@ -32,6 +45,19 @@ A free, private web app for planning a trip together. Both of you edit the same 
 | Facebook | Often blocked by Facebook. The link is always saved, and the app asks you to type a name and location. |
 
 Previews use the free [Microlink](https://microlink.io) service (about 50 lookups a day per device), with a free fallback. If a preview fails the link is still saved.
+
+## Claude link
+
+Connect Claude (More → Connect Claude) lets a Claude chat in the Claude desktop app or Cowork read your plan and send proposals, using the "trip-planner" skill in `docs/claude-skill.md`.
+
+- **What it does.** The app keeps a read-only copy of the plan (stops, ideas, votes, bookings, checklist, spend totals, weather; never your Gemini key or anyone's email) in a private document named by a secret link. Claude reads it and sends back a plan, a list of changes, top picks or a review. They arrive on the Plan or Smart tab as proposals; nothing is applied until one of you taps Apply.
+- **Needs the new database rules once.** The Firestore rules in `firestore.rules` now include the Claude link. Publish them once in the Firebase console (Firestore → Rules). `HANDOFF-rules-update.md` in the project files (not in this repository) has a ready-made brief for a Claude desktop or Cowork session to do it.
+- **The link is a secret.** Anyone who holds it can read the plan and send proposals, but can't change the plan or read anything else. Share it only with your own Claude chat. If it leaks, use "Make a new link".
+- **Turn it off any time.** More → Connect Claude → Turn off. The link stops working straight away. Without a connection Claude can still help: copy the plan, paste Claude's answer into the Connect Claude box.
+
+## Free services used
+
+Everything runs on free services with no keys: OpenStreetMap (map tiles and place search), OSRM (road routes for Stops along the way), Overpass (places near a route), Open-Meteo (weather), Wikipedia and Wikivoyage (destination and guide), Microlink (link previews), and Frankfurter with open.er-api.com as a fallback (exchange rates for the spending log). Leaflet (the map library) is loaded from unpkg. The only optional key is your own free Gemini key.
 
 ## Cost
 
@@ -75,6 +101,12 @@ Leave `config.js` as is and open `index.html` through any local web server (`pyt
 - `store.js`: Firebase and demo data layers
 - `unfurl.js`: link previews
 - `smart.js`: the Smart plan engine
+- `map.js`, `along.js`: the Map tab and Stops along the way
+- `social.js`: reactions, votes and comments
+- `capture.js`: screenshots and shared images
+- `bookings.js`, `kit.js`: bookings, price checks, Today, checklist, spending log and exports
+- `changes.js`, `bridge.js`: Ask for a change and the Claude link
+- `docs/claude-skill.md`: the skill file for Claude
 - `discover.js`: destination photo, weather and travel guide picks
 - `ai.js`: Gemini top picks and plan review
 - `profile.js`: your travel preferences and the sample itinerary

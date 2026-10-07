@@ -2,7 +2,7 @@
 // Saved on each trip as `profile`, so both of you see and edit the same preferences.
 
 export const DEFAULT_PROFILE = {
-  home: "Bengaluru (BLR)",
+  home: "", // home city; empty until you add it (used for flight price links)
   travellers: 2,
   pace: "auto", // auto | dense | slow
   diet: "Vegetarian, eats eggs. No meat or fish.",
@@ -19,7 +19,7 @@ export const profileOf = (trip) => ({ ...DEFAULT_PROFILE, ...(trip?.profile || {
 
 export function profileText(p) {
   return [
-    `Travellers: ${p.travellers} adults (a couple) from ${p.home}.`,
+    `Travellers: ${p.travellers} adults (a couple)${p.home ? ` from ${p.home}` : ""}.`,
     `Diet: ${p.diet} Restaurants don't need to be pure vegetarian, but must serve good vegetarian dishes. Watch for hidden fish sauce, dashi, shrimp paste, lard, gelatin and meat stock.`,
     `Food style: ${p.food}`,
     `Stays: ${p.stays}`,
@@ -140,6 +140,9 @@ const near = (c, list) => {
 // Multi-city trips (a country or region): give each city a block of consecutive days and plan each block
 // from that city's own listings, so a day never mixes Rome and Florence. At most one city per two days.
 export function buildSample(trip, listings, p = profileOf(trip)) {
+  // Places either of us voted down (p.vetoed, set by the app) stay out of the sample.
+  const veto = (p.vetoed || []).map((v) => String(v).toLowerCase().trim()).filter(Boolean);
+  if (veto.length) listings = listings.filter((l) => { const n = String(l.name || "").toLowerCase().trim(); return !veto.some((v) => v === n || (Math.min(v.length, n.length) >= 5 && (n.includes(v) || v.includes(n)))); });
   const n = trip.days.length;
   const cities = [...new Set(listings.map((l) => l.city).filter(Boolean))].slice(0, Math.max(1, Math.floor(n / 2)));
   if (cities.length < 2) return buildCity(trip, listings.filter((l) => !l.city || l.city === cities[0]), p);
