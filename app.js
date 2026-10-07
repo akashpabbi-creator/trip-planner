@@ -124,6 +124,13 @@ function toast(msg, ms = 2600) {
   clearTimeout(t._h);
   t._h = setTimeout(() => (t.hidden = true), ms);
 }
+// Raw database errors never reach the screen. { text, gone }: gone = the thing was deleted by someone else.
+function friendlyError(e) {
+  const code = String(e?.code || "").toLowerCase().replace(/^firestore\//, ""), msg = String(e?.message || e || "");
+  if (code === "not-found" || /\bNOT_FOUND\b|no entity to update|No document to update|not-found/i.test(msg)) return { text: "That stop was deleted by someone else.", gone: true };
+  if (code === "permission-denied" || /permission[-_ ]denied|Missing or insufficient permissions/i.test(msg)) return { text: "You don't have permission to change that." };
+  return { text: "Couldn't save. Check your connection and try again." };
+}
 function stampMe() {
   return { updatedBy: S.me.email, updatedByName: S.me.name, updatedAt: Date.now() };
 }
@@ -157,7 +164,7 @@ function costs() {
   let transport = 0;
   for (const it of S.items) {
     if (!S.trip.days.some((d) => d.id === it.dayId)) continue;
-    byCat[it.category || "other"] = (byCat[it.category || "other"] || 0) + (Number(it.cost) || 0);
+    byCat[it.category || "other"] = (byCat[it.category || "other"] || 0) + Math.max(0, Number(it.cost) || 0);
     transport += Number(it.travel?.cost) || 0;
   }
   const extras = (S.trip.extras || []).reduce((s, e) => s + (Number(e.cost) || 0), 0);
@@ -169,7 +176,7 @@ function costs() {
   return { byCat, transport, extras, extraRows, total };
 }
 function dayCost(dayId) {
-  return dayItems(dayId).reduce((s, it) => s + (Number(it.cost) || 0) + (Number(it.travel?.cost) || 0), 0);
+  return dayItems(dayId).reduce((s, it) => s + Math.max(0, Number(it.cost) || 0) + (Number(it.travel?.cost) || 0), 0);
 }
 function checks() {
   const out = [];
@@ -753,7 +760,7 @@ function viewBudget() {
     <table class="b-table">${t.days.map((d, i) => `<tr><td>Day ${i + 1}${d.title ? " · " + esc(d.title) : ""}</td><td>${money(dayCost(d.id))}</td><td></td></tr>`).join("")}</table>
     <h3>Other costs <span class="muted small">(flights home, visas, insurance…)</span></h3>
     <table class="b-table">${(t.extras || []).map((e) => `<tr><td>${esc(e.label)} <span class="muted small">· ${esc(who(e.by))}</span></td><td>${money(e.cost)}</td><td><button class="btn-s" data-action="delExtra" data-id="${e.id}">✕</button></td></tr>`).join("")}</table>
-    <div class="row"><input id="extraLabel" placeholder="e.g. Return flights"><input id="extraCost" type="number" inputmode="decimal" placeholder="Cost" min="0"><button data-action="addExtra">Add</button></div>
+    <div class="row"><input id="extraLabel" placeholder="e.g. Return flights"><input id="extraCost" type="number" inputmode="decimal" placeholder="Cost" min="0" max="1000000000"><button data-action="addExtra">Add</button></div>
     ${slot("budget")}
   </div>`;
 }
@@ -769,9 +776,28 @@ function viewChanges() {
   }).join("")}</ol>`;
 }
 
+// Bookings for the itinerary, matched to days the way the Plan strip does it (bookings.js): a booking belongs to the day it starts,
+// and a hotel also shows on the day it ends (check-out). Anything that lands on no day of the trip goes in "Other bookings".
+const ymdOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function itinBookings() {
+  const t = S.trip, bs = [...(t.bookings || [])].sort((a, b) => (a.start || "9").localeCompare(b.start || "9"));
+  const dayStrs = t.days.map((_, i) => (dayDate(i) ? ymdOf(dayDate(i)) : ""));
+  const days = dayStrs.map((d) => (d ? bs.flatMap((b) => ((b.start || "").slice(0, 10) === d ? [{ b }] : b.kind === "hotel" && (b.end || "").slice(0, 10) === d ? [{ b, out: true }] : [])) : []));
+  const used = new Set(days.flat().map((x) => x.b));
+  return { days, other: bs.filter((b) => !used.has(b)) };
+}
+function bookingLi({ b, out }) {
+  const k = bookingsMod.KINDS[b.kind] || bookingsMod.KINDS.other;
+  const tm = (s) => (s && s.slice(11, 16) && s.slice(11, 16) !== "00:00" ? s.slice(11, 16) : "");
+  const route = [b.from, b.to].filter(Boolean).join(" → ");
+  const when = out ? (tm(b.end) ? `check-out ${tm(b.end)}` : "check-out") : b.kind === "hotel" ? (tm(b.start) ? `check-in ${tm(b.start)}` : "check-in") : tm(b.start);
+  const parts = [route, when, b.ref ? `Ref ${b.ref}` : "", b.address].filter(Boolean).map(esc);
+  return `<li class="itin-bk">${k.icon} <b>${esc(b.title || k.label)}</b>${parts.length ? ` <span class="muted">· ${parts.join(" · ")}</span>` : ""}</li>`;
+}
 function viewItinerary() {
   const t = S.trip;
   const c = costs();
+  const bk = itinBookings();
   return `<div class="itin">
     <div class="itin-actions"><button data-action="print">🖨️ Print / save as PDF</button><button data-action="copyItin">Copy as text</button>${slot("itinActions")}</div>
     <div class="itin-doc" id="itinDoc">
@@ -784,6 +810,7 @@ function viewItinerary() {
           <h2>Day ${i + 1}${dayDate(i) ? ` · ${fmtDay(dayDate(i))}` : ""}${d.title ? ` · ${esc(d.title)}` : ""}</h2>
           ${d.base ? `<p class="muted">Staying in ${esc(d.base)}</p>` : ""}
           ${d.notes ? `<p>${esc(d.notes)}</p>` : ""}
+          ${bk.days[i]?.length ? `<ul class="itin-bks">${bk.days[i].map(bookingLi).join("")}</ul>` : ""}
           ${sch.length ? `<ul>${sch.map((s, k) => {
             const leg = (k || s.it.travel?.fromPrevDay) && MODES[s.it.travel?.mode] ? `<li class="itin-leg">${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label}${s.it.travel.minutes ? `, ${dur(+s.it.travel.minutes)}` : ""}${Number(s.it.travel.cost) ? `, ${money(s.it.travel.cost)}` : ""}${s.it.travel.notes ? ` (${esc(s.it.travel.notes)})` : ""}</li>` : "";
             return `${leg}<li><b>${fromMin(s.start)}–${fromMin(s.end)}</b> ${CATEGORIES[s.it.category]?.icon || ""} ${esc(s.it.title)}${s.it.location ? ` <span class="muted">· ${esc(s.it.location)}</span>` : ""}${Number(s.it.cost) ? ` · ${money(s.it.cost)}` : ""}${s.it.notes ? `<div class="muted small">${esc(s.it.notes)}</div>` : ""}</li>`;
@@ -791,6 +818,7 @@ function viewItinerary() {
           <p class="muted small">Day total: ${money(dayCost(d.id))}</p>
         </section>`;
       }).join("")}
+      ${bk.other.length ? `<section class="itin-day"><h2>Other bookings</h2><ul class="itin-bks">${bk.other.map((b) => bookingLi({ b })).join("")}</ul></section>` : ""}
     </div>
   </div>`;
 }
@@ -884,6 +912,7 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
     await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = setBases.find((x) => x.dayIndex === i); return b && !d.base ? { ...d, base: b.base } : d; }), ...stampMe() }));
   const orders = {};
   const updates = [];
+  const restDays = new Set();
   let added = 0, placed = 0;
   for (const x of plan) {
     const day = x.dayIndex != null ? t.days[x.dayIndex] : null;
@@ -893,6 +922,8 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
     const order = dayId ? (orders[dayId] = (orders[dayId] || 0) + 1) : 0;
     const placing = { dayId, order, time: x.time || "" };
     if (x.kind === "rest") {
+      if (dayId && (S.items.some((i) => i.dayId === dayId && i.rest) || restDays.has(dayId))) continue; // a double tap must not add a second one
+      if (dayId) restDays.add(dayId);
       await S.store.addItem(tripId, { title: "Rest & recharge", description: "", image: "", siteName: "", location: "", url: "", category: "other", durationMin: x.durationMin || 90, cost: 0, mustDo: false, rest: true, notes: x.note, suggestedBy: "plan", sample: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...placing, ...stampMe() });
       added++;
       continue;
@@ -1030,6 +1061,15 @@ function openProposal() {
   if (ok) ok.textContent = "Use the whole plan";
 }
 async function acceptProposal(dayIdxs) {
+  if (S.accepting) return; // double tap on "Use the whole plan" / "Use this day"
+  S.accepting = true;
+  try {
+    await acceptProposalNow(dayIdxs);
+  } finally {
+    S.accepting = false;
+  }
+}
+async function acceptProposalNow(dayIdxs) {
   const tripId = S.tripId, t = S.trip, pr = t.proposal;
   if (!pr || !dayIdxs.length) return;
   const ids = new Set(dayIdxs.map((i) => t.days[i]?.id).filter(Boolean));
@@ -1277,6 +1317,11 @@ async function runAiReview() {
     render();
   }
 }
+// "9:30" -> "09:30"; anything that isn't a real time of day (hour 0-23, minutes 0-59) -> "".
+function cleanTime(s) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || "").trim());
+  return m && +m[1] <= 23 && +m[2] <= 59 ? `${m[1].padStart(2, "0")}:${m[2]}` : "";
+}
 function aiActionable(a) {
   if (!a) return false;
   const exists = (id) => S.items.some((i) => i.id === id);
@@ -1284,7 +1329,7 @@ function aiActionable(a) {
   if (a.type === "move") return exists(a.itemId) && !!day(a.toDay);
   if (a.type === "add") return !!a.place?.name;
   if (a.type === "transport") return exists(a.itemId) && !!MODES[a.mode];
-  if (a.type === "time") return exists(a.itemId) && /^\d{1,2}:\d{2}$/.test(a.time || "");
+  if (a.type === "time") return exists(a.itemId) && !!cleanTime(a.time);
   return false;
 }
 async function applyAi(idx) {
@@ -1298,7 +1343,7 @@ async function applyAi(idx) {
     const it = S.items.find((i) => i.id === a.itemId);
     await S.store.updateItem(S.tripId, a.itemId, { travel: { ...(it.travel || {}), mode: a.mode, minutes: Number(a.minutes) || it.travel?.minutes || 0, auto: false }, ...stampMe() });
   }
-  if (a.type === "time") await S.store.updateItem(S.tripId, a.itemId, { time: a.time.padStart(5, "0"), ...stampMe() });
+  if (a.type === "time") await S.store.updateItem(S.tripId, a.itemId, { time: cleanTime(a.time), ...stampMe() });
   if (a.type === "add") {
     const p = a.place;
     await S.store.addItem(S.tripId, { ...aiToItem({ name: p.name, category: p.category, address: p.location, durationMin: p.durationMin, approxCost: p.cost, why: sug.detail }, rev.source || "Gemini"), dayId, order: dayId ? nextOrder(dayId) : 0 });
@@ -1460,15 +1505,25 @@ async function applySuggestions(ids) {
 function openModal(html, onSubmit) {
   $form.innerHTML = html + `<div class="m-actions"><button type="button" value="cancel" data-close>Cancel</button><button class="primary" value="ok">Save</button></div>`;
   $form.querySelectorAll("[data-close]").forEach((b) => (b.onclick = () => $modal.close()));
+  let pending = false; // a second tap on Save while the first is still saving must not save twice
   $form.onsubmit = async (e) => {
     e.preventDefault();
+    if (pending) return;
+    pending = true;
     const fd = Object.fromEntries(new FormData($form).entries());
     fd._submitter = e.submitter?.value;
+    const okBtn = $form.querySelector("button[value=ok]");
+    if (okBtn) okBtn.disabled = true;
     try {
       if ((await onSubmit(fd, e.submitter)) !== false) $modal.close();
     } catch (err) {
       console.error(err);
-      toast("Couldn't save: " + err.message);
+      const fe = friendlyError(err);
+      toast(fe.text);
+      if (fe.gone) $modal.close();
+    } finally {
+      pending = false;
+      if (okBtn) okBtn.disabled = false;
     }
   };
   $modal.showModal();
@@ -1486,14 +1541,22 @@ function tripForm(t = {}) {
       <label>Number of days<input name="numDays" type="number" min="1" max="60" value="${(t.days || []).length || 3}"></label>
     </div>
     <div class="grid2">
-      <label>Expected budget<input name="budget" type="number" min="0" inputmode="decimal" value="${esc(t.budget || "")}"></label>
+      <label>Expected budget<input name="budget" type="number" min="0" max="100000000" inputmode="decimal" value="${esc(t.budget || "")}"></label>
       <label>Currency<select name="currency">${CURRENCIES.map((c) => `<option ${c === (t.currency || "INR") ? "selected" : ""}>${c}</option>`).join("")}</select></label>
     </div>
-    ${t.id ? `<button type="button" class="danger link" data-action="deleteTrip">Delete this trip</button>` : ""}`;
+    ${t.id && t.owner === S.me?.email ? `<button type="button" class="danger link" data-action="deleteTrip">Delete this trip</button>` : ""}`;
 }
 
+// Whitespace is not a name. Returns the thing to tell the person, or "" when the form is fine.
+function tripFormProblem(f) {
+  if (!String(f.name || "").trim()) return "Give it a name";
+  if (String(f.destination || "") && !String(f.destination).trim()) return "Add a destination, or leave it empty";
+  return "";
+}
 async function newTrip() {
   openModal(tripForm(), async (f) => {
+    const bad = tripFormProblem(f);
+    if (bad) return toast(bad), false;
     const n = Math.max(1, Math.min(60, +f.numDays || 3));
     const now = Date.now();
     const id = await S.store.createTrip({
@@ -1517,29 +1580,73 @@ async function newTrip() {
   });
 }
 
+// Moves the stops on these days back to Ideas (no day, no order, no time) and takes out the Rest & recharge blocks. Returns how many stops went.
+async function releaseDays(dayIds) {
+  const ids = new Set(dayIds);
+  const list = S.items.filter((it) => ids.has(it.dayId));
+  const back = list.filter((it) => !it.rest), rest = list.filter((it) => it.rest);
+  if (back.length) await S.store.batchUpdateItems(S.tripId, back.map((it) => [it.id, { dayId: null, order: 0, time: "", ...stampMe() }]));
+  for (const it of rest) await S.store.deleteItem(S.tripId, it.id);
+  return back.length;
+}
+const dayRange = (a, b) => (a === b ? `Day ${a}` : `Days ${a}-${b}`);
 function editTrip() {
   const t = S.trip;
+  const wasOwner = t.owner === S.me.email;
   openModal(tripForm(t), async (f) => {
-    const n = Math.max(1, Math.min(60, +f.numDays || t.days.length));
-    const changes = [];
+    const bad = tripFormProblem(f);
+    if (bad) return toast(bad), false;
+    const n = Math.max(1, Math.min(60, +f.numDays || askedDays));
+    const delta = n - askedDays; // relative to the form: leaving the number alone never touches the days
+    const patch = {};
+    if (f.name.trim() !== asked.name.trim()) patch.name = f.name.trim();
+    if (f.destination.trim() !== asked.destination.trim()) patch.destination = f.destination.trim();
+    if ((f.startDate || "") !== (asked.startDate || "")) patch.startDate = f.startDate || "";
+    if ((+f.budget || 0) !== (+asked.budget || 0)) patch.budget = +f.budget || 0;
+    if (f.currency !== asked.currency) patch.currency = f.currency;
+    // Fewer days: the stops on the dropped days go back to Ideas first, after asking.
+    const cur0 = S.trip.days;
+    const keep = delta < 0 ? Math.max(1, cur0.length + delta) : cur0.length;
+    const dropped = cur0.slice(keep);
+    if (dropped.length) {
+      const stops = S.items.filter((it) => dropped.some((d) => d.id === it.dayId));
+      const real = stops.filter((it) => !it.rest).length;
+      if (stops.length && !confirm(`${dayRange(keep + 1, cur0.length)} ${dropped.length === 1 ? "has" : "have"} ${real} stop${real === 1 ? "" : "s"}. They'll go back to Ideas.`)) return false;
+      await releaseDays(dropped.map((d) => d.id));
+    }
+    if (!Object.keys(patch).length && !delta) return;
     await S.store.txTrip(S.tripId, (cur) => {
-      let days = cur.days || [];
-      if (n > days.length) days = days.concat(Array.from({ length: n - days.length }, () => ({ id: uid(), title: "", base: "", notes: "" })));
-      else if (n < days.length) days = days.slice(0, n);
-      return { name: f.name.trim(), destination: f.destination.trim(), startDate: f.startDate || "", budget: +f.budget || 0, currency: f.currency, days, ...stampMe() };
+      const out = { ...patch, ...stampMe() };
+      const days = cur.days || [];
+      if (delta > 0) out.days = days.concat(Array.from({ length: delta }, () => ({ id: uid(), title: "", base: "", notes: "" })));
+      else if (delta < 0) out.days = days.slice(0, Math.max(1, days.length + delta));
+      return out;
     });
-    if (n !== t.days.length) changes.push(`changed the trip from ${t.days.length} to ${n} days`);
-    if ((+f.budget || 0) !== (+t.budget || 0)) changes.push(`set the budget to ${money(+f.budget || 0, f.currency)}`);
-    if ((f.startDate || "") !== (t.startDate || "")) changes.push(`moved the start date to ${f.startDate ? fmtDay(new Date(f.startDate + "T00:00")) : "unset"}`);
-    if (f.name.trim() !== t.name || f.destination.trim() !== (t.destination || "")) changes.push(`renamed the trip to “${f.name.trim()}${f.destination ? " · " + f.destination.trim() : ""}”`);
+    const was = cur0.length, now = Math.max(1, was + delta);
+    const changes = [];
+    if (delta) changes.push(`changed the trip from ${was} to ${now} days`);
+    if ("budget" in patch) changes.push(`set the budget to ${money(patch.budget, f.currency)}`);
+    if ("startDate" in patch) changes.push(`moved the start date to ${f.startDate ? fmtDay(new Date(f.startDate + "T00:00")) : "unset"}`);
+    if ("name" in patch || "destination" in patch) changes.push(`renamed the trip to “${f.name.trim()}${f.destination.trim() ? " · " + f.destination.trim() : ""}”`);
     for (const c of changes) await log(c);
   });
+  // What the form showed when it opened: only what the person changes is sent, so the partner's edits survive.
+  const fv = (k) => $form.elements[k].value;
+  const asked = { name: fv("name"), destination: fv("destination"), startDate: fv("startDate"), budget: fv("budget"), currency: fv("currency") };
+  const askedDays = Math.max(1, Math.min(60, +fv("numDays") || t.days.length));
   $form.querySelector("[data-action=deleteTrip]")?.addEventListener("click", async () => {
+    if (!wasOwner) return;
     if (!confirm("Delete this trip for everyone? This can't be undone.")) return;
     $modal.close();
     const id = S.tripId, tok = ctx.bridgeToken();
     goHome();
-    await S.store.deleteTrip(id, tok);
+    try {
+      await S.store.deleteTrip(id, tok);
+    } catch (err) {
+      console.error(err);
+      toast(friendlyError(err).text);
+      return openTrip(id);
+    }
     if (tok) await S.store.updatePrivate(S.me.email, { bridges: { [id]: null } }).catch(() => {});
     toast("Trip deleted.");
   });
@@ -1623,9 +1730,13 @@ function readItemForm(f) {
 }
 const nextOrder = (dayId) => Math.max(0, ...dayItems(dayId).map((i) => i.order || 0)) + 1;
 
+const sameTitle = (a, b) => { const n = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim(); return !!n(a) && n(a) === n(b); };
 function newItem(dayId, prefill = {}) {
   openModal(itemForm(prefill, dayId), async (f) => {
     const data = readItemForm(f);
+    if (!data.title) return toast("Give it a name"), false;
+    const dup = S.items.find((x) => sameTitle(x.title, data.title));
+    if (dup && !confirm(`${dup.title} is already ${S.trip.days.some((d) => d.id === dup.dayId) ? "on " + dayLabel(dup.dayId) : "in your Ideas"}. Add it again?`)) return false;
     const now = Date.now();
     await S.store.addItem(S.tripId, {
       image: "", description: "", ...prefill, ...data,
@@ -1643,20 +1754,26 @@ const dayLabel = (id) => {
 function editItem(id) {
   const it = S.items.find((i) => i.id === id);
   if (!it) return;
+  let asked = null; // the form as it opened: only what the person changes is sent, so the partner's edits to other fields survive
   openModal(itemForm(it), async (f) => {
     const data = readItemForm(f);
-    const patch = { ...data, userEdited: true, ...stampMe() };
-    if (data.location !== (it.location || "")) Object.assign(patch, { lat: null, lng: null, geoFailed: false });
-    if (data.dayId !== (it.dayId || null)) patch.order = data.dayId ? nextOrder(data.dayId) : 0;
+    if (!data.title) return toast("Give it a name"), false;
+    const diff = {};
+    for (const k of Object.keys(data)) if (data[k] !== asked[k]) diff[k] = data[k];
+    if (!Object.keys(diff).length) return;
+    const patch = { ...diff, userEdited: true, ...stampMe() };
+    if ("location" in diff) Object.assign(patch, { lat: null, lng: null, geoFailed: false });
+    if ("dayId" in diff) patch.order = diff.dayId ? nextOrder(diff.dayId) : 0;
     await S.store.updateItem(S.tripId, id, patch);
     const what = [];
-    if (data.dayId !== (it.dayId || null)) what.push(`moved it to ${dayLabel(data.dayId)}`);
-    if (data.time !== (it.time || "")) what.push(data.time ? `set the time to ${data.time}` : "cleared the time");
-    if (data.cost !== (+it.cost || 0)) what.push(`changed the cost to ${money(data.cost)}`);
-    if (data.mustDo !== !!it.mustDo) what.push(data.mustDo ? "marked it must-do" : "unmarked must-do");
+    if ("dayId" in diff) what.push(`moved it to ${dayLabel(diff.dayId)}`);
+    if ("time" in diff) what.push(diff.time ? `set the time to ${diff.time}` : "cleared the time");
+    if ("cost" in diff) what.push(`changed the cost to ${money(diff.cost)}`);
+    if ("mustDo" in diff) what.push(diff.mustDo ? "marked it must-do" : "unmarked must-do");
     await log(`edited “${data.title}”${what.length ? ": " + what.join(", ") : ""}`);
     await touchTrip();
   });
+  asked = readItemForm(Object.fromEntries(new FormData($form).entries()));
   $form.querySelector("[data-del]")?.addEventListener("click", async () => {
     if (!confirm(`Delete “${it.title}”?`)) return;
     $modal.close();
@@ -1749,8 +1866,8 @@ async function clearDay(id, i) {
   toast(`Day ${i + 1} is empty. Fill it from Ideas or the Plan buttons.`);
 }
 async function removeDay(id, i) {
-  const back = dayItems(id);
-  if (back.length) await S.store.batchUpdateItems(S.tripId, back.map((it) => [it.id, { dayId: null, ...stampMe() }]));
+  const back = dayItems(id).filter((it) => !it.rest);
+  await releaseDays([id]);
   await S.store.txTrip(S.tripId, (cur) => ({ days: cur.days.filter((x) => x.id !== id), ...stampMe() }));
   await log(`removed Day ${i + 1}${back.length ? ` (${back.length} stop(s) moved back to ideas)` : ""}, now ${S.trip.days.length - 1} days`);
 }
@@ -1838,6 +1955,9 @@ async function addLink(raw) {
   }
   if (!url) return toast("That doesn't look like a link.");
   if (S.items.some((i) => i.url === url)) return toast("You've already saved that link.");
+  // A WhatsApp message with a link and a lot of other words: the words may name places too.
+  const around = String(raw || "").replace(/(https?:\/\/|www\.)[^\s<>"']+/gi, " ").replace(/\s+/g, " ").trim();
+  const alsoText = around.length > 40 && !!ctx.openPaste && S.aiUser && confirm("Save just the link, or also find places in the text?\n\nOK = save the link, then find places in the text\nCancel = save just the link");
   S.busy = "Reading the link…";
   render();
   try {
@@ -1882,11 +2002,12 @@ async function addLink(raw) {
       : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : m.ok && !places[0]?.unread ? "Saved to Ideas." : `Saved to Ideas. ${m.ok ? "I couldn't find the places in that page" : "That site blocked the link reader"}${ctx.aiKey() || !S.aiUser ? "" : ", but connecting Gemini on Discover lets it read pages like this"}.`;
     toast(msg + (viaAi ? " Read by Gemini." : ""), 5000);
     if (S.tab !== "ideas" && S.tab !== "plan") S.tab = days.length ? "plan" : "ideas";
-    if (places.length === 1 && (!m.ok || !places[0].location) && !viaAi && !days.length) editItem(firstId);
+    if (places.length === 1 && (!m.ok || !places[0].location) && !viaAi && !days.length && !alsoText) editItem(firstId);
   } finally {
     S.busy = false;
     render();
   }
+  if (alsoText) setTimeout(() => ctx.openPaste(String(raw).trim()), 300);
 }
 
 // Puts a new stop on the best day: near what's already there, with room, at the right time of day.
@@ -1963,6 +2084,13 @@ async function placeIdea(it) {
   return { dayIndex: target.i, why: why.length ? `(${why.join(", ")})` : "" };
 }
 
+// A #trip=<id> link to a trip you're not on: say so instead of silently showing the list. Waits a moment in case the list is still loading.
+async function notInvited(id, email) {
+  await waitFor(() => S.trips.some((t) => t.id === id) || S.tripId, 2500);
+  if (S.tripId || S.trips.some((t) => t.id === id) || S.me?.email !== email) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  toast(`You haven't been invited to that trip yet. Ask the owner to add ${email}.`, 8000);
+}
 // Links shared to the installed app from another app (Android share sheet) arrive as URL params.
 // An invite link (#join=code) is kept across sign-in; once signed in, joinTrip adds me to the trip it names.
 function takeJoin() {
@@ -2167,6 +2295,7 @@ document.addEventListener("click", async (e) => {
         const label = document.getElementById("extraLabel").value.trim();
         const cost = +document.getElementById("extraCost").value || 0;
         if (!label || !cost) return toast("Add a description and a cost.");
+        if (cost > 1e9) return toast("That cost is too big. Keep it under 1,000,000,000.");
         await S.store.txTrip(S.tripId, (cur) => ({ extras: [...(cur.extras || []), { id: uid(), label, cost, by: S.me.email }], ...stampMe() }));
         document.getElementById("extraLabel").value = document.getElementById("extraCost").value = "";
         return log(`added a cost: ${label}, ${money(cost)}`);
@@ -2247,7 +2376,7 @@ document.addEventListener("click", async (e) => {
     }
   } catch (err) {
     console.error(err);
-    toast("Something went wrong: " + (err.message || err));
+    toast(friendlyError(err).text);
   }
 });
 document.addEventListener("change", async (e) => {
@@ -2285,7 +2414,7 @@ setInterval(() => { if (S.tripId && !$modal.open) render(); }, 60000);
 // Modules never import this file; everything they need comes through ctx.
 const ctx = {
   S, $form, $modal,
-  esc, safeUrl, uid, money, ago, stamp, dayDate, fmtDay, toMin, fromMin, dur, nameOf, who, firstName, toast, stampMe, log, touchTrip,
+  esc, safeUrl, uid, money, ago, stamp, dayDate, fmtDay, toMin, fromMin, dur, nameOf, who, firstName, toast, friendlyError, stampMe, log, touchTrip,
   render, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, dayLabel, mapsQ, inTrip,
   untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
   CATEGORIES, MODES, CURRENCIES,
@@ -2332,7 +2461,7 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
     return;
   }
   S.store.onSync?.((st) => { S.sync = st; renderSync(); });
-  S.store.onWriteError?.((e) => toast("A change didn't save: " + e.message, 6000));
+  S.store.onWriteError?.((e) => toast(friendlyError(e).text, 6000));
   let tripsUnsub = null, privUnsub = null;
   S.store.onUser((u) => {
     S.me = u;
@@ -2355,8 +2484,10 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
           S.store.txTrip(t.id, (cur) => ({ memberNames: { ...(cur.memberNames || {}), [u.email]: u.name } })).catch(() => {});
       if (first) {
         first = false;
-        const want = (location.hash.match(/trip=([\w-]+)/) || [])[1] || localGet("trip");
+        const linked = (location.hash.match(/trip=([\w-]+)/) || [])[1];
+        const want = linked || localGet("trip");
         if (want && trips.some((t) => t.id === want)) openTrip(want);
+        else if (linked) notInvited(linked, u.email);
       }
       if (!S.tripId) render();
       handlePendingShare();
