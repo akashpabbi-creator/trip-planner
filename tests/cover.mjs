@@ -1,4 +1,4 @@
-// Cover test: Wikivoyage banner wins, flags/maps are rejected, "Change cover" cycles and is saved on the trip.
+// Cover test: banner wins, flags/maps/portraits are rejected, nearby + Commons photos fill in, the cover picker and photo link are saved on the trip.
 // Run: node tests/cover.mjs   (demo mode in a temp copy; Wikimedia hosts mocked)
 import { createRequire } from "module";
 import { execSync, spawn } from "child_process";
@@ -19,7 +19,7 @@ const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL "
 const b = await chromium.launch();
 const errors = [];
 
-async function run(label, { banner, wikiImage }) {
+async function run(label, { banner, wikiImage, nearby = {}, commons = {} }) {
   console.log(label);
   const ctx = await b.newContext({ viewport: { width: 390, height: 800 } });
   const p = await ctx.newPage();
@@ -29,8 +29,10 @@ async function run(label, { banner, wikiImage }) {
     const u = r.request().url();
     if (/en\.wikipedia\.org\/api\/rest_v1\/page\/summary\//.test(u)) return json(r, { type: "standard", title: "Italy", extract: "Italy is a country.", originalimage: { source: wikiImage }, coordinates: { lat: 41.9, lon: 12.5 }, content_urls: { desktop: { page: "https://en.wikipedia.org/wiki/Italy" } } });
     if (/en\.wikivoyage\.org\/w\/api\.php\?action=query&prop=pageprops/.test(u)) return json(r, { query: { pages: { 1: { title: "Italy", pageprops: banner ? { wpb_banner: banner } : {} } } } });
+    if (/en\.wikipedia\.org\/w\/api\.php.*geosearch/.test(u)) return json(r, { query: { pages: nearby } });
+    if (/commons\.wikimedia\.org\/w\/api\.php/.test(u)) return json(r, { query: { pages: commons } });
     if (/wikivoyage/.test(u)) return json(r, { error: { code: "missingtitle" } });
-    if (/\.(jpg|png)(\?|$)/.test(u)) return r.fulfill({ status: 200, contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'/>" });
+    if (/\.(jpe?g|png)(\?|$)/.test(u)) return r.fulfill({ status: 200, contentType: "image/svg+xml", body: "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'/>" });
     return r.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
   await p.goto(`http://127.0.0.1:${PORT}/`);
@@ -56,25 +58,81 @@ try {
   ok(/Special:FilePath\/Italy_banner\.jpg\?width=1600/.test(pl.covers[0]) && pl.image === pl.covers[0], "the Wikivoyage banner wins and is place.image");
   ok(pl.covers[1] === PHOTO, "the Wikipedia photo follows");
   ok((await heroCover(p)).includes("Italy_banner.jpg"), "hero shows the banner");
-  ok(await p.isVisible(".cover-btn"), "Change cover button is shown when there are several covers");
+  ok(await p.isVisible(".cover-btn"), "cover button is shown");
   await p.click(".cover-btn");
+  await p.waitForSelector("#modal[open] .cover-grid");
+  ok((await p.textContent("#modal h3")) === "Choose a cover", "picker is titled Choose a cover");
+  ok((await p.$$(".cover-opt")).length === 2 && await p.$eval(".cover-opt", (e) => e.classList.contains("on")), "grid shows both covers, current one outlined");
+  await p.click(".cover-opt:nth-child(2)");
   await p.waitForFunction(() => window.__tripCtx.S.trip.coverIdx === 1);
-  ok((await heroCover(p)).includes("Colosseum_in_Rome.jpg"), "Change cover moves to the next cover and saves coverIdx");
+  ok((await heroCover(p)).includes("Colosseum_in_Rome.jpg"), "picking a thumbnail saves coverIdx and changes the hero");
   await p.click(".cover-btn");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.coverIdx === 0);
-  ok((await heroCover(p)).includes("Italy_banner.jpg"), "and cycles back to the first");
+  ok(await p.$eval(".cover-opt:nth-child(2)", (e) => e.classList.contains("on")), "the new pick is outlined");
+  await p.fill("[name=coverUrl]", "https://example.org/mine.jpg");
+  await p.click("#modalForm button[value=ok]");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.coverUrl === "https://example.org/mine.jpg");
+  ok((await heroCover(p)).includes("example.org/mine.jpg"), "a photo link overrides the picked cover");
   await p.click("[data-action=home]");
-  ok((await p.$eval(".tc-img", (e) => e.style.backgroundImage)).includes("Italy_banner.jpg"), "home trip card uses the chosen cover");
+  ok((await p.$eval(".tc-img", (e) => e.style.backgroundImage)).includes("example.org/mine.jpg"), "home trip card uses the photo link");
+  await p.click(".tc-img");
+  await p.waitForSelector(".hero");
+  await p.click(".cover-btn");
+  await p.click("[data-action=coverClear]");
+  await p.waitForFunction(() => !window.__tripCtx.S.trip.coverUrl);
+  ok((await heroCover(p)).includes("Colosseum_in_Rome.jpg"), "Remove clears the link and the picked cover shows again");
+  await p.click("[data-action=home]");
+  ok((await p.$eval(".tc-img", (e) => e.style.backgroundImage)).includes("Colosseum_in_Rome.jpg"), "home trip card uses the chosen cover");
   await ctx.close();
 
   ({ p, ctx } = await run("flag only", { banner: "Pagebanner default.jpg", wikiImage: FLAG }));
   pl = await p.evaluate(() => window.__tripCtx.S.trip.place);
   ok(pl.covers.length === 0 && !pl.image, "flag rejected and the default banner skipped: no cover");
-  ok(!(await p.$(".cover-btn")) && !(await heroCover(p)), "hero falls back to the gradient, no Change cover button");
+  ok(!(await heroCover(p)), "hero falls back to the gradient");
+  ok(!!(await p.$(".cover-btn")), "cover button stays so a link can be pasted");
+  await p.click(".cover-btn");
+  ok(!(await p.$(".cover-opt")) && !!(await p.$("[name=coverUrl]")), "empty picker offers only the photo link");
+  await p.fill("[name=coverUrl]", "http://insecure.example/x.jpg");
+  await p.click("#modalForm button[value=ok]");
+  await p.waitForTimeout(200);
+  ok(!(await p.evaluate(() => window.__tripCtx.S.trip.coverUrl)), "a non-https link is refused");
+  await p.keyboard.press("Escape");
   // an old trip that stored the flag as place.image: filtered at render time
   await p.evaluate(async () => { const c = window.__tripCtx; await c.S.store.updateTrip(c.S.tripId, { place: { ...c.S.trip.place, image: "https://x.org/Flag_of_Italy.svg", covers: undefined } }); });
   await p.waitForTimeout(300);
   ok(!(await heroCover(p)), "render-time guard hides a stored flag");
+  await ctx.close();
+
+  // no banner, no listings: nearby landmarks and Commons photos fill in; maps, taluks and portraits are dropped
+  const img = (w, h, src) => ({ source: src, width: w, height: h });
+  const wp = (index, title, original) => ({ index, title, original });
+  const nearby = {
+    1: wp(1, "Manjarabad Fort", img(4000, 2500, "https://upload.wikimedia.org/wikipedia/commons/a/aa/Manjarabad_Fort.jpg")),
+    2: wp(2, "Sakleshpur taluk", img(4000, 2500, "https://upload.wikimedia.org/wikipedia/commons/b/bb/Sakleshpur_taluk_map.jpg")),
+    3: wp(3, "Mapusa", img(3000, 1800, "https://upload.wikimedia.org/wikipedia/commons/c/cc/Mapusa_market.jpg")),
+    4: wp(4, "Portrait temple", img(1800, 3000, "https://upload.wikimedia.org/wikipedia/commons/d/dd/Temple_portrait.jpg")),
+    5: wp(5, "Tiny", img(600, 400, "https://upload.wikimedia.org/wikipedia/commons/e/ee/Tiny.jpg")),
+    6: wp(6, "PNG", img(3000, 1800, "https://upload.wikimedia.org/wikipedia/commons/f/ff/Thing.png")),
+  };
+  const ci = (index, title, w, h, mime = "image/jpeg") => ({ index, title: "File:" + title, imageinfo: [{ url: "https://upload.wikimedia.org/wikipedia/commons/x/" + title, thumburl: "https://upload.wikimedia.org/wikipedia/commons/thumb/x/" + title + "/1600px-" + title, width: w, height: h, mime }] });
+  const commons = {
+    1: ci(1, "Coffee_estate_Sakleshpur.jpg", 4000, 2600),
+    2: ci(2, "Census_of_India_chart.jpg", 4000, 2600),
+    3: ci(3, "Narrow_Sakleshpur.jpg", 1000, 600),
+    4: ci(4, "Sakleshpur_portrait.jpg", 2000, 3000),
+  };
+  ({ p, ctx } = await run("nearby + commons only", { banner: "", wikiImage: "https://upload.wikimedia.org/wikipedia/commons/z/zz/Hassan_district_map.png", nearby, commons }));
+  pl = await p.evaluate(() => window.__tripCtx.S.trip.place);
+  ok(pl.covers.length === 3, "three covers: " + JSON.stringify(pl.covers));
+  ok(/Manjarabad_Fort\.jpg$/.test(pl.covers[0]) && /Mapusa_market\.jpg$/.test(pl.covers[1]), "landmarks first, nearest first; Mapusa passes the map filter");
+  ok(/1600px-Coffee_estate_Sakleshpur\.jpg$/.test(pl.covers[2]), "Commons photo uses the 1600px thumbnail");
+  ok(!pl.covers.some((u) => /taluk|district|Census|portrait|Tiny|\.png/i.test(u)), "map, taluk, census, portrait, narrow and non-JPEG images are rejected");
+  ok(JSON.stringify(pl.coverCaptions) === JSON.stringify(["Manjarabad Fort", "Mapusa", "Coffee estate Sakleshpur"]), "captions: " + JSON.stringify(pl.coverCaptions));
+  ok((await heroCover(p)).includes("Manjarabad_Fort.jpg"), "hero shows the first landmark");
+  await p.click(".cover-btn");
+  await p.waitForSelector(".cover-opt");
+  ok((await p.$$(".cover-opt")).length === 3 && (await p.textContent(".cover-opt")).includes("Manjarabad Fort"), "picker shows thumbnails with captions");
+  await p.screenshot({ path: process.env.SHOT || join(dir, "picker.png") });
+  await p.keyboard.press("Escape");
   await ctx.close();
 } catch (e) {
   fails++;

@@ -328,9 +328,27 @@ function coversOf(t) {
   }
   return list;
 }
+// A photo link pasted by the trip's people wins over the picked cover.
 function coverOf(t) {
+  if (safeUrl(t?.coverUrl)) return t.coverUrl;
   const list = coversOf(t);
   return list.length ? list[(Number(t.coverIdx) || 0) % list.length] : "";
+}
+function coverPicker() {
+  const t = S.trip, list = coversOf(t), p = t.place || {};
+  const cur = safeUrl(t.coverUrl) ? "" : coverOf(t);
+  const cap = (u) => { const i = (p.covers || []).indexOf(u); return (p.coverCaptions || [])[i] || ""; };
+  openModal(`<h3>Choose a cover</h3>
+    ${list.length ? `<div class="cover-grid">${list.map((u, i) => `<button type="button" class="cover-opt ${u === cur ? "on" : ""}" data-action="coverPick" data-i="${i}" aria-label="Use cover ${i + 1}${cap(u) ? ": " + esc(cap(u)) : ""}" aria-pressed="${u === cur}"><img src="${esc(safeUrl(u))}" alt="" loading="lazy" referrerpolicy="no-referrer">${cap(u) ? `<span>${esc(cap(u))}</span>` : ""}</button>`).join("")}</div>`
+      : `<p class="muted small">No photos found for this place. Paste a photo link instead.</p>`}
+    <label>Use a photo link<input name="coverUrl" type="url" inputmode="url" placeholder="https://…/photo.jpg" value="${esc(safeUrl(t.coverUrl))}"></label>
+    ${safeUrl(t.coverUrl) ? `<button type="button" class="link danger" data-action="coverClear">Remove</button>` : ""}`,
+    async (f) => {
+      const u = (f.coverUrl || "").trim();
+      if (u === (t.coverUrl || "")) return;
+      if (u && !/^https:\/\//i.test(u)) return toast("Use an https:// photo link."), false;
+      await S.store.updateTrip(S.tripId, { coverUrl: u, ...stampMe() });
+    });
 }
 function renderPresence() {
   const el = document.getElementById("presence");
@@ -388,7 +406,6 @@ function viewTrip() {
   const counts = new Map(tabs.map((x) => [x.id, (x.count && x.count()) || 0]));
   const end = dayDate(t.days.length - 1);
   const cover = coverOf(t);
-  const nCovers = coversOf(t).length;
   const w = t.weather?.days || [];
   const temps = w.length ? `${Math.min(...w.map((d) => d.min))}–${Math.max(...w.map((d) => d.max))}°C` : "";
   const bases = [...new Set(t.days.map((d) => (d.base || "").trim()).filter(Boolean))];
@@ -407,7 +424,7 @@ function viewTrip() {
             <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip">⚙️</button>
           </div>
         </div>
-        ${nCovers > 1 ? `<button class="chip ghost round cover-btn" data-action="coverNext" title="Change cover photo" aria-label="Change cover photo">🖼️</button>` : ""}
+        <button class="chip ghost round cover-btn" data-action="coverPick" title="Choose a cover" aria-label="Choose a cover">🖼️</button>
         <div class="hero-main">
           <div class="eyebrow">${esc(eyebrow)}</div>
           <h1>${esc(t.name)}</h1>
@@ -1730,7 +1747,7 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
       ...(source ? { via: source } : {}),
       fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
     };
-    if (!has(data)) {
+    if (!has(data) && !p.noGeo) {
       const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
       if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
     }
@@ -1936,11 +1953,14 @@ document.addEventListener("click", async (e) => {
         markStrip(i);
         return $app.querySelectorAll(".day")[i]?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
-      case "coverNext": {
-        const n = coversOf(S.trip).length;
-        if (n < 2) return;
-        return S.store.updateTrip(S.tripId, { coverIdx: ((Number(S.trip.coverIdx) || 0) + 1) % n, ...stampMe() });
+      case "coverPick": {
+        if (b.dataset.i == null) return coverPicker();
+        $modal.close();
+        return S.store.updateTrip(S.tripId, { coverIdx: Number(b.dataset.i) || 0, coverUrl: "", ...stampMe() });
       }
+      case "coverClear":
+        $modal.close();
+        return S.store.updateTrip(S.tripId, { coverUrl: "", ...stampMe() });
       case "signout":
         S.userMenu = false;
         goHome();

@@ -9,6 +9,22 @@ let ctx;
 const BOOKING_KINDS = ["flight", "hotel", "train", "bus", "ferry", "car", "tickets", "other"];
 const OP_TYPES = ["move", "remove", "add", "time", "transport", "day", "veg", "note", "booking", "check"];
 
+// Maps words like "hotel" or "homestay" to the app's categories. Returns "" when it doesn't know the word.
+const CAT_WORDS = {
+  stay: "hotel, hotels, homestay, homestays, home stay, resort, resorts, lodging, lodge, accommodation, guesthouse, guest house, villa, hostel, stays, estate stay",
+  food: "restaurant, restaurants, cafe, café, dining, eat",
+  sight: "attraction, attractions, sightseeing, sights",
+  activity: "activities, experience, tour, tours",
+  nature: "park, viewpoint, trek, waterfall",
+  shopping: "shop, market",
+};
+const CAT_MAP = {};
+for (const [cat, words] of Object.entries(CAT_WORDS)) for (const w of words.split(", ")) CAT_MAP[w] = cat;
+export function normCategory(raw, cats = ctx?.CATEGORIES) {
+  const c = String(raw || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return (cats ? cats[c] : ["sight", "activity", "food", "stay", "shopping", "nature", "transport", "other"].includes(c)) ? c : CAT_MAP[c] || "";
+}
+
 // The change formats, written once for every prompt and for the Claude snapshot.
 export const OP_FORMATS = {
   move: `{"type":"move","itemId":"<id>","toDay":2,"time":"HH:MM (optional)","why":"one sentence"}`,
@@ -52,7 +68,7 @@ export function cleanOp(o) {
     const p = o.place || {};
     Object.assign(out, {
       place: {
-        name: str(p.name ?? p.title, 140), category: str(p.category, 12).toLowerCase(), location: str(p.location ?? p.address, 200),
+        name: str(p.name ?? p.title, 140), category: normCategory(p.category) || str(p.category, 20).toLowerCase(), location: str(p.location ?? p.address, 200),
         durationMin: Math.round(num(p.durationMin)) || 60, cost: num(p.cost), why: str(p.why, 240),
         ...(p.veg ? { veg: str(p.veg, 4).toLowerCase() } : {}), ...(p.vegNote ? { vegNote: str(p.vegNote, 160) } : {}), ...(p.url ? { url: str(p.url, 400) } : {}),
       },
@@ -179,19 +195,22 @@ export async function applyOp(op, { source = "" } = {}) {
     }
     case "add": {
       const p = op.place, t = S.trip;
-      const cat = ctx.CATEGORIES[p.category] ? p.category : "sight";
+      const cat = normCategory(p.category) || "sight";
       let g = null;
       try { g = await geocode(`${p.location || p.name}${(p.location || "").includes(t.destination) ? "" : ", " + t.destination}`); } catch {}
       if (!g) try { g = await geocode(`${p.name}, ${t.destination}`); } catch {}
-      if (!g) return { ok: false, note: `Couldn't find ${q(p.name)} on the map, so it isn't added.` };
       const [added] = await ctx.addPlaces([{
-        title: p.name, location: p.location, category: cat, durationMin: p.durationMin, cost: p.cost, notes: p.why, url: p.url || "", lat: g.lat, lng: g.lng,
+        title: p.name, location: p.location, category: cat, durationMin: p.durationMin, cost: p.cost, notes: p.why, url: p.url || "", ...(g ? { lat: g.lat, lng: g.lng } : { noGeo: true }),
         ...(cat === "food" && p.veg ? { veg: p.veg, vegNote: p.vegNote || "", vegSource: (source || "app").toLowerCase() } : {}),
       }], { source: source || "change", autoPlace: false });
-      if (op.toDay) {
+      if (op.toDay && g) {
         const id = dayId(op.toDay), time = hhmm(op.time);
         await new Promise((r) => setTimeout(r, 150));
         await store.updateItem(tripId, added.id, { dayId: id, order: time ? ctx.orderForTime(id, time) : ctx.nextOrder(id), ...(time ? { time } : {}), userEdited: true, ...me });
+      }
+      if (!g) {
+        await ctx.log(`applied ${by}: added ${q(p.name)} to ideas without a map pin`);
+        return { ok: true, note: op.toDay ? `Couldn't find ${q(p.name)} on the map, so it's in Ideas.` : `Added ${q(p.name)} to Ideas without a map pin.` };
       }
       return done(`added ${q(p.name)} to ${op.toDay ? "Day " + op.toDay : "ideas"}`);
     }
@@ -372,7 +391,8 @@ async function applyAll() {
   for (const [k, { op, i }] of todo.entries()) {
     const r = await applyOp(op, { source: c.source });
     if (r.ok) { n++; await mark("applied", [i]); }
-    else { notes.push(r.note); await mark("skipped", [i]); }
+    else await mark("skipped", [i]);
+    if (r.note) notes.push(r.note);
     if (k < todo.length - 1) await new Promise((r2) => setTimeout(r2, 150)); // let the stop list catch up before the next change reads it
   }
   if (document.getElementById("chgList")) ctx.$modal.close();
