@@ -1743,7 +1743,7 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
       ...(source ? { via: source } : {}),
       fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
     };
-    if (!has(data)) {
+    if (!has(data) && !p.noGeo) {
       const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
       if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
     }
