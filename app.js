@@ -14,6 +14,7 @@ import * as bridgeMod from "./bridge.js";
 import * as bookingsMod from "./bookings.js";
 import * as pasteMod from "./paste.js";
 import * as shuffleMod from "./shuffle.js";
+import * as psocialMod from "./proposal-social.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -619,7 +620,7 @@ function viewPlan() {
   return `
     ${slot("planToday")}
     <div class="asst">
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${esc(t.proposal.source || "Gemini")} drafted a plan for your days</span><b>Review</b></button>` : ""}
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${esc(t.proposal.source || "Gemini")} drafted a plan for your days${psocialMod.summary(t.proposal, t.members) ? `<span class="ps-sum">${esc(psocialMod.summary(t.proposal, t.members))}</span>` : ""}</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
     ${S.planning && !t.proposal ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
@@ -961,9 +962,11 @@ function openProposal() {
     ${pr.summary ? `<p>${esc(pr.summary)}</p>` : ""}
     ${pr.notes?.length ? `<div class="checks">${pr.notes.map((n) => `<div class="check info">${esc(n)}</div>`).join("")}</div>` : ""}
     <div class="proposal">${t.days.map((d, i) => `<section class="day"><header class="day-head"><div><div class="day-n">Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}</div>${pr.bases?.find((b) => b.dayIndex === i) ? `<div class="day-title muted">staying in ${esc(pr.bases.find((b) => b.dayIndex === i).base)}</div>` : ""}</div>
-      ${done.has(i) ? `<span class="muted small">✓ In your plan</span>` : `<button type="button" class="btn-s" data-action="acceptDay" data-day="${i}">Use this day</button>`}</header>
+      <span class="pday-side">${psocialMod.voteRow(pr, "d" + i, "proposal")}${done.has(i) ? `<span class="muted small">✓ In your plan</span>` : `<button type="button" class="btn-s" data-action="acceptDay" data-day="${i}">Use this day</button>`}</span></header>
       <ul class="prop-list">${day(i).map(row).join("") || `<li class="muted">Nothing planned.</li>`}</ul></section>`).join("")}</div>
     ${ideas.length ? `<p class="muted small">Also goes to Ideas: ${ideas.map((x) => esc(x.listing.name)).join(", ")}</p>` : ""}
+    <div class="ps-all"><b>What do you both think?</b>${psocialMod.voteRow(pr, "all", "proposal")}<span class="muted small">Votes are just opinions. Nothing is used until you tap a button.</span></div>
+    ${psocialMod.thread(pr, "proposal")}
     <div class="row"><button type="button" class="btn-s" data-action="regenPlan">🔁 Try again</button><button type="button" class="btn-s" data-action="dropPlan">Discard this draft</button></div>`, () => acceptProposal(t.days.map((_, i) => i).filter((i) => !done.has(i))));
   const ok = $form.querySelector("button[value=ok]");
   if (ok) ok.textContent = "Use the whole plan";
@@ -982,7 +985,8 @@ async function acceptProposal(dayIdxs) {
   const bases = pr.bases.filter((b) => dayIdxs.includes(b.dayIndex));
   if (bases.length) await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = bases.find((x) => x.dayIndex === i); return b ? { ...d, base: b.base } : d; }), ...stampMe() }));
   const done = [...new Set([...(pr.done || []), ...dayIdxs])];
-  await S.store.updateTrip(tripId, { proposal: done.length >= t.days.length ? null : { ...pr, done }, ...stampMe() });
+  // Read-modify-write so votes and comments the other phone added meanwhile survive.
+  await S.store.txTrip(tripId, (cur) => (cur.proposal ? { proposal: done.length >= t.days.length ? null : { ...cur.proposal, done }, ...stampMe() } : null));
   await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `used ${t.proposal?.source || "Gemini"}'s plan for ${dayIdxs.length === t.days.length ? "every day" : dayIdxs.map((i) => "Day " + (i + 1)).join(", ")} (${n} stops)` });
   toast(`${t.proposal?.source || "Gemini"}'s plan is on ${dayIdxs.length === 1 ? "Day " + (dayIdxs[0] + 1) : dayIdxs.length + " days"}.`);
 }
@@ -2135,7 +2139,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, shuffleMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, shuffleMod, psocialMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
