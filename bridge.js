@@ -55,7 +55,7 @@ function buildSnapshot() {
   if (t.aiPicks?.items?.length) pend.picks = { source: t.aiPicks.source || "Gemini", count: t.aiPicks.items.length };
   snap.pendingProposals = pend;
   if (t.profile?.home) snap.homeCity = t.profile.home;
-  if (t.bridge?.ask) snap.requests = [{ request: t.bridge.ask.request, from: t.bridge.ask.by, asked: new Date(t.bridge.ask.at).toISOString() }];
+  if (t.bridge?.ask) snap.requests = [{ request: t.bridge.ask.request, ...(t.bridge.ask.text ? { text: t.bridge.ask.text } : {}), from: t.bridge.ask.by, asked: new Date(t.bridge.ask.at).toISOString() }];
   snap.howToSend = {
     note: "Everything you send is a proposal the couple review in the app; nothing is applied until they tap. Send by appending {id, at, json} to the bridge inbox (see the trip-planner skill).",
     payloadKinds: PAYLOADS,

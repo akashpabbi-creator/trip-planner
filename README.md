@@ -32,6 +32,8 @@ A free, private web app for planning a trip together. Both of you edit the same 
 - **Spending log.** Budget → Spent so far logs what you actually pay, in any currency, converted to the trip currency with free exchange rates. See planned against spent against budget, a list by day, and, if you turn it on, who owes whom.
 - **Calendar and My Maps export.** The Itinerary tab gives you an `.ics` calendar file (every stop and booking with its time) and a `.kml` file for Google My Maps (a folder per day plus Ideas). Each day also has a Route link that opens the whole day as one Google Maps route.
 - **Ask for a change.** One line on the Plan tab: type "make Day 2 slower" and ask Gemini or Claude. The answer arrives as a short list of changes in plain words (move, add, remove to Ideas, new time, how to get there, a note, a booking, a packing item). Apply them one by one, all together, or discard. Nothing changes until you tap.
+- **Paste anything.** The 📝 button next to the link box (or pasting a long text into the link box) turns a friend's WhatsApp tips, a video transcript, a blog post or someone's itinerary into places. Gemini or Claude reads it once, the text isn't saved, and you review every place before it's added.
+- **Shuffle a day.** 🔀 Shuffle under a day swaps a few stops for places already in Ideas (same kind of place, near your other stops, loved ones first). It never touches must-dos, fixed times or places you both love, and nothing changes until you Apply.
 - **Connect Claude.** More → Connect Claude links the trip to a Claude chat so Claude can plan, answer change requests, find top places, check restaurants for vegetarian food and read links, screenshots and booking emails, all free with your Claude account. See "Claude link" below.
 - **Easy on the phone.** A bottom bar (Plan, Map, Ideas, Kit, More), a small "Saved / Saving / Offline" indicator at the top, one-tap Directions on every stop and big enough buttons to hit with a thumb.
 
@@ -113,6 +115,7 @@ Leave `config.js` as is and open `index.html` through any local web server (`pyt
 - `capture.js`: screenshots and shared images
 - `bookings.js`, `kit.js`: bookings, price checks, Today, checklist, spending log and exports
 - `changes.js`, `bridge.js`: Ask for a change and the Claude link
+- `paste.js`, `shuffle.js`: places from pasted text, and Shuffle a day
 - `docs/claude-skill.md`: the skill file for Claude
 - `discover.js`: destination photo, weather and travel guide picks
 - `ai.js`: Gemini top picks and plan review
