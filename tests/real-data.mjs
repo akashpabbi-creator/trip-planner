@@ -1,6 +1,6 @@
 // Runs the travel guide reader, the sample planner and the link reader against the real sites
 // (Wikivoyage, Wikipedia, Wikidata, a real blog) and checks the results. Run: node tests/real-data.mjs
-import { loadDestination } from "../discover.js";
+import { loadDestination, fetchNearby, fetchCommons, goodCover, coverEntries } from "../discover.js";
 import { buildSample, profileOf } from "../profile.js";
 import { unfurl } from "../unfurl.js";
 import { readLink } from "../linkinfo.js";
@@ -60,6 +60,19 @@ for (const c of CASES) {
   tp.length ? fail(`transport in plan: ${tp.map((x) => x.listing.name).join(", ")}`) : ok("no transport in the plan");
   for (const re of c.expect) re.test(names) ? ok(`plan has ${re}`) : fail(`plan is missing ${re}`);
   if (c.cities && new Set(bases.map((b) => b.base)).size < c.cities) fail(`expected at least ${c.cities} cities, got ${[...new Set(bases.map((b) => b.base))].join(", ") || "none"}`);
+}
+
+// Covers only (no loadDestination, to limit requests): a small hill town where Wikivoyage has no banner and Wikipedia has only maps.
+{
+  await new Promise((r) => setTimeout(r, 20000));
+  console.log("\n=== Covers for Sakleshpur");
+  const lat = 12.94, lng = 75.78; // from the Wikipedia summary
+  const [nearby, commons] = await Promise.all([fetchNearby(lat, lng).catch((e) => (console.log("  nearby failed: " + e.message), [])), fetchCommons("Sakleshpur, Karnataka").catch((e) => (console.log("  commons failed: " + e.message), []))]);
+  const list = coverEntries("", [], "", nearby, commons);
+  list.forEach((x, i) => console.log(`  ${i + 1}. ${x.url}  [${x.caption || "-"}]`));
+  list.length >= 3 ? ok(`${list.length} cover candidates (${nearby.length} nearby, ${commons.length} Commons)`) : fail(`only ${list.length} cover candidates`);
+  const bad = list.filter((x) => !goodCover(x.url));
+  bad.length ? fail("candidates match the filter: " + bad.map((x) => x.url).join(", ")) : ok("no candidate matches the filter");
 }
 
 for (const l of LINKS) {
