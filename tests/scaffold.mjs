@@ -47,8 +47,14 @@ try {
   console.log("desktop");
   const d = await newPage({ width: 1200, height: 800 });
   await makeTrip(d, "2026-11-10");
-  ok(JSON.stringify(await tabLabels(d, ".tabs-desk")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity"]), "desktop tabs include the Map and Kit modules");
+  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity"]), "desktop tabs include the Map and Kit modules");
   ok(!(await d.isVisible(".tabs-bar")), "bottom bar hidden on desktop");
+  ok((await d.$$("[data-action=bridgeOpen]:visible")).length === 1, "desktop shows exactly one visible Connect Claude entry");
+  await d.click(".tabs-desk [data-action=bridgeOpen]");
+  await d.waitForSelector("#modalForm");
+  ok(/Claude/.test(await d.textContent("#modalForm")), "desktop Connect Claude opens the bridge sheet");
+  await d.keyboard.press("Escape");
+  await d.waitForTimeout(200);
   ok(await d.isVisible("#sync") && /Saved/.test(await d.textContent("#sync")), "sync indicator shows Saved");
   await d.evaluate(() => {
     const c = window.__tripCtx;
@@ -69,7 +75,7 @@ try {
     for (const e of ["render", "trip", "items", "open", "close"]) c.on(e, () => window.__events.push(e));
     c.render();
   });
-  ok(JSON.stringify(await tabLabels(d, ".tabs-desk")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity"]), "desktop order: Plan, Map, Ideas, Discover, Kit, Smart, Budget, Itinerary, Activity");
+  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity"]), "desktop order: Plan, Map, Ideas, Discover, Kit, Smart, Budget, Itinerary, Activity");
   ok((await d.textContent("#slotPlanTop")) === "top" && (await d.$$(".slot-dh")).length === 3 && (await d.$$(".slot-df")).length === 3, "planTop / dayHead / dayFoot slots render");
   await d.click("#helloBtn");
   ok((await d.evaluate(() => window.__hello)) === "x1", "addBar slot + registered action receive clicks");
