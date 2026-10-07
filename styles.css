@@ -697,3 +697,12 @@ dialog .bq-row .btn-s { border-radius: 99px; padding: 8px 16px; }
   dialog form { padding: 18px 18px calc(22px + env(safe-area-inset-bottom)); max-height: 88vh; }
   dialog::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 9px; background: var(--line); margin: 10px auto 0; }
 }
+
+/* Friends: invite link, members, iPhone tip */
+.members li { margin: 4px 0; }
+.members .btn-s { margin-left: 6px; padding: 2px 8px; }
+.join-sec { margin: 14px 0 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.join-sec h4 { margin: 0 0 4px; }
+.join-url { width: 100%; font-size: 13px; }
+.join-note { background: var(--accent-soft, rgba(0,0,0,.05)); border-radius: 10px; padding: 8px 12px; }
+.ios-tip { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin: 10px 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card, var(--bg)); font-size: 14px; }

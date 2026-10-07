@@ -43,6 +43,8 @@ const append = (tok, entries, extra = []) => commit([{ transform: { document: `$
   { fieldPath: "inbox", appendMissingElements: { values: entries.map((e) => val(e)) } }, { fieldPath: "inboxAt", setToServerValue: "REQUEST_TIME" }, ...extra] }, currentDocument: { exists: true } }]);
 
 const alice = await signIn("alice@example.com"), bob = await signIn("bob@example.com"), eve = await signIn("eve@example.com");
+// Claude links are for AI users (an aiUsers doc, made by hand in the console). The emulator's "owner" token bypasses the rules to seed them.
+for (const e of ["alice@example.com", "bob@example.com", "eve@example.com"]) await create("aiUsers", e, { on: true }, "owner");
 await create("trips", "T1", { name: "Rome", owner: "alice@example.com", members: ["alice@example.com"] }, alice);
 await patch("trips/T1", { members: ["alice@example.com", "bob@example.com"] }, alice);
 await create("trips", "T2", { name: "Other", owner: "eve@example.com", members: ["eve@example.com"] }, eve);

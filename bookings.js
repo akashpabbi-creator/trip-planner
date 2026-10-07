@@ -465,7 +465,7 @@ export function init(ctx) {
   });
   ctx.action("bkStay", (btn, id) => { const b = (S.trip.bookings || []).find((x) => x.id === id); if (b) offerStay(b); });
   ctx.action("bkEmail", () => {
-    const gem = !!S.trip.ai?.key && !geminiWait();
+    const gem = !!ctx.aiKey() && !geminiWait();
     modal(`<h3>🎫 Add from an email</h3>
       <p class="muted small">Paste the confirmation email (flight, hotel, train, tickets). ${gem ? "Gemini reads it" : "I read it myself"}, then you check the details before anything is saved.</p>
       <textarea name="text" rows="9" required placeholder="Paste the email text here"></textarea>`,
@@ -474,7 +474,7 @@ export function init(ctx) {
         if (text.length < 20) { toast("Paste the whole email first."); return false; }
         let found = [], via = "";
         if (gem) {
-          try { found = await readBooking(S.trip.ai.key, text, S.trip); via = "Gemini"; } catch (e) { console.warn("gemini booking", e); if (e instanceof QuotaError) toast(e.message, 5000); }
+          try { found = await readBooking(ctx.aiKey(), text, S.trip); via = "Gemini"; } catch (e) { console.warn("gemini booking", e); if (e instanceof QuotaError) toast(e.message, 5000); }
         }
         if (!found.length) { found = [parseBookingText(text, S.trip)]; via = "rules"; }
         found.forEach((b) => (b.got ??= ["ref", "start", "end", "cost"].filter((k) => b[k]).length + (b.title ? 1 : 0)));

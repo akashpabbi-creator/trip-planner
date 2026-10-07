@@ -218,10 +218,16 @@ function openTrip(id) {
         goHome();
         return;
       }
+      if (t.members && !t.members.includes(S.me.email)) { // removed from the trip (the demo has no rules to refuse the read)
+        toast("You're no longer on this trip.");
+        goHome();
+        return;
+      }
       S.trip = { days: [], members: [], memberNames: {}, ...t };
       render();
       emit("trip", S.trip);
       ensureDestination();
+      migrateAi();
     }, (e) => {
       toast("No access to this trip.");
       console.error(e);
@@ -240,7 +246,7 @@ function openTrip(id) {
       emit("items", items);
       setTimeout(() => { S.flash.clear(); }, 2500);
       // New restaurants get a vegetarian check from Gemini a few seconds after they appear.
-      if (S.trip?.ai?.key && items.some((x) => x.category === "food" && x.vegSource !== "gemini" && !S.vegTried.has(x.id))) {
+      if (ctx.aiKey() && items.some((x) => x.category === "food" && x.vegSource !== "gemini" && !S.vegTried.has(x.id))) {
         clearTimeout(S.vegTimer);
         S.vegTimer = setTimeout(() => verifyVeg({ quiet: true }), 4000);
       }
@@ -267,7 +273,7 @@ function render() {
   const a = document.activeElement;
   const keep = a && a.id && $app.contains(a) ? { id: a.id, v: a.value, s: a.selectionStart, e: a.selectionEnd } : null;
   const scroll = window.scrollY;
-  $app.innerHTML = !S.me ? viewSignIn() : S.tripId && S.trip ? viewTrip() : S.tripId ? `<div class="loading">Opening trip…</div>` : viewHome();
+  $app.innerHTML = (S.me ? iosTip() : "") + (!S.me ? viewSignIn() : S.tripId && S.trip ? viewTrip() : S.tripId ? `<div class="loading">Opening trip…</div>` : viewHome());
   if (keep) {
     const el = document.getElementById(keep.id);
     if (el) {
@@ -346,6 +352,7 @@ function viewSignIn() {
     <div class="w-art">🧭</div>
     <h1>Plan the trip together.</h1>
     <p>Save places from Instagram, Facebook or any website, drop them onto days, and see each other's changes as they happen.</p>
+    ${pendingJoin() ? `<p class="join-note"><b>You've been invited to a trip.</b> ${demo ? "Start" : "Sign in"} to join it.</p>` : ""}
     ${demo
       ? `<div class="demo-note"><b>Demo mode.</b> Firebase isn't connected yet, so everything stays in this browser. Open a second tab with a different name to try editing together.</div>
          <div class="row"><input id="demoName" placeholder="Your name" autocomplete="name"><button class="primary" data-action="signin">Start</button></div>`
@@ -500,14 +507,14 @@ function viewNav(tabs, cur, counts) {
   const rest = tabs.filter((x) => x.more);
   const moreN = rest.filter((x) => x.warn).reduce((s, x) => s + counts.get(x.id), 0);
   const moreOn = S.moreOpen || rest.some((x) => x.id === cur?.id);
-  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button></nav>
+  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}${S.aiUser ? `<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button>` : ""}</nav>
     <nav class="tabs tabs-bar">${tabs.filter((x) => !x.more).map(btn).join("")}
       <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">${NAV_SVG.more}</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
     </nav>
     ${S.moreOpen ? `<div class="more-back" data-action="moreClose"></div>
     <div class="more-sheet" role="menu">
       ${rest.map((x) => { const n = counts.get(x.id); return `<button class="${cur?.id === x.id ? "on" : ""}" role="menuitem" data-action="tab" data-tab="${x.id}"><span class="t-ic">${x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`; }).join("")}
-      <button role="menuitem" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button>
+      ${S.aiUser ? `<button role="menuitem" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button>` : ""}
     </div>` : ""}`;
 }
 function runView(tab) {
@@ -528,7 +535,7 @@ function viewAddLink() {
     <div class="add-sheet" role="dialog" aria-label="Add to the trip">
       <div class="grab"></div>
       <h3>Add to the trip</h3>
-      <p class="muted small">Links, screenshots and tips all land in Ideas, or straight onto a day.</p>
+      <p class="muted small">${S.aiUser ? "Links, screenshots and tips" : "Links and places"} all land in Ideas, or straight onto a day.</p>
       <div class="as-grid">
         <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-sub="Use the copied link">📋</button>
         <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-sub="Add a place by name">📍</button>
@@ -545,9 +552,10 @@ function directionsUrl(it) {
 }
 // Who suggested a stop that came from a helper, not typed or shared by one of us.
 function suggestedFrom(it) {
-  if (it.suggestedBy === "ai") return it.aiSource || (it.siteName === "Claude" ? "Claude" : "Gemini");
+  const ai = (n) => (S.aiUser ? n : "the planner"); // friends don't see Gemini or Claude
+  if (it.suggestedBy === "ai") return ai(it.aiSource || (it.siteName === "Claude" ? "Claude" : "Gemini"));
   if (it.suggestedBy) return "the travel guide";
-  return it.via === "Claude" || it.via === "Gemini" ? it.via : "";
+  return it.via === "Claude" || it.via === "Gemini" ? ai(it.via) : "";
 }
 function card(it, opts = {}) {
   const cat = CATEGORIES[it.category] || CATEGORIES.other;
@@ -619,15 +627,15 @@ function viewPlan() {
   return `
     ${slot("planToday")}
     <div class="asst">
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${esc(t.proposal.source || "Gemini")} drafted a plan for your days</span><b>Review</b></button>` : ""}
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
     ${S.planning && !t.proposal ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
     ${checkBox}
     ${!t.proposal && !S.planning && t.days.some((d) => !dayItems(d.id).length) ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>
       <button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days</button>
-      ${t.ai?.key ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
-      <button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button></div>` : ""}
+      ${ctx.aiKey() ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
+      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button>` : ""}</div>` : ""}
     ${lead !== "smart" ? smart : ""}
     </div>
     <div class="days">
@@ -877,13 +885,13 @@ function planInputs(t) {
 // Gemini drafts the trip; the rules check it; every place is found on the map; the result waits on the trip as a proposal.
 async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
   const t = S.trip;
-  if (!t.ai?.key) return toast("Connect Gemini on the Discover tab first.");
+  if (!ctx.aiKey()) return toast("Connect Gemini on the Discover tab first.");
   if (S.planning) return;
   S.planning = "Gemini is planning the days…";
   render();
   try {
     const { p, opts } = planInputs(t);
-    const draft = await planTrip(t.ai.key, t, profileText(p), opts);
+    const draft = await planTrip(ctx.aiKey(), t, profileText(p), opts);
     await finishDraft(tripId, draft, "Gemini", { quiet });
   } catch (e) {
     console.warn(e);
@@ -949,6 +957,7 @@ async function finishDraft(tripId, draft, source, { quiet = false } = {}) {
     if (!quiet) setTimeout(openProposal, 300);
     else toast(`${source} drafted a plan for your days. Open it from the Plan tab to review.`, 6000);
 }
+const planWho = (pr) => (S.aiUser ? `${pr?.source || "Gemini"}'s plan` : "the drafted plan");
 function openProposal() {
   const t = S.trip, pr = t.proposal;
   if (!pr) return;
@@ -956,15 +965,15 @@ function openProposal() {
   const day = (i) => pr.plan.filter((x) => x.dayIndex === i).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
   const row = (x) => x.kind === "rest" ? `<li class="muted"><b>${esc(x.time || "")}</b> ☕ Rest &amp; recharge${x.note ? ` <span class="small">· ${esc(x.note)}</span>` : ""}</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
   const ideas = pr.plan.filter((x) => x.dayIndex == null);
-  openModal(`<h3>🤖 ${esc(pr.source || "Gemini")}'s plan for ${esc(t.destination)}</h3>
-    <p class="muted small">Drafted by ${esc(pr.source || "Gemini")} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
+  openModal(`<h3>🤖 ${S.aiUser ? esc(pr.source || "Gemini") + "'s plan" : "Drafted plan"} for ${esc(t.destination)}</h3>
+    <p class="muted small">Drafted${S.aiUser ? " by " + esc(pr.source || "Gemini") : ""} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
     ${pr.summary ? `<p>${esc(pr.summary)}</p>` : ""}
     ${pr.notes?.length ? `<div class="checks">${pr.notes.map((n) => `<div class="check info">${esc(n)}</div>`).join("")}</div>` : ""}
     <div class="proposal">${t.days.map((d, i) => `<section class="day"><header class="day-head"><div><div class="day-n">Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}</div>${pr.bases?.find((b) => b.dayIndex === i) ? `<div class="day-title muted">staying in ${esc(pr.bases.find((b) => b.dayIndex === i).base)}</div>` : ""}</div>
       ${done.has(i) ? `<span class="muted small">✓ In your plan</span>` : `<button type="button" class="btn-s" data-action="acceptDay" data-day="${i}">Use this day</button>`}</header>
       <ul class="prop-list">${day(i).map(row).join("") || `<li class="muted">Nothing planned.</li>`}</ul></section>`).join("")}</div>
     ${ideas.length ? `<p class="muted small">Also goes to Ideas: ${ideas.map((x) => esc(x.listing.name)).join(", ")}</p>` : ""}
-    <div class="row"><button type="button" class="btn-s" data-action="regenPlan">🔁 Try again</button><button type="button" class="btn-s" data-action="dropPlan">Discard this draft</button></div>`, () => acceptProposal(t.days.map((_, i) => i).filter((i) => !done.has(i))));
+    <div class="row">${S.aiUser ? `<button type="button" class="btn-s" data-action="regenPlan">🔁 Try again</button>` : ""}<button type="button" class="btn-s" data-action="dropPlan">Discard this draft</button></div>`, () => acceptProposal(t.days.map((_, i) => i).filter((i) => !done.has(i))));
   const ok = $form.querySelector("button[value=ok]");
   if (ok) ok.textContent = "Use the whole plan";
 }
@@ -983,8 +992,8 @@ async function acceptProposal(dayIdxs) {
   if (bases.length) await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = bases.find((x) => x.dayIndex === i); return b ? { ...d, base: b.base } : d; }), ...stampMe() }));
   const done = [...new Set([...(pr.done || []), ...dayIdxs])];
   await S.store.updateTrip(tripId, { proposal: done.length >= t.days.length ? null : { ...pr, done }, ...stampMe() });
-  await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `used ${t.proposal?.source || "Gemini"}'s plan for ${dayIdxs.length === t.days.length ? "every day" : dayIdxs.map((i) => "Day " + (i + 1)).join(", ")} (${n} stops)` });
-  toast(`${t.proposal?.source || "Gemini"}'s plan is on ${dayIdxs.length === 1 ? "Day " + (dayIdxs[0] + 1) : dayIdxs.length + " days"}.`);
+  await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `used ${planWho(t.proposal)} for ${dayIdxs.length === t.days.length ? "every day" : dayIdxs.map((i) => "Day " + (i + 1)).join(", ")} (${n} stops)` });
+  toast(`${planWho(t.proposal)[0].toUpperCase() + planWho(t.proposal).slice(1)} is on ${dayIdxs.length === 1 ? "Day " + (dayIdxs[0] + 1) : dayIdxs.length + " days"}.`);
 }
 // Takes out the sample plan nobody has touched and builds it again from the current guide.
 // Your own links go back on the best days; pages that were only a bot check are read again.
@@ -1073,12 +1082,12 @@ function viewDiscover() {
     ${prefsCard()}
     <div class="chips">${filters.map(([k, l]) => `<button class="chip ${f === k ? "on" : ""}" data-action="discFilter" data-id="${k}">${l}</button>`).join("")}</div>
 
-    <section class="d-sec">
+    ${S.aiUser ? `<section class="d-sec">
       <div class="d-head"><h3>✨ Top rated, picked by ${esc(t.aiPicks?.for === t.destination && t.aiPicks.source || "Gemini")}</h3>
-        ${t.ai?.key ? `<button class="btn-s" data-action="aiPicks" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "picks" ? "Searching…" : picks.length ? "Refresh" : "Find top-rated picks"}</button>` : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
+        ${ctx.aiKey() ? `<button class="btn-s" data-action="aiPicks" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "picks" ? "Searching…" : picks.length ? "Refresh" : "Find top-rated picks"}</button>` : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
       ${picks.length ? `<div class="dgrid">${picks.map(([x, i]) => discoverCard(x, "ai", i)).join("")}</div>`
-        : `<p class="muted small">${t.ai?.key ? "Gemini searches Google for the best-reviewed places, with ratings." : "Connect a free Gemini key to get top-rated restaurants, sights and hotels with Google ratings."}</p>`}
-    </section>
+        : `<p class="muted small">${ctx.aiKey() ? "Gemini searches Google for the best-reviewed places, with ratings." : "Connect a free Gemini key to get top-rated restaurants, sights and hotels with Google ratings."}</p>`}
+    </section>` : ""}
 
     <section class="d-sec">
       <div class="d-head"><h3>📖 Travel guide picks</h3><button class="btn-s" data-action="refreshDest" ${loading ? "disabled" : ""}>${loading ? "Loading…" : "Refresh"}</button></div>
@@ -1106,9 +1115,9 @@ function prefsCard() {
     </ul>
     ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
     ${anyEmpty ? `<button class="primary btn-s" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
-    ${t.ai?.key ? `<button class="primary btn-s" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? `🤖 Review ${esc(t.proposal.source || "Gemini")}'s plan` : "🤖 Ask Gemini to plan the days"}</button>` : ""}
-    <button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}>🟠 Plan with Claude</button>
-    ${t.ai?.key && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
+    ${ctx.aiKey() ? `<button class="primary btn-s" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? `🤖 Review ${esc(t.proposal.source || "Gemini")}'s plan` : "🤖 Ask Gemini to plan the days"}</button>` : ""}
+    ${S.aiUser ? `<button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}>🟠 Plan with Claude</button>` : ""}
+    ${ctx.aiKey() && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
     ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>
       <button class="btn-s" data-action="clearSample">🧹 Clear the sample stops</button>` : ""}
   </section>`;
@@ -1117,7 +1126,7 @@ function editProfile() {
   const p = profileOf(S.trip);
   const ta = (name, label) => `<label>${label}<textarea name="${name}" rows="2">${esc(p[name])}</textarea></label>`;
   openModal(`<h3>💚 Our preferences</h3>
-    <p class="muted small">Used for the sample itinerary, Gemini's picks and reviews, and the plan checks. Both of you can change these.</p>
+    <p class="muted small">Used for the sample itinerary${S.aiUser ? ", Gemini's picks and reviews," : ""} and the plan checks. Everyone on the trip can change these.</p>
     <label>Pace<select name="pace">${[["auto", "Pick per destination (cities full, beaches and hills slow)"], ["dense", "Full days"], ["slow", "Slow"]].map(([v, l]) => `<option value="${v}" ${p.pace === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
     <label>Home city (for flight price links)<input name="home" value="${esc(p.home || "")}" placeholder="e.g. Mumbai" autocomplete="off"></label>
     ${ta("diet", "Food we eat")}${ta("food", "Where we like to eat")}${ta("stays", "Stays")}${ta("interests", "Interests")}
@@ -1133,7 +1142,8 @@ function editProfile() {
 
 /* ---------------------------------------------------------------------- AI */
 function aiSettings() {
-  const cur = S.trip.ai || {};
+  if (!S.aiUser) return;
+  const cur = S.priv?.ai || {};
   openModal(`<h3>✨ Connect Gemini</h3>
     <p class="muted small">Gemini gives top-rated picks with Google ratings and an expert review of your plan. It needs a free API key. Your Gemini app subscription isn't used for this; the free key is separate and costs nothing.</p>
     <ol class="steps small">
@@ -1142,21 +1152,22 @@ function aiSettings() {
       <li>Paste it below.</li>
     </ol>
     <label>Gemini API key<input name="key" type="password" autocomplete="off" value="${esc(cur.key || "")}" placeholder="AIza…"></label>
-    <p class="muted small">The key is saved on this trip, so only people on the trip can use or see it.</p>
+    <p class="muted small">The key is saved to your account only. Other people on the trip can\'t see or use it.</p>
     ${cur.key ? `<button type="button" class="danger link" data-rmkey>Remove key</button>` : ""}`,
     async (f) => {
       const key = f.key.trim();
       if (!key) return false;
       toast("Checking the key…");
       const model = await testKey(key);
-      await S.store.updateTrip(S.tripId, { ai: { key, model }, ...stampMe() });
+      await S.store.updatePrivate(S.me.email, { ai: { key, model } });
       await log("connected Gemini");
       toast("Gemini connected.");
       setTimeout(() => verifyVeg({ quiet: false }), 500);
     });
   $form.querySelector("[data-rmkey]")?.addEventListener("click", async () => {
     $modal.close();
-    await S.store.updateTrip(S.tripId, { ai: null, aiPicks: null });
+    await S.store.updatePrivate(S.me.email, { ai: null });
+    await S.store.updateTrip(S.tripId, { aiPicks: null });
     await log("disconnected Gemini");
   });
 }
@@ -1164,7 +1175,7 @@ async function runAiPicks() {
   S.aiBusy = "picks";
   render();
   try {
-    const items = await topPicks(S.trip.ai.key, S.trip, profileText(profileOf(S.trip)));
+    const items = await topPicks(ctx.aiKey(), S.trip, profileText(profileOf(S.trip)));
     await S.store.updateTrip(S.tripId, { aiPicks: { for: S.trip.destination, at: Date.now(), items } });
     await log(`asked Gemini for top-rated places (${items.length} found)`);
   } catch (e) {
@@ -1201,7 +1212,7 @@ async function runAiReview() {
   S.aiBusy = "review";
   render();
   try {
-    const r = await reviewPlan(S.trip.ai.key, planSnapshot(), profileText(profileOf(S.trip)));
+    const r = await reviewPlan(ctx.aiKey(), planSnapshot(), profileText(profileOf(S.trip)));
     await S.store.updateTrip(S.tripId, { aiReview: { at: Date.now(), by: S.me.email, ...r, applied: [] } });
     await log("asked Gemini to review the plan");
   } catch (e) {
@@ -1242,12 +1253,13 @@ async function applyAi(idx) {
 }
 function viewAiReview() {
   const t = S.trip;
+  if (!S.aiUser) return "";
   const r = t.aiReview;
-  const head = `<div class="d-head"><h3>🤖 ${esc(r?.source || "Gemini")} review</h3>${t.ai?.key
+  const head = `<div class="d-head"><h3>🤖 ${esc(r?.source || "Gemini")} review</h3>${ctx.aiKey()
     ? `<button class="btn-s ${r ? "" : "primary"}" data-action="aiReview" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "review" ? "Reviewing…" : r ? "Review again" : "Review our plan"}</button>`
     : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
     <p class="muted small">Using Claude? <button class="link" data-action="copyForClaude" data-id="review">Copy plan for a Claude review</button> or <button class="link" data-action="copyForClaude" data-id="drive">Copy plan to save in Google Drive</button>, then paste it in your Claude trip project.</p>`;
-  if (!r) return `<section class="ai-box">${head}<p class="muted small">${t.ai?.key ? "Gemini reads the whole plan and suggests improvements: timing, opening hours, what to add, how to get around." : "Connect a free Gemini key for an expert review of your plan in plain language."}</p></section>`;
+  if (!r) return `<section class="ai-box">${head}<p class="muted small">${ctx.aiKey() ? "Gemini reads the whole plan and suggests improvements: timing, opening hours, what to add, how to get around." : "Connect a free Gemini key for an expert review of your plan in plain language."}</p></section>`;
   return `<section class="ai-box">${head}
     <p class="ai-sum">${esc(r.summary)}</p>
     <p class="muted small">${r.source === "Claude" ? "Sent by Claude" : "Reviewed"} ${ago(r.at)}, ${r.source === "Claude" ? "for" : "asked by"} ${esc(who(r.by))}. Changes since then aren't included.</p>
@@ -1314,7 +1326,7 @@ async function runAnalyse() {
     if (found.length) await S.store.batchUpdateItems(S.tripId, found);
     const ok = found.filter(([, p]) => !p.geoFailed).length;
     toast(found.length ? `Found ${ok} of ${found.length} places on the map.` : "All places are already on the map.");
-    if (S.trip.ai?.key) {
+    if (ctx.aiKey()) {
       S.analysing = "Checking vegetarian options…";
       render();
       await verifyVeg({ quiet: false });
@@ -1329,13 +1341,13 @@ async function runAnalyse() {
 // Gemini checks the restaurants in the trip for vegetarian dishes (they don't need to be pure veg).
 async function verifyVeg({ quiet = true } = {}) {
   const t = S.trip;
-  if (!t.ai?.key || S.vegBusy || (quiet && geminiWait())) return;
+  if (!ctx.aiKey() || S.vegBusy || (quiet && geminiWait())) return;
   const todo = S.items.filter((x) => x.category === "food" && x.vegSource !== "gemini" && (!quiet || !S.vegTried.has(x.id))).slice(0, 15);
   todo.forEach((x) => S.vegTried.add(x.id));
   if (!todo.length) return quiet ? null : toast("Vegetarian options already checked for every restaurant.");
   S.vegBusy = true;
   try {
-    const res = await checkVeg(t.ai.key, t.destination, todo.map((x) => x.title));
+    const res = await checkVeg(ctx.aiKey(), t.destination, todo.map((x) => x.title));
     const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "");
     const writes = [];
     todo.forEach((it, k) => {
@@ -1440,7 +1452,6 @@ async function newTrip() {
       owner: S.me.email,
       members: [S.me.email],
       memberNames: { [S.me.email]: S.me.name },
-      ai: S.trips.find((x) => x.ai?.key)?.ai || null,
       profile: S.trips.find((x) => x.profile)?.profile || { ...DEFAULT_PROFILE },
       createdAt: now,
       ...stampMe(),
@@ -1471,17 +1482,42 @@ function editTrip() {
   $form.querySelector("[data-action=deleteTrip]")?.addEventListener("click", async () => {
     if (!confirm("Delete this trip for everyone? This can't be undone.")) return;
     $modal.close();
-    const id = S.tripId;
+    const id = S.tripId, tok = ctx.bridgeToken();
     goHome();
-    await S.store.deleteTrip(id);
+    await S.store.deleteTrip(id, tok);
+    if (tok) await S.store.updatePrivate(S.me.email, { bridges: { [id]: null } }).catch(() => {});
     toast("Trip deleted.");
   });
 }
 
+// The invite link: `joins/{code}` points at the trip; the owner can make, share and reset it.
+const joinUrl = (code) => location.origin + location.pathname + "#join=" + code;
+function randCode() {
+  const a = new Uint8Array(24);
+  crypto.getRandomValues(a);
+  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  return [...a].map((n) => abc[n % 62]).join("");
+}
+async function makeJoin(reset) {
+  const old = S.trip.join?.code;
+  const code = randCode();
+  await S.store.createJoin(code, { tripId: S.tripId, by: S.me.email, at: Date.now() });
+  await S.store.updateTrip(S.tripId, { join: { code, at: Date.now() }, ...stampMe() });
+  if (old) await S.store.deleteJoin(old).catch(() => {});
+  await log(reset ? "made a new invite link" : "made an invite link");
+  return code;
+}
 function invite() {
-  const t = S.trip;
+  const t = S.trip, owner = t.owner === S.me.email;
+  const jc = t.join?.code;
   openModal(`<h3>Who's planning this trip</h3>
-    <ul class="members">${t.members.map((m) => `<li>${esc(nameOf(m))} <span class="muted">${esc(m)}</span>${m === t.owner ? ` <span class="tag">owner</span>` : ""}</li>`).join("")}</ul>
+    <ul class="members">${t.members.map((m) => `<li>${esc(nameOf(m))} <span class="muted">${esc(m)}</span>${m === t.owner ? ` <span class="tag">owner</span>` : ""}${owner && m !== S.me.email ? ` <button type="button" class="btn-s danger" data-action="removeMember" data-id="${esc(m)}">Remove</button>` : ""}</li>`).join("")}</ul>
+    ${owner ? "" : `<p><button type="button" class="danger link" data-action="leaveTrip">Leave this trip</button></p>`}
+    ${owner ? `<section class="join-sec"><h4>Invite link</h4>
+      <p class="muted small">Anyone with the link can join this trip after signing in. Reset it to stop the old link working.</p>
+      ${jc ? `<input class="join-url" readonly value="${esc(joinUrl(jc))}" aria-label="Invite link">
+        <div class="row"><button type="button" class="btn-s primary" data-action="joinShare">Share</button><button type="button" class="btn-s" data-action="joinCopy">Copy</button><button type="button" class="btn-s" data-action="joinReset">Reset link</button></div>`
+        : `<button type="button" class="btn-s primary" data-action="joinMake">Create invite link</button>`}</section>` : ""}
     <label>Invite by Google email${S.store.mode === "demo" ? `<input name="email" placeholder="Their name">` : `<input name="email" type="email" placeholder="partner@gmail.com" required>`}</label>
     <p class="muted small">${S.store.mode === "demo"
       ? "Demo mode: type a name, then open another tab and sign in with that same name."
@@ -1740,7 +1776,7 @@ const looksLikeText = (raw) => String(raw || "").trim().length > 40 || /\n/.test
 async function addLink(raw) {
   const url = extractUrl(raw);
   // Not a link but a lot of text (tips, a transcript): offer to find the places in it.
-  if (!url && looksLikeText(raw) && ctx.openPaste) {
+  if (!url && looksLikeText(raw) && ctx.openPaste && S.aiUser) {
     const box = document.getElementById("linkInput");
     if (box) box.value = "";
     return ctx.openPaste(raw);
@@ -1754,11 +1790,11 @@ async function addLink(raw) {
     const t = S.trip;
     let places = readLink(m, t);
     let viaAi = false;
-    if (t.ai?.key && !geminiWait()) {
+    if (ctx.aiKey() && !geminiWait()) {
       S.busy = "Gemini is reading the page…";
       render();
       try {
-        const found = await extractLink(t.ai.key, url, m, t, profileText(profileOf(t)));
+        const found = await extractLink(ctx.aiKey(), url, m, t, profileText(profileOf(t)));
         if (found.length) {
           places = found.map((p) => ({
             title: String(p.name).slice(0, 140), category: CATEGORIES[p.category] ? p.category : "sight",
@@ -1788,7 +1824,7 @@ async function addLink(raw) {
       ? days.length === 1 && placedOn.length === 1
         ? `Added “${days[0][0]}” to Day ${days[0][1].dayIndex + 1}${days[0][1].why ? ` ${days[0][1].why}` : ""}.`
         : `Added ${days.length === placedOn.length ? (days.length === 2 ? "both" : "all " + days.length) : days.length + " of " + placedOn.length} places to the plan (${[...new Set(days.map(([, w]) => "Day " + (w.dayIndex + 1)))].sort().join(", ")})${days.length < placedOn.length ? ". The rest are in Ideas" : ""}.`
-      : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : m.ok && !places[0]?.unread ? "Saved to Ideas." : `Saved to Ideas. ${m.ok ? "I couldn't find the places in that page" : "That site blocked the link reader"}${t.ai?.key ? "" : ", but connecting Gemini on Discover lets it read pages like this"}.`;
+      : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : m.ok && !places[0]?.unread ? "Saved to Ideas." : `Saved to Ideas. ${m.ok ? "I couldn't find the places in that page" : "That site blocked the link reader"}${ctx.aiKey() || !S.aiUser ? "" : ", but connecting Gemini on Discover lets it read pages like this"}.`;
     toast(msg + (viaAi ? " Read by Gemini." : ""), 5000);
     if (S.tab !== "ideas" && S.tab !== "plan") S.tab = days.length ? "plan" : "ideas";
     if (places.length === 1 && (!m.ok || !places[0].location) && !viaAi && !days.length) editItem(firstId);
@@ -1873,6 +1909,52 @@ async function placeIdea(it) {
 }
 
 // Links shared to the installed app from another app (Android share sheet) arrive as URL params.
+// An invite link (#join=code) is kept across sign-in; once signed in, joinTrip adds me to the trip it names.
+function takeJoin() {
+  const m = location.hash.match(/[#&]join=([\w-]{8,})/);
+  if (!m) return;
+  try { sessionStorage.setItem("tp-join", m[1]); } catch {}
+  history.replaceState(null, "", location.pathname + location.search);
+}
+const pendingJoin = () => { try { return sessionStorage.getItem("tp-join") || ""; } catch { return ""; } };
+async function handleJoin() {
+  const code = pendingJoin();
+  if (!code || !S.me || S.joining) return;
+  S.joining = true;
+  try {
+    sessionStorage.removeItem("tp-join");
+    const id = await S.store.joinTrip(code, S.me).catch((e) => (console.warn("join", e.message), null));
+    if (!id) return toast("This invite link has expired. Ask for a new one.", 6000);
+    await waitFor(() => S.trips.some((t) => t.id === id), 6000);
+    openTrip(id);
+    toast(`You've joined ${S.trips.find((t) => t.id === id)?.name || "the trip"}`, 4000);
+  } finally {
+    S.joining = false;
+  }
+}
+// iPhone Safari (not yet on the Home Screen): sign-in is steadier from the installed app, so say so once.
+function iosTip() {
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) && navigator.standalone !== true;
+  if (!ios || localGet("ios-tip")) return "";
+  return `<div class="ios-tip" role="note"><span>Add Trips to your Home Screen: tap Share, then Add to Home Screen. Sign in here in Safari first.</span><button type="button" class="link" data-action="iosTipClose" aria-label="Dismiss">Got it</button></div>`;
+}
+// A trip that still has the Gemini key or Claude link on it (older versions): the AI user's copy moves to their private doc, once.
+async function migrateAi() {
+  const t = S.trip;
+  if (!S.aiUser || !S.priv || !t || !(t.ai || t.bridge) || S.migrating) return;
+  S.migrating = true;
+  try {
+    const patch = {};
+    if (t.ai?.key && !S.priv.ai?.key) patch.ai = t.ai;
+    if (t.bridge?.token && !S.priv.bridges?.[t.id]?.token) patch.bridges = { [t.id]: { token: t.bridge.token, at: t.bridge.at || Date.now(), ...(t.bridge.ask ? { ask: t.bridge.ask } : {}) } };
+    if (Object.keys(patch).length) await S.store.updatePrivate(S.me.email, patch);
+    await S.store.updateTrip(t.id, { ai: null, bridge: null });
+  } catch (e) {
+    console.warn("move ai settings", e.message);
+  } finally {
+    S.migrating = false;
+  }
+}
 function takeSharedLink() {
   const p = new URLSearchParams(location.search);
   const raw = [p.get("url"), p.get("text"), p.get("title")].filter(Boolean).join(" ");
@@ -1946,6 +2028,40 @@ document.addEventListener("click", async (e) => {
       case "open": return openTrip(id);
       case "editTrip": return editTrip();
       case "invite": return invite();
+      case "joinMake": case "joinReset": {
+        if (a === "joinReset" && !confirm("Make a new invite link? The old one stops working.")) return;
+        await makeJoin(a === "joinReset");
+        $modal.close();
+        return setTimeout(invite, 50);
+      }
+      case "joinCopy": {
+        const url = joinUrl(S.trip.join?.code);
+        try { await navigator.clipboard.writeText(url); toast("Invite link copied."); } catch { $form.querySelector(".join-url")?.select(); toast("Press copy on the selected link."); }
+        return;
+      }
+      case "joinShare": {
+        const url = joinUrl(S.trip.join?.code), text = `Join our trip ${S.trip.name}: ${url}`;
+        if (navigator.share) { try { await navigator.share({ text }); } catch {} return; } // dismissing the share sheet throws
+        try { await navigator.clipboard.writeText(text); toast("Invite link copied."); } catch { toast(url, 8000); }
+        return;
+      }
+      case "removeMember": {
+        if (!confirm(`Remove ${nameOf(id)} from this trip?`)) return;
+        await S.store.txTrip(S.tripId, (cur) => ({ members: (cur.members || []).filter((m) => m !== id), ...stampMe() }));
+        await log(`removed ${id} from the trip`);
+        $modal.close();
+        return setTimeout(invite, 50);
+      }
+      case "leaveTrip": {
+        if (!confirm(`Leave “${S.trip.name}”? You'll need a new invite to come back.`)) return;
+        const tid = S.tripId, me = S.me.email;
+        await log("left the trip");
+        $modal.close();
+        goHome();
+        await S.store.txTrip(tid, (cur) => ({ members: (cur.members || []).filter((m) => m !== me) }));
+        return toast("You left the trip.");
+      }
+      case "iosTipClose": localSet("ios-tip", "1"); return render();
       case "tab":
         S.tab = b.dataset.tab;
         S.moreOpen = false;
@@ -2016,7 +2132,7 @@ document.addEventListener("click", async (e) => {
         await acceptProposal([Number(b.dataset.day)]);
         return S.trip.proposal ? setTimeout(openProposal, 400) : null;
       }
-      case "regenPlan": { const src = S.trip.proposal?.source; $modal.close(); await S.store.updateTrip(S.tripId, { proposal: null }); return src === "Claude" || !S.trip.ai?.key ? claudePlan() : geminiPlan(); }
+      case "regenPlan": { const src = S.trip.proposal?.source; $modal.close(); await S.store.updateTrip(S.tripId, { proposal: null }); return src === "Claude" || !ctx.aiKey() ? claudePlan() : geminiPlan(); }
       case "dropPlan": $modal.close(); return S.store.updateTrip(S.tripId, { proposal: null, ...stampMe() });
       case "rebuildSample": return rebuildSample();
       case "clearSample": return clearSample();
@@ -2035,7 +2151,7 @@ document.addEventListener("click", async (e) => {
       case "aiReview": return runAiReview();
       case "aiApply": return applyAi(+id);
       case "copyForClaude": {
-        if (id === "review" && S.trip.bridge?.token) return ctx.openClaude("Review our plan");
+        if (id === "review" && ctx.bridgeToken()) return ctx.openClaude("Review our plan");
         const ask = id === "drive"
           ? `This is our final plan for ${S.trip.destination || "our trip"}. Use the Trip Sheet (travel-itinerary-planner) skill to turn it into a Trip Sheet, and file it in my Google Drive under Travel - Sanj_Akash with the usual folder naming. Keep our choices; fill in real times, legs, costs and bookings.`
           : `Please review our trip plan for ${S.trip.destination || "our trip"}. Check pacing, opening hours and best times, how we get between places (car, train, taxi, walking), must-dos, balance between what each of us wanted, budget and anything missing. Tell us exactly what to change, by day.`;
@@ -2090,7 +2206,7 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("paste", (e) => {
   if (e.target.id !== "linkInput") return;
   const txt = e.clipboardData?.getData("text");
-  if (!extractUrl(txt) && looksLikeText(txt) && ctx.openPaste) { // the link box would flatten it to one line
+  if (!extractUrl(txt) && looksLikeText(txt) && ctx.openPaste && S.aiUser) { // the link box would flatten it to one line
     e.preventDefault();
     return ctx.openPaste(txt);
   }
@@ -2113,6 +2229,11 @@ const ctx = {
   untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
   CATEGORIES, MODES, CURRENCIES,
   today, directionsUrl,
+  // Gemini and Claude belong to AI users only; their key and Claude link live in the private doc, never on the trip.
+  aiKey: () => (S.aiUser ? S.priv?.ai?.key || "" : ""),
+  bridgeToken: () => (S.aiUser ? S.priv?.bridges?.[S.tripId]?.token || "" : ""),
+  bridgeAsk: () => (S.aiUser ? S.priv?.bridges?.[S.tripId]?.ask || null : null),
+  setBridgeAsk: (ask) => void S.store.updatePrivate(S.me.email, { bridges: { [S.tripId]: { ask } } }).catch((e) => toast("Couldn't save the request: " + e.message)), // local state updates at once; no need to wait for the server
   // Registries.
   tab: (def) => {
     const i = REG.tabs.findIndex((x) => x.id === def.id);
@@ -2142,6 +2263,7 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
 /* -------------------------------------------------------------------- boot */
 (async function boot() {
   takeSharedLink();
+  takeJoin();
   try {
     S.store = await createStore();
   } catch (e) {
@@ -2150,10 +2272,14 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
   }
   S.store.onSync?.((st) => { S.sync = st; renderSync(); });
   S.store.onWriteError?.((e) => toast("A change didn't save: " + e.message, 6000));
-  let tripsUnsub = null;
+  let tripsUnsub = null, privUnsub = null;
   S.store.onUser((u) => {
     S.me = u;
     tripsUnsub?.();
+    privUnsub?.();
+    privUnsub = null;
+    S.aiUser = false;
+    S.priv = null;
     if (!u) {
       stopTrip();
       S.tripId = null;
@@ -2177,6 +2303,14 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
       console.error(e);
       toast("Couldn't load trips: " + e.message);
     });
+    // Only accounts with an aiUsers doc get Gemini and Claude.
+    S.store.aiUser(u.email).then((yes) => {
+      if (S.me?.email !== u.email || !yes) return;
+      S.aiUser = true;
+      privUnsub = S.store.watchPrivate(u.email, (p) => { S.priv = p || {}; emit("priv"); migrateAi(); render(); });
+      render();
+    }).catch(() => {});
+    handleJoin();
     render();
   });
   if ("serviceWorker" in navigator && location.protocol === "https:") {

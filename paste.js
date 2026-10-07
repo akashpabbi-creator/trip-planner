@@ -46,14 +46,15 @@ export function init(ctx) {
   document.head.append(Object.assign(document.createElement("style"), { id: "css-paste", textContent: CSS }));
   let working = false;
 
-  const canGemini = () => !!S.trip?.ai?.key && !geminiWait();
+  const canGemini = () => !!ctx.aiKey() && !geminiWait();
   const field = () => document.getElementById("pasteText");
   const readText = () => (field()?.value || "").trim().slice(0, MAX_CHARS);
 
   // A small sheet in the shared dialog (no Save button: the two buttons are the choices).
   function openPaste(prefill = "") {
     if (!S.trip) return toast("Open a trip first.");
-    const gem = !!S.trip.ai?.key;
+    if (!S.aiUser) return;
+    const gem = !!ctx.aiKey();
     ctx.$form.innerHTML = `<h3>📝 Find places in text</h3>
       <label>Text<textarea id="pasteText" class="pst-text" maxlength="${MAX_CHARS}" placeholder="WhatsApp tips, a video transcript, a blog post or someone's itinerary">${esc(prefill.slice(0, MAX_CHARS))}</textarea></label>
       <p class="muted small">The text goes to Gemini (or Claude) once and isn't saved. You review every place before anything is added.</p>
@@ -81,7 +82,7 @@ export function init(ctx) {
     ctx.$form.querySelectorAll("button").forEach((b) => (b.disabled = true));
     if (line) { line.hidden = false; line.textContent = "⏳ Gemini is reading it…"; }
     try {
-      const r = await placesFromText(S.trip.ai.key, text, ctx);
+      const r = await placesFromText(ctx.aiKey(), text, ctx);
       if (!r.ops.length) {
         toast("I couldn't find any new places in that text.", 5000);
         return;
@@ -113,7 +114,7 @@ export function init(ctx) {
     });
   }
 
-  ctx.slot("addBar", () => `<button class="icon" data-action="pasteOpen" title="Paste tips or a transcript" aria-label="Paste tips or a transcript" data-label="Paste tips or text" data-sub="A blog, a chat, a transcript">📝</button>`);
+  ctx.slot("addBar", () => !S.aiUser ? "" : `<button class="icon" data-action="pasteOpen" title="Paste tips or a transcript" aria-label="Paste tips or a transcript" data-label="Paste tips or text" data-sub="A blog, a chat, a transcript">📝</button>`);
   ctx.openPaste = openPaste;
   ctx.action("pasteOpen", () => openPaste());
   ctx.action("pasteGemini", findWithGemini);

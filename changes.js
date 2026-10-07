@@ -199,6 +199,8 @@ export async function applyOp(op, { source = "" } = {}) {
 }
 
 /* -------------------------------------------------------------- proposals */
+// Gemini and Claude are named only for people who have them; everyone else sees a neutral label.
+const lbl = (c) => (ctx.S.aiUser || !/^(Gemini|Claude)$/.test(c.source) ? c.source : "");
 // Stores a change proposal on the trip (one at a time). Called with Gemini's or Claude's answer.
 export async function proposeChanges({ source, request = "", summary = "", ops }) {
   const clean = cleanOps(ops);
@@ -207,9 +209,9 @@ export async function proposeChanges({ source, request = "", summary = "", ops }
   const had = pending().length;
   await S.store.updateTrip(S.tripId, {
     changes: { at: Date.now(), by: S.me.email, byName: S.me.name, source, request: str(request, 300), summary: str(summary, 500), ops: clean, applied: [], skipped: [] },
-    ...(source === "Claude" && S.trip.bridge?.ask ? { bridge: { ...S.trip.bridge, ask: null } } : {}),
     ...ctx.stampMe(),
   });
+  if (source === "Claude" && ctx.bridgeAsk?.()) ctx.setBridgeAsk(null);
   const n = `${clean.length} change${clean.length > 1 ? "s" : ""}`;
   await ctx.log(source === "Shuffle" ? `shuffled a day: ${n} to review${request ? " (" + str(request, 80) + ")" : ""}` : `${source === "Claude" ? "Claude suggested" : "asked " + source + " for"} ${n}${request ? ": " + str(request, 80) : ""}`);
   return { count: clean.length, replaced: had > 0 };
@@ -259,12 +261,12 @@ let busy = "";
 async function askGemini() {
   const { S } = ctx, t = S.trip, request = draft.trim();
   if (!request) return ctx.toast("Type what you'd like changed first.");
-  if (!t.ai?.key) return ctx.toast("Connect Gemini on the Discover tab, or ask Claude.");
+  if (!ctx.aiKey()) return ctx.toast("Connect Gemini on the Discover tab, or ask Claude.");
   if (busy) return;
   busy = "Gemini is working on it…";
   ctx.render();
   try {
-    const r = await changePlan(t.ai.key, ctx.planSnapshot(), request, ctx.profileText(ctx.profileOf(t)));
+    const r = await changePlan(ctx.aiKey(), ctx.planSnapshot(), request, ctx.profileText(ctx.profileOf(t)));
     const res = await proposeChanges({ source: "Gemini", request, summary: r.summary, ops: r.ops });
     draft = "";
     ctx.toast(`Gemini suggests ${res.count} change${res.count > 1 ? "s" : ""}. Review them on the Plan tab.`, 5000);
@@ -289,8 +291,8 @@ function claudeRequest(request, { text = "", lead = "", extra = "" } = {}) {
 // Asks Claude for a `changes` block. `request` is the short line shown in the app; `onDone` runs once the request is sent or the answer is in.
 export async function askClaudeFor(request, { text = "", lead = "", extra = "", onDone, retried = false } = {}) {
   const { S } = ctx, t = S.trip;
-  if (t.bridge?.token) {
-    await S.store.txTrip(S.tripId, (cur) => ({ bridge: { ...cur.bridge, ask: { request: str(request, 300), ...(text ? { text: str(text, 8000) } : {}), at: Date.now(), by: S.me.name } }, ...ctx.stampMe() }));
+  if (ctx.bridgeToken()) {
+    ctx.setBridgeAsk({ request: str(request, 300), ...(text ? { text: str(text, 8000) } : {}), at: Date.now(), by: S.me.name });
     ctx.bridgeSyncNow?.();
     onDone?.();
     ctx.render();
@@ -324,7 +326,7 @@ function askClaude() {
 export function openChanges() {
   const { S, esc } = ctx, c = S.trip.changes;
   if (!c) return;
-  ctx.openModal(`<h3>💬 ${esc(c.source)}'s suggested changes</h3>
+  ctx.openModal(`<h3>💬 ${lbl(c) ? esc(lbl(c)) + "'s suggested" : "Suggested"} changes</h3>
     <div id="chgHead"></div><div id="chgList"></div>
     <div class="row"><button type="button" class="btn-s" data-action="chgDiscard">Discard all</button></div>`, async () => {
     await applyAll();
@@ -353,7 +355,7 @@ function paintChanges() {
 async function applyOne(i) {
   const c = ctx.S.trip.changes, op = c?.ops[i];
   if (!op) return;
-  const r = await applyOp(op, { source: c.source });
+  const r = await applyOp(op, { source: lbl(c) });
   if (r.ok) await mark("applied", [i]);
   else { ctx.toast(r.note, 5000); await mark("skipped", [i]); }
   if (r.ok && r.note) ctx.toast(r.note);
@@ -365,7 +367,7 @@ async function applyAll() {
   const notes = [];
   const todo = pending();
   for (const [k, { op, i }] of todo.entries()) {
-    const r = await applyOp(op, { source: c.source });
+    const r = await applyOp(op, { source: lbl(c) });
     if (r.ok) { n++; await mark("applied", [i]); }
     else { notes.push(r.note); await mark("skipped", [i]); }
     if (k < todo.length - 1) await new Promise((r2) => setTimeout(r2, 150)); // let the stop list catch up before the next change reads it
@@ -390,13 +392,14 @@ const CSS = `
 `;
 function box() {
   const { S, esc } = ctx, t = S.trip;
-  const gem = t.ai?.key;
+  if (!S.aiUser) return "";
+  const gem = ctx.aiKey();
   return `<div class="chg ${draft ? "open" : ""}">
     <input id="changeInput" class="chg-in" type="text" autocomplete="off" placeholder="Ask for a change… e.g. make Day 2 slower" value="${esc(draft)}" ${busy ? "disabled" : ""}>
     <div class="chg-btns">
       ${gem ? `<button type="button" class="btn-s primary" data-action="chgGemini" ${busy || geminiWait() ? "disabled" : ""}>Ask Gemini</button>` : ""}
       <button type="button" class="btn-s ${gem ? "" : "primary"}" data-action="chgClaude" ${busy ? "disabled" : ""}>Ask Claude</button>
-      ${t.bridge?.ask ? `<span class="muted small">Waiting for Claude: “${esc(t.bridge.ask.request)}”</span>` : ""}
+      ${ctx.bridgeAsk() ? `<span class="muted small">Waiting for Claude: “${esc(ctx.bridgeAsk().request)}”</span>` : ""}
     </div>
     ${busy ? `<p class="muted small chg-note">⏳ ${esc(busy)}</p>` : ""}
   </div>`;
@@ -406,7 +409,7 @@ function banner() {
   if (!c) return "";
   const n = pending().length;
   if (!n) return "";
-  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(c.source)} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}</span><b>Review</b></button>`;
+  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(lbl(c) || ctx.firstName(c.byName) || "Someone")} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}</span><b>Review</b></button>`;
 }
 
 export function init(c) {
@@ -419,6 +422,7 @@ export function init(c) {
   ctx.askClaudeFor = askClaudeFor;
   // Fills the "Ask for a change" line (used by Shuffle when there is nothing to swap) and puts the cursor there.
   ctx.setChangeDraft = (text) => {
+    if (!ctx.S.aiUser) return; // no ask box without Gemini or Claude
     draft = text;
     ctx.render();
     const el = document.getElementById("changeInput");
@@ -448,7 +452,8 @@ export function init(c) {
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.target.id !== "changeInput") return;
     e.preventDefault();
-    return ctx.S.trip?.ai?.key ? askGemini() : askClaude();
+    if (!ctx.S.aiUser) return;
+    return ctx.aiKey() ? askGemini() : askClaude();
   });
   // The review list stays in step when the other phone applies or skips something.
   ctx.on("trip", () => { if (document.getElementById("chgList")) paintChanges(); });

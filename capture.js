@@ -43,7 +43,7 @@ export function init(ctx) {
   document.head.append(Object.assign(document.createElement("style"), { id: "css-capture", textContent: CSS }));
   let checked = false;
 
-  const canRead = () => !!S.trip?.ai?.key && !geminiWait();
+  const canRead = () => !!ctx.aiKey() && !geminiWait();
   // A small sheet in the shared dialog (no Save button: it only explains and offers choices).
   function sheet(html) {
     ctx.$form.innerHTML = html;
@@ -52,7 +52,7 @@ export function init(ctx) {
     if (!ctx.$modal.open) ctx.$modal.showModal();
   }
   function noGemini() {
-    const limit = !!S.trip?.ai?.key;
+    const limit = !!ctx.aiKey();
     sheet(`<h3>📷 Add from a screenshot</h3>
       <p>${limit ? "Gemini's free limit is used up for now, so I can't read pictures right now." : "Reading a screenshot needs a free Gemini key, which you can connect on the Discover tab."}</p>
       <p class="muted small">Your picture is never saved anywhere. It goes to Gemini once to read the place names and is then dropped.</p>
@@ -76,7 +76,7 @@ export function init(ctx) {
     try {
       const b64 = [];
       for (const f of files) b64.push(await downscale(f));
-      const found = await readImage(t.ai.key, b64, t, ctx.profileText(ctx.profileOf(t)));
+      const found = await readImage(ctx.aiKey(), b64, t, ctx.profileText(ctx.profileOf(t)));
       const have = new Set(S.items.map((i) => (i.title || "").trim().toLowerCase()));
       const fresh = found.filter((p) => !have.has(String(p.name).trim().toLowerCase()));
       if (!found.length) return toast("I couldn't find any places in that screenshot. Try a clearer one.", 5000);
@@ -126,6 +126,7 @@ export function init(ctx) {
       if (!(await caches.has("share-inbox"))) return;
       const n = (await (await caches.open("share-inbox")).keys()).length;
       if (!n) return;
+      if (!S.aiUser) { await caches.delete("share-inbox"); return; }
       if (!canRead()) { await caches.delete("share-inbox"); return noGemini(); }
       sheet(`<h3>📷 You shared ${n > 1 ? n + " screenshots" : "a screenshot"}</h3>
         <p>Read ${n > 1 ? "them" : "it"} and add the places to “${esc(S.trip.name)}”?</p>
@@ -134,8 +135,8 @@ export function init(ctx) {
     } catch (e) { console.warn("shared pictures", e); }
   }
 
-  ctx.slot("addBar", () => `<button class="icon" data-action="capturePick" title="Add places from a screenshot" data-label="From a screenshot" data-sub="Read places off a photo">📷</button>`);
-  ctx.action("capturePick", () => (canRead() ? pick() : noGemini()));
+  ctx.slot("addBar", () => !S.aiUser ? "" : `<button class="icon" data-action="capturePick" title="Add places from a screenshot" data-label="From a screenshot" data-sub="Read places off a photo">📷</button>`);
+  ctx.action("capturePick", () => !S.aiUser ? null : (canRead() ? pick() : noGemini()));
   ctx.action("captureShared", async (btn, id) => {
     ctx.$modal.close();
     const files = await sharedFiles();
