@@ -39,7 +39,7 @@ export function cleanOp(o) {
   const out = { type };
   if (o.why) out.why = str(o.why, 240);
   const id = () => str(o.itemId ?? o.id, 80);
-  if (type === "move") Object.assign(out, { itemId: id(), toDay: Math.round(num(o.toDay)), ...(o.time ? { time: str(o.time, 8) } : {}) });
+  if (type === "move") Object.assign(out, { itemId: id(), toDay: Math.round(num(o.toDay)), ...(o.time ? { time: str(o.time, 8) } : {}), ...(typeof o.order === "number" && Number.isFinite(o.order) ? { order: o.order } : {}) }); // order: internal (Shuffle keeps a stop's place)
   else if (type === "remove") out.itemId = id();
   else if (type === "time") Object.assign(out, { itemId: id(), time: str(o.time, 8) });
   else if (type === "transport") Object.assign(out, { itemId: id(), mode: str(o.mode, 20), minutes: Math.round(num(o.minutes)), ...(o.cost != null && o.cost !== "" ? { cost: num(o.cost) } : {}) });
@@ -140,7 +140,7 @@ export async function applyOp(op, { source = "" } = {}) {
   switch (op.type) {
     case "move": {
       const id = dayId(op.toDay), time = hhmm(op.time);
-      await store.updateItem(tripId, it.id, { dayId: id, order: time ? ctx.orderForTime(id, time) : ctx.nextOrder(id), ...(time ? { time } : {}), userEdited: true, ...me });
+      await store.updateItem(tripId, it.id, { dayId: id, order: time ? ctx.orderForTime(id, time) : Number.isFinite(op.order) ? op.order : ctx.nextOrder(id), ...(time ? { time } : {}), userEdited: true, ...me });
       return done(`moved ${q(it.title)} to Day ${op.toDay}`);
     }
     case "remove":
@@ -210,7 +210,8 @@ export async function proposeChanges({ source, request = "", summary = "", ops }
     ...(source === "Claude" && S.trip.bridge?.ask ? { bridge: { ...S.trip.bridge, ask: null } } : {}),
     ...ctx.stampMe(),
   });
-  await ctx.log(`${source === "Claude" ? "Claude suggested" : "asked " + source + " for"} ${clean.length} change${clean.length > 1 ? "s" : ""}${request ? ": " + str(request, 80) : ""}`);
+  const n = `${clean.length} change${clean.length > 1 ? "s" : ""}`;
+  await ctx.log(source === "Shuffle" ? `shuffled a day: ${n} to review${request ? " (" + str(request, 80) + ")" : ""}` : `${source === "Claude" ? "Claude suggested" : "asked " + source + " for"} ${n}${request ? ": " + str(request, 80) : ""}`);
   return { count: clean.length, replaced: had > 0 };
 }
 // Changes still waiting: not applied, not skipped, and still possible.
@@ -278,42 +279,47 @@ async function askGemini() {
 }
 
 // Claude: through the Claude link when it's on (the request waits in the snapshot), otherwise copy a request to paste into Claude.
-function claudeRequest() {
-  const request = draft.trim();
-  return `Please change our trip plan: “${request}”\n\n` + changePrompt(ctx.planSnapshot(), request, ctx.profileText(ctx.profileOf(ctx.S.trip)), "Search the web for real places and opening hours.")
-    .split("\n").slice(1).join("\n") + "\n\nReply with the json block only, so it can be pasted straight back into our trip planner.";
+// `text` is anything Claude should read besides the plan (pasted tips). The link carries a capped copy of it in the request.
+let lastRequest = "";
+function claudeRequest(request, { text = "", lead = "", extra = "" } = {}) {
+  return (lead || `Please change our trip plan: “${request}”`) + "\n\n" + changePrompt(ctx.planSnapshot(), request, ctx.profileText(ctx.profileOf(ctx.S.trip)), "Search the web for real places and opening hours.")
+    .split("\n").slice(1).join("\n") + (extra ? "\n\n" + extra : "") + (text ? `\n\nThe text to use:\n<<<\n${text}\n>>>` : "")
+    + "\n\nReply with the json block only, so it can be pasted straight back into our trip planner.";
 }
-async function askClaude() {
-  const { S } = ctx, t = S.trip, request = draft.trim();
-  if (!request) return ctx.toast("Type what you'd like changed first.");
+// Asks Claude for a `changes` block. `request` is the short line shown in the app; `onDone` runs once the request is sent or the answer is in.
+export async function askClaudeFor(request, { text = "", lead = "", extra = "", onDone } = {}) {
+  const { S } = ctx, t = S.trip;
   if (t.bridge?.token) {
-    await S.store.txTrip(S.tripId, (cur) => ({ bridge: { ...cur.bridge, ask: { request: str(request, 300), at: Date.now(), by: S.me.name } }, ...ctx.stampMe() }));
+    await S.store.txTrip(S.tripId, (cur) => ({ bridge: { ...cur.bridge, ask: { request: str(request, 300), ...(text ? { text: str(text, 8000) } : {}), at: Date.now(), by: S.me.name } }, ...ctx.stampMe() }));
     ctx.bridgeSyncNow?.();
-    const text = claudeRequest();
-    navigator.clipboard?.writeText(text).catch(() => {});
-    draft = "";
+    navigator.clipboard?.writeText(claudeRequest(request, { text, lead, extra })).catch(() => {});
+    onDone?.();
     ctx.render();
     ctx.toast("Saved for Claude. In Claude, say “check my trip planner”. Claude's changes will show up here to review.", 7000);
     return;
   }
   window.open("https://claude.ai/new", "_blank", "noopener");
-  const text = claudeRequest();
-  navigator.clipboard?.writeText(text).catch(() => {});
+  lastRequest = claudeRequest(request, { text, lead, extra });
+  navigator.clipboard?.writeText(lastRequest).catch(() => {});
   ctx.openModal(`<h3>🟠 Ask Claude</h3>
-    <p class="small">The request is copied (with your plan). Paste it into a new chat in the Claude app, wait for the answer, tap <b>Copy</b> under it and paste it here.</p>
+    <p class="small">The request is copied (with your plan${text ? " and your text" : ""}). Paste it into a new chat in the Claude app, wait for the answer, tap <b>Copy</b> under it and paste it here.</p>
     <label>Claude's answer<textarea name="answer" rows="7" placeholder="Paste Claude's whole answer here" required></textarea></label>
     <p class="muted small">You'll see each change in plain words and choose which to apply. Tip: <button type="button" class="link" data-action="bridgeOpen">connect Claude</button> to skip the copying.</p>
     <p class="small"><button type="button" class="btn-s" data-action="chgCopyAgain">Copy the request again</button></p>`, async (fd) => {
     if (!ctx.bridgeIngest) return ctx.toast("Couldn't read that yet."), false;
     await ctx.bridgeIngest(fd.answer, { fromPaste: true, request });
-    draft = "";
+    onDone?.();
   });
   ctx.$form.querySelector("button[value=ok]").textContent = "Use this answer";
-  claudeRequest.last = text;
+}
+function askClaude() {
+  const request = draft.trim();
+  if (!request) return ctx.toast("Type what you'd like changed first.");
+  return askClaudeFor(request, { onDone: () => { draft = ""; } });
 }
 
 /* ----------------------------------------------------------- review modal */
-function openChanges() {
+export function openChanges() {
   const { S, esc } = ctx, c = S.trip.changes;
   if (!c) return;
   ctx.openModal(`<h3>💬 ${esc(c.source)}'s suggested changes</h3>
@@ -331,7 +337,7 @@ function paintChanges() {
   if (!c) { ctx.$modal.close(); return; }
   const done = new Set(c.applied || []), skip = new Set(c.skipped || []);
   const left = pending();
-  document.getElementById("chgHead").innerHTML = `${c.request ? `<p class="small">You asked: <b>${esc(c.request)}</b></p>` : ""}${c.summary ? `<p>${esc(c.summary)}</p>` : ""}<p class="muted small">Suggested ${ctx.ago(c.at)}. Nothing changes until you tap Apply.</p>`;
+  document.getElementById("chgHead").innerHTML = `${c.request ? `<p class="small">${c.source === "Shuffle" ? "" : "You asked: "}<b>${esc(c.request)}</b></p>` : ""}${c.summary ? `<p>${esc(c.summary)}</p>` : ""}<p class="muted small">Suggested ${ctx.ago(c.at)}. Nothing changes until you tap Apply.</p>`;
   list.innerHTML = c.ops.map((op, i) => {
     const bad = done.has(i) || skip.has(i) ? "" : problem(op);
     const state = done.has(i) ? `<span class="muted small">✓ Applied</span>` : skip.has(i) ? `<span class="muted small">Skipped</span>`
@@ -407,6 +413,16 @@ export function init(c) {
   ctx.applyOp = applyOp;
   ctx.opText = opText;
   ctx.pendingChanges = () => pending().length;
+  ctx.openChanges = openChanges;
+  ctx.askClaudeFor = askClaudeFor;
+  // Fills the "Ask for a change" line (used by Shuffle when there is nothing to swap) and puts the cursor there.
+  ctx.setChangeDraft = (text) => {
+    draft = text;
+    ctx.render();
+    const el = document.getElementById("changeInput");
+    el?.focus();
+    el?.setSelectionRange?.(text.length, text.length);
+  };
   ctx.slot("planTop", () => banner() + box());
   ctx.action("chgGemini", askGemini);
   ctx.action("chgClaude", askClaude);
@@ -419,7 +435,7 @@ export function init(c) {
     ctx.toast("Changes discarded.");
   });
   ctx.action("chgCopyAgain", async () => {
-    await navigator.clipboard.writeText(claudeRequest.last || "");
+    await navigator.clipboard.writeText(lastRequest);
     ctx.toast("Request copied. Paste it into Claude.");
   });
   document.addEventListener("input", (e) => {

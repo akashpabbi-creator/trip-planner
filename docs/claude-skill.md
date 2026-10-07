@@ -298,7 +298,7 @@ If the sandbox has **no network**, `read` can't work: ask the user to paste the 
 - `reactions`: who loved/liked/vetoed which item (`votes`, by first name) and comments. **Never use a vetoed place; put loved places on days first.**
 - `bookings`, `checklist`, `spent`, `weatherByDay` (`max`, `min`, `rainPct`, `sunset`), `guidePlaces` (names from the free travel guide, handy for the base list).
 - `pendingProposals`: what's already waiting for their review. Don't pile on duplicates.
-- `requests`: a request the couple typed under "Ask for a change" and sent to you. Answer it with a `changes` payload whose `request` repeats their words.
+- `requests`: a request the couple typed under "Ask for a change" and sent to you. Answer it with a `changes` payload whose `request` repeats their words. If it has `text` (tips or a transcript they pasted), find the real places it recommends and answer with `add` ops only (max 15).
 - `howToSend`: the payload and op formats (same as this document), in case you don't have the skill.
 
 Always read the snapshot first, even for a simple request: the ids, the days and the existing stops decide what to send.

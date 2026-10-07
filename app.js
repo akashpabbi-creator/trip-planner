@@ -12,6 +12,8 @@ import * as kitMod from "./kit.js";
 import * as changesMod from "./changes.js";
 import * as bridgeMod from "./bridge.js";
 import * as bookingsMod from "./bookings.js";
+import * as pasteMod from "./paste.js";
+import * as shuffleMod from "./shuffle.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -1628,8 +1630,15 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
   }
   return out;
 }
+const looksLikeText = (raw) => String(raw || "").trim().length > 40 || /\n/.test(String(raw || "").trim());
 async function addLink(raw) {
   const url = extractUrl(raw);
+  // Not a link but a lot of text (tips, a transcript): offer to find the places in it.
+  if (!url && looksLikeText(raw) && ctx.openPaste) {
+    const box = document.getElementById("linkInput");
+    if (box) box.value = "";
+    return ctx.openPaste(raw);
+  }
   if (!url) return toast("That doesn't look like a link.");
   if (S.items.some((i) => i.url === url)) return toast("You've already saved that link.");
   S.busy = "Reading the link…";
@@ -1944,6 +1953,10 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("paste", (e) => {
   if (e.target.id !== "linkInput") return;
   const txt = e.clipboardData?.getData("text");
+  if (!extractUrl(txt) && looksLikeText(txt) && ctx.openPaste) { // the link box would flatten it to one line
+    e.preventDefault();
+    return ctx.openPaste(txt);
+  }
   if (extractUrl(txt)) {
     e.preventDefault();
     e.target.value = extractUrl(txt);
@@ -1985,7 +1998,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, shuffleMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
