@@ -113,7 +113,7 @@ export function init(ctx) {
     });
   }
 
-  ctx.slot("addBar", () => `<button class="icon" data-action="pasteOpen" title="Paste tips or a transcript" aria-label="Paste tips or a transcript">📝</button>`);
+  ctx.slot("addBar", () => `<button class="icon" data-action="pasteOpen" title="Paste tips or a transcript" aria-label="Paste tips or a transcript" data-label="Paste tips or text" data-sub="A blog, a chat, a transcript">📝</button>`);
   ctx.openPaste = openPaste;
   ctx.action("pasteOpen", () => openPaste());
   ctx.action("pasteGemini", findWithGemini);

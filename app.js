@@ -2,7 +2,7 @@ import { createStore } from "./store.js";
 import { unfurl, extractUrl, sourceOf, BLOCKED } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
 import { readLink } from "./linkinfo.js";
-import { loadDestination, fetchWeather, GUIDE_V } from "./discover.js";
+import { loadDestination, fetchWeather, GUIDE_V, goodCover } from "./discover.js";
 import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip, planPrompt, parsePlan, QuotaError, geminiWait } from "./ai.js";
 import * as mapMod from "./map.js";
 import * as alongMod from "./along.js";
@@ -206,6 +206,8 @@ function openTrip(id) {
   S.tripId = id;
   S.scrollToday = true;
   S.moreOpen = false;
+  S.addOpen = false;
+  S.stripDay = 0;
   localSet("trip", id);
   if (location.hash !== "#trip=" + id) history.replaceState(null, "", "#trip=" + id);
   let prevItems = new Map();
@@ -278,6 +280,7 @@ function render() {
   renderUser();
   renderPresence();
   renderSync();
+  initStrip();
   scrollToToday();
   emit("render");
 }
@@ -309,10 +312,24 @@ function renderSync() {
 }
 function renderUser() {
   const box = document.getElementById("userBox");
-  box.innerHTML = S.me
-    ? `<span class="me" title="${esc(S.me.email)}">${S.me.photo ? `<img src="${esc(S.me.photo)}" alt="">` : ""}${esc(firstName(S.me.name))}</span>
-       <button class="link" data-action="signout">Sign out</button>`
-    : "";
+  if (!S.me) return (box.innerHTML = "");
+  const ini = esc(firstName(S.me.name).slice(0, 1).toUpperCase() || "?");
+  box.innerHTML = `<button class="avatar-btn" data-action="userMenu" aria-label="Account menu" aria-expanded="${!!S.userMenu}" title="${esc(S.me.email)}">${S.me.photo ? `<img src="${esc(S.me.photo)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}<span>${ini}</span></button>
+    ${S.userMenu ? `<div class="user-menu" role="menu"><div class="um-name">${esc(S.me.name || "")}</div><div class="um-mail">${esc(S.me.email || "")}</div><button class="um-out" role="menuitem" data-action="signout">Sign out</button></div>` : ""}`;
+}
+// The cover to show: the chosen one of place.covers (older trips: place.image), never a flag, map or emblem.
+function coversOf(t) {
+  const p = t?.place || {};
+  let list = (p.covers?.length ? p.covers : [p.image]).filter((u) => safeUrl(u) && goodCover(u));
+  if (!list.length) {
+    const g = (t?.guide?.listings || []).find((l) => safeUrl(l.image) && goodCover(l.image));
+    if (g) list = [g.image];
+  }
+  return list;
+}
+function coverOf(t) {
+  const list = coversOf(t);
+  return list.length ? list[(Number(t.coverIdx) || 0) % list.length] : "";
 }
 function renderPresence() {
   const el = document.getElementById("presence");
@@ -344,7 +361,7 @@ function viewHome() {
     ${trips.length ? "" : `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>`}
     <div class="trip-cards">
       ${trips.map((t) => `<button class="trip-card" data-action="open" data-id="${t.id}">
-          <div class="tc-img" ${safeUrl(t.place?.image) ? `style="background-image:url('${esc(t.place.image)}')"` : ""}></div>
+          <div class="tc-img" ${coverOf(t) ? `style="background-image:url('${esc(coverOf(t))}')"` : ""}></div>
           <div class="tc-body">
           <div class="tc-title">${esc(t.name)}</div>
           <div class="muted">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${(t.days || []).length} days</div>
@@ -355,6 +372,11 @@ function viewHome() {
   </section>`;
 }
 
+const shortDay = (d) => (d ? d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "");
+function aboutBlock() {
+  const t = S.trip;
+  return t.place?.extract ? `<details class="about"><summary>About ${esc(t.place.title)}</summary><p>${esc(t.place.extract)}</p>${t.place.url ? `<a href="${esc(t.place.url)}" target="_blank" rel="noopener">Read more on Wikipedia ↗</a>` : ""}</details>` : "";
+}
 function viewTrip() {
   const t = S.trip;
   const c = costs();
@@ -364,9 +386,12 @@ function viewTrip() {
   const cur = tabs.find((x) => x.id === S.tab) || tabs.find((x) => x.id === "plan");
   const counts = new Map(tabs.map((x) => [x.id, (x.count && x.count()) || 0]));
   const end = dayDate(t.days.length - 1);
-  const cover = safeUrl(t.place?.image);
+  const cover = coverOf(t);
+  const nCovers = coversOf(t).length;
   const w = t.weather?.days || [];
   const temps = w.length ? `${Math.min(...w.map((d) => d.min))}–${Math.max(...w.map((d) => d.max))}°C` : "";
+  const bases = [...new Set(t.days.map((d) => (d.base || "").trim()).filter(Boolean))];
+  const eyebrow = [t.destination || "Somewhere wonderful", ...bases.filter((b) => b.toLowerCase() !== String(t.destination || "").toLowerCase())].join(" · ");
   const avatars = t.members.map((m) => {
     const on = S.presence.some((p) => p.email === m && Date.now() - p.at < 60000);
     return `<span class="av ${on ? "on" : ""}" title="${esc(nameOf(m))}${on ? " · here now" : ""}">${esc(firstName(nameOf(m)).slice(0, 1).toUpperCase())}</span>`;
@@ -375,30 +400,30 @@ function viewTrip() {
     <header class="hero ${cover ? "has-img" : ""}" ${cover ? `style="--cover:url('${esc(cover)}')"` : ""}>
       <div class="hero-inner">
         <div class="hero-top">
-          <button class="chip ghost" data-action="home">← Trips</button>
+          <button class="chip ghost" data-action="home">‹ Trips</button>
           <div class="hero-acts">
-            <button class="chip ghost" data-action="invite">${avatars}<span>Invite</span></button>
-            <button class="chip ghost" data-action="editTrip" title="Edit trip">⚙️</button>
+            <button class="chip ghost" data-action="invite"><span class="avs">${avatars}</span><span>Invite</span></button>
+            <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip">⚙️</button>
           </div>
         </div>
+        ${nCovers > 1 ? `<button class="chip ghost round cover-btn" data-action="coverNext" title="Change cover photo" aria-label="Change cover photo">🖼️</button>` : ""}
         <div class="hero-main">
-          <div class="eyebrow">${esc(t.destination || "Somewhere wonderful")}</div>
+          <div class="eyebrow">${esc(eyebrow)}</div>
           <h1>${esc(t.name)}</h1>
           <div class="hero-meta">
-            ${t.startDate ? `<span>📅 ${fmtDay(dayDate(0))} – ${fmtDay(end)}</span>` : `<button class="link light" data-action="editTrip">📅 Set dates</button>`}
-            <span>🌙 ${t.days.length} day${t.days.length === 1 ? "" : "s"}</span>
-            ${temps ? `<span title="${t.weather.kind === "forecast" ? "Forecast" : "Same dates last year"}">${w[0]?.icon || "🌡️"} ${temps}${t.weather.kind === "typical" ? " typical" : ""}</span>` : ""}
-            ${t.weather?.tz ? `<span>🕒 ${esc(t.weather.tz.split("/").pop().replace(/_/g, " "))} time</span>` : ""}
+            ${t.startDate ? `<span class="pill" ${t.weather?.tz ? `title="${esc(t.weather.tz.replace(/_/g, " "))} time"` : ""}>${shortDay(dayDate(0))} – ${shortDay(end)}</span>` : `<button class="pill pill-btn" data-action="editTrip">Set dates</button>`}
+            <span class="pill">${t.days.length} day${t.days.length === 1 ? "" : "s"}</span>
+            ${temps ? `<span class="pill" title="${t.weather.kind === "forecast" ? "Forecast" : "Same dates last year"}">${w[0]?.icon || "🌡️"} ${temps}</span>` : ""}
           </div>
-        </div>
-        <div class="hero-budget ${budget && c.total > budget ? "over" : ""}">
-          <div class="hb-row"><span><b>${money(c.total)}</b> planned</span><span>${budget ? `${money(budget)} budget` : `<button class="link light" data-action="editTrip">Set a budget</button>`}</span></div>
-          ${budget ? `<div class="bb-track"><div class="bb-fill" style="width:${pct}%"></div></div>` : ""}
+          <div class="hero-budget ${budget && c.total > budget ? "over" : ""}">
+            <b>${money(c.total)}</b>
+            ${budget ? `<div class="bb-track"><div class="bb-fill" style="width:${pct}%"></div></div><span>${money(budget)}</span>` : `<span class="hb-note">planned</span><button class="link light" data-action="editTrip">Set a budget</button>`}
+          </div>
         </div>
       </div>
     </header>
 
-    ${t.place?.extract && S.tab === "plan" ? `<details class="about"><summary>About ${esc(t.place.title)}</summary><p>${esc(t.place.extract)}</p>${t.place.url ? `<a href="${esc(t.place.url)}" target="_blank" rel="noopener">Read more on Wikipedia ↗</a>` : ""}</details>` : ""}
+    ${cur?.id === "plan" ? dayStrip() : ""}
 
     ${viewAddLink()}
 
@@ -408,18 +433,76 @@ function viewTrip() {
   </section>`;
 }
 
+// Plan: a sticky row of day chips (weekday, date, base town) that jumps to a day and follows the one in view.
+function dayStrip() {
+  const t = S.trip;
+  if (!t.days.length) return "";
+  const ti = today();
+  const act = Math.min(S.stripDay || 0, t.days.length - 1);
+  return `<nav class="dstrip" aria-label="Days">${t.days.map((d, i) => {
+    const dt = dayDate(i);
+    return `<button class="dchip ${i === act ? "on" : ""} ${i === ti ? "today" : ""}" data-action="dayJump" data-i="${i}" aria-label="Day ${i + 1}${dt ? ", " + fmtDay(dt) : ""}"><small>${dt ? dt.toLocaleDateString(undefined, { weekday: "short" }) : "Day"}</small><b>${dt ? dt.getDate() : i + 1}</b><span>${esc(d.base || "")}</span></button>`;
+  }).join("")}</nav>`;
+}
+let stripIO = null;
+function layoutVars() {
+  const r = document.documentElement.style;
+  r.setProperty("--tb", (document.querySelector(".topbar")?.offsetHeight || 52) + "px");
+  r.setProperty("--strip", ($app.querySelector(".dstrip")?.offsetHeight || 0) + "px");
+}
+function markStrip(i, instant) {
+  const strip = $app.querySelector(".dstrip");
+  if (!strip) return;
+  const chips = [...strip.children];
+  const changed = S.stripDay !== i;
+  S.stripDay = i;
+  chips.forEach((c, k) => c.classList.toggle("on", k === i));
+  const c = chips[i];
+  if (c && (changed || instant) && strip.scrollWidth > strip.clientWidth) strip.scrollTo({ left: c.offsetLeft - (strip.clientWidth - c.offsetWidth) / 2, behavior: instant ? "auto" : "smooth" });
+}
+function initStrip() {
+  stripIO?.disconnect();
+  stripIO = null;
+  layoutVars();
+  const strip = $app.querySelector(".dstrip");
+  if (!strip) return;
+  markStrip(Math.min(S.stripDay || 0, strip.children.length - 1), true);
+  if (typeof IntersectionObserver === "undefined") return;
+  const days = [...$app.querySelectorAll(".day")];
+  const top = (document.querySelector(".topbar")?.offsetHeight || 52) + strip.offsetHeight + 4;
+  const vis = new Set();
+  stripIO = new IntersectionObserver((es) => {
+    for (const e of es) {
+      const i = days.indexOf(e.target);
+      e.isIntersecting ? vis.add(i) : vis.delete(i);
+    }
+    if (vis.size) markStrip(Math.min(...vis));
+    else if (window.scrollY < 120) markStrip(0);
+  }, { rootMargin: `-${top}px 0px -55% 0px` });
+  days.forEach((d) => stripIO.observe(d));
+}
+window.addEventListener("resize", () => layoutVars());
+
+const svgI = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const NAV_SVG = {
+  plan: svgI('<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
+  map: svgI('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>'),
+  ideas: svgI('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>'),
+  kit: svgI('<path d="M6 8a6 6 0 0 1 12 0v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/><path d="M9 6V4h6v2M9 14h6"/>'),
+  more: svgI('<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>'),
+};
 // Desktop: every tab inline. Phones: a bottom bar (tabs that aren't "more") plus a More sheet for the rest.
 function viewNav(tabs, cur, counts) {
   const btn = (x) => {
     const n = counts.get(x.id);
-    return `<button class="${cur?.id === x.id ? "on" : ""}" data-action="tab" data-tab="${x.id}"><span class="t-ic">${x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`;
+    return `<button class="${cur?.id === x.id ? "on" : ""}" data-action="tab" data-tab="${x.id}"><span class="t-ic">${NAV_SVG[x.id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`;
   };
   const rest = tabs.filter((x) => x.more);
   const moreN = rest.filter((x) => x.warn).reduce((s, x) => s + counts.get(x.id), 0);
   const moreOn = S.moreOpen || rest.some((x) => x.id === cur?.id);
   return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}</nav>
     <nav class="tabs tabs-bar">${tabs.filter((x) => !x.more).map(btn).join("")}
-      <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">⋯</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
+      <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">${NAV_SVG.more}</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
     </nav>
     ${S.moreOpen ? `<div class="more-back" data-action="moreClose"></div>
     <div class="more-sheet" role="menu">
@@ -432,13 +515,26 @@ function runView(tab) {
 }
 
 function viewAddLink() {
-  return `<div class="add-link">
-    <span class="al-ic">🔗</span>
-    <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link" ${S.busy ? "disabled" : ""}>
-    <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
-    <button class="icon" data-action="pasteLink" title="Paste from clipboard">📋</button>
-    <button class="icon" data-action="newItem" title="Add a place without a link">＋</button>
-    ${slot("addBar")}
+  // Phones: the + opens a bottom sheet of tiles. Desktop: the same buttons sit inline beside the field.
+  const extra = slot("addBar").replace(/<button class="icon"(?![^>]*data-label)([^>]*?)title="([^"]*)"/g, '<button class="icon"$1title="$2" data-label="$2"');
+  return `<div class="add-wrap ${S.addOpen ? "open" : ""}">
+    <div class="add-link">
+      <span class="al-ic">🔗</span>
+      <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link, or add a place" aria-label="Paste a link" ${S.busy ? "disabled" : ""}>
+      <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
+    </div>
+    <button class="add-plus" data-action="addOpen" aria-label="Add to the trip" aria-expanded="${!!S.addOpen}">+</button>
+    <div class="sheet-back" data-action="addClose"></div>
+    <div class="add-sheet" role="dialog" aria-label="Add to the trip">
+      <div class="grab"></div>
+      <h3>Add to the trip</h3>
+      <p class="muted small">Links, screenshots and tips all land in Ideas, or straight onto a day.</p>
+      <div class="as-grid">
+        <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-sub="Use the copied link">📋</button>
+        <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-sub="Add a place by name">📍</button>
+        ${extra}
+      </div>
+    </div>
   </div>${typeof S.busy === "string" ? `<p class="muted small busy-line">⏳ ${esc(S.busy)}</p>` : ""}`;
 }
 
@@ -458,20 +554,19 @@ function card(it, opts = {}) {
   const img = safeUrl(it.image);
   const src = sourceOf(it.url || "");
   const badge = { instagram: "Instagram", facebook: "Facebook", maps: "Maps", youtube: "YouTube", tiktok: "TikTok" }[src] || "";
-  return `<article class="card ${S.flash.has(it.id) ? "flash" : ""} ${it.mustDo ? "must" : ""}" data-id="${it.id}">
-    ${img ? `<img class="thumb" src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : `<div class="thumb ph">${cat.icon}</div>`}
+  return `<article class="card ${S.flash.has(it.id) ? "flash" : ""} ${it.mustDo ? "must" : ""} ${it.rest ? "rest" : ""}" data-id="${it.id}">
     <div class="c-body">
       <div class="c-top">
-        ${opts.time ? `<span class="time ${opts.auto ? "auto" : ""}" title="${opts.auto ? "Estimated from the stops before it" : "Fixed time"}">${opts.time}</span>` : ""}
+        ${opts.time && !opts.rail ? `<span class="time ${opts.auto ? "auto" : ""}" title="${opts.auto ? "Estimated from the stops before it" : "Fixed time"}">${opts.time}</span>` : ""}
         <span class="c-title">${esc(it.title || "Untitled")}</span>
         ${it.mustDo ? `<span class="tag must-tag">Must-do</span>` : ""}
         ${it.rating ? `<span class="tag star">★ ${esc(it.rating)}${it.reviews ? ` <span class="muted">(${Number(it.reviews).toLocaleString()})</span>` : ""}</span>` : ""}
       </div>
       <div class="c-meta">
         <span>${cat.icon} ${cat.label}</span>
+        ${it.durationMin ? `<span>${dur(+it.durationMin)}</span>` : ""}
+        ${Number(it.cost) ? `<span>${money(it.cost)}</span>` : ""}
         ${it.location ? `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it.location)}" target="_blank" rel="noopener">📍 ${esc(it.location)}</a>` : ""}
-        ${it.durationMin ? `<span>⏱ ${dur(+it.durationMin)}</span>` : ""}
-        ${Number(it.cost) ? `<span>💰 ${money(it.cost)}</span>` : ""}
         ${badge ? `<span class="tag">${badge}</span>` : ""}
         ${it.category === "food" ? vegTag(it.veg, it.vegNote) : ""}
       </div>
@@ -479,17 +574,18 @@ function card(it, opts = {}) {
       ${it.notes ? `<p class="c-notes">📝 ${esc(it.notes)}</p>` : ""}
       ${it.category === "food" && it.vegNote ? `<p class="c-notes">🥗 ${esc(it.vegNote)}</p>` : ""}
     </div>
+    ${img ? `<img class="thumb" src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;thumb ph&quot;>${cat.icon}</div>'">` : `<div class="thumb ph">${cat.icon}</div>`}
     <div class="c-links">
-        <a class="btn-s dir-link" href="${directionsUrl(it)}" target="_blank" rel="noopener" title="Directions in Google Maps">🧭 Directions</a>
-        ${safeUrl(it.url) ? `<a class="btn-s c-out" href="${esc(it.url)}" target="_blank" rel="noopener" title="Open the original link">Link ↗</a>` : ""}
         ${slot("card", it, opts)}
+        <a class="btn-s dir-link" href="${directionsUrl(it)}" target="_blank" rel="noopener" title="Directions in Google Maps">Directions</a>
+        ${safeUrl(it.url) ? `<a class="btn-s c-out" href="${esc(it.url)}" target="_blank" rel="noopener" title="Open the original link">Link ↗</a>` : ""}
+        <span class="c-actions">
+          ${opts.inDay ? `<button class="btn-s ic-b" data-action="up" data-id="${it.id}" title="Move earlier" aria-label="Move earlier">↑</button><button class="btn-s ic-b" data-action="down" data-id="${it.id}" title="Move later" aria-label="Move later">↓</button>` : `<button class="btn-s primary" data-action="schedule" data-id="${it.id}">Add to day</button>`}
+          <button class="btn-s ic-b" data-action="editItem" data-id="${it.id}" title="Edit" aria-label="Edit">✎</button>
+        </span>
       </div>
       <div class="c-foot">
         <span class="muted small c-by">${suggestedFrom(it) ? `Suggested by ${esc(suggestedFrom(it))}` : `Added by ${esc(who(it.addedBy))}`} ${ago(it.addedAt)}${it.updatedAt && it.updatedAt !== it.addedAt ? ` · edited by ${esc(who(it.updatedBy))} ${ago(it.updatedAt)}` : ""}</span>
-        <span class="c-actions">
-          ${opts.inDay ? `<button class="btn-s" data-action="up" data-id="${it.id}" title="Move earlier" aria-label="Move earlier">↑</button><button class="btn-s" data-action="down" data-id="${it.id}" title="Move later" aria-label="Move later">↓</button>` : `<button class="btn-s primary" data-action="schedule" data-id="${it.id}">Add to day</button>`}
-          <button class="btn-s" data-action="editItem" data-id="${it.id}">Edit</button>
-        </span>
       </div>
   </article>`;
 }
@@ -501,7 +597,7 @@ function legView(prev, it, dayIdx) {
   const gm = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(from)}&destination=${encodeURIComponent(to)}${m?.gm ? "&travelmode=" + m.gm : ""}`;
   return `<div class="leg ${m ? "" : "empty"}">
     <button class="leg-btn" data-action="editLeg" data-id="${it.id}">
-      ${m ? `${m.icon} <b>${m.label}</b>${t.minutes ? ` · ${dur(+t.minutes)}` : ""}${Number(t.cost) ? ` · ${money(t.cost)}` : ""}${t.notes ? ` · ${esc(t.notes)}` : ""}${t.auto ? ` <span class="muted">· estimated</span>` : ""}` : `➕ How do we get here?`}
+      ${m ? `${m.icon} ${m.label}${t.minutes ? ` · ${dur(+t.minutes)}` : ""}${Number(t.cost) ? ` · ${money(t.cost)}` : ""}${t.notes ? ` · ${esc(t.notes)}` : ""}${t.auto ? ` <span class="muted">· estimated</span>` : ""}` : `➕ How do we get here?`}
     </button>
     <a class="leg-map" href="${gm}" target="_blank" rel="noopener" title="Directions in Google Maps">Directions ↗</a>
   </div>`;
@@ -515,13 +611,15 @@ function viewPlan() {
   // A calm stack: Today first, then at most one prominent banner, the ask box, and quiet extras last.
   const chgN = ctx.pendingChanges?.() || 0;
   const lead = t.proposal ? "plan" : chgN ? "changes" : nSmart ? "smart" : "";
-  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="tab" data-tab="smart">✨ ${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan <b>Review</b></button>` : "";
+  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="tab" data-tab="smart"><span class="ar-ic">✨</span><span class="ar-t">${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan</span><b>Review</b></button>` : "";
   const checkBox = !ch.length ? "" : ch.length === 1
     ? `<div class="check ${ch[0].level}">${esc(ch[0].text)}</div>`
-    : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}">⚠️ ${ch.length} things to check</summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
+    : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}"><span class="ar-ic w">⚠️</span><span class="ar-t">${ch.length} things to check</span><b>See</b></summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
+  const ico = (e, w) => `<span class="ar-ic ${w || ""}">${e}</span>`;
   return `
     ${slot("planToday")}
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">🤖 ${esc(t.proposal.source || "Gemini")} drafted a plan for your days <b>Review</b></button>` : ""}
+    <div class="asst">
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${esc(t.proposal.source || "Gemini")} drafted a plan for your days</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
     ${S.planning && !t.proposal ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
@@ -531,20 +629,26 @@ function viewPlan() {
       ${t.ai?.key ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
       <button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button></div>` : ""}
     ${lead !== "smart" ? smart : ""}
+    </div>
     <div class="days">
     ${t.days.map((d, i) => {
       const sch = schedule(d.id);
       const date = dayDate(i);
+      const heading = d.title || d.base || "";
+      const sub = [`${sch.length} stop${sch.length === 1 ? "" : "s"}`, dayCost(d.id) ? money(dayCost(d.id)) : "", d.title && d.base ? `staying in ${esc(d.base)}` : ""].filter(Boolean).join(" · ");
       return `<section class="day ${i === todayI ? "today" : ""}" data-day="${d.id}">
         <header class="day-head">
-          <div>
-            <div class="day-n">Day ${i + 1}${date ? ` · ${fmtDay(date)}` : ""}${i === todayI ? ` <span class="tag today-tag">Today</span>` : ""}${dayWeather(i)}</div>
-            <div class="day-title">${esc(d.title || "")}${d.base ? ` <span class="muted">· staying in ${esc(d.base)}</span>` : ""}</div>
+          <div class="dh-row">
+            <div class="date-tile"><small>${date ? date.toLocaleDateString(undefined, { month: "short" }) : "Day"}</small><b>${date ? date.getDate() : i + 1}</b></div>
+            <div class="dh-t">
+              <div class="day-n">Day ${i + 1}${heading ? ` · ${esc(heading)}` : ""}${i === todayI ? ` <span class="tag today-tag">Today</span>` : ""}</div>
+              <div class="day-sub">${sub}${dayWeather(i)}</div>
+            </div>
+            <button class="day-more" data-action="editDay" data-id="${d.id}" title="Edit this day" aria-label="Edit this day">⋯</button>
           </div>
-          <button class="btn-s day-more" data-action="editDay" data-id="${d.id}" title="Edit this day" aria-label="Edit this day">⋯</button>
-          <div class="day-side">${dayCost(d.id) ? `<span class="muted small day-cost">${money(dayCost(d.id))}</span>` : ""}${slot("dayHead", d, i)}</div>
+          <div class="day-side">${slot("dayHead", d, i)}</div>
         </header>
-        ${sch.length ? sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><span class="muted">From yesterday:</span> ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</div>` : "") + card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto })).join("") : `<p class="empty small">Nothing planned yet. Add something from Ideas.</p>`}
+        ${sch.length ? `<div class="tl">${sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><span>From yesterday: ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</span></div>` : "") + `<div class="stop"><span class="tm ${s.auto ? "auto" : ""}" title="${s.auto ? "Estimated from the stops before it" : "Fixed time"}">${fromMin(s.start)}</span>${card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto, rail: true })}</div>`).join("")}</div>` : `<p class="empty small">Nothing planned yet. Add something from Ideas.</p>`}
         <div class="day-foot"><button class="link" data-action="pickForDay" data-id="${d.id}">+ Add from ideas</button><button class="link" data-action="newItem" data-day="${d.id}">+ New stop</button>${slot("dayFoot", d, i)}</div>
       </section>`;
     }).join("")}
@@ -961,6 +1065,7 @@ function viewDiscover() {
     .sort(([a], [b]) => (a.category === "food" && !vegOk(a)) - (b.category === "food" && !vegOk(b)));
   const w = t.weather?.days || [];
   return `<div class="discover">
+    ${aboutBlock()}
     ${slot("discoverTop")}
     ${w.length ? `<div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${d.icon}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div>
       <p class="muted small">${t.weather.kind === "forecast" ? "Weather forecast for your dates." : "Weather on the same dates last year, as a guide. The forecast appears about two weeks before you go."}</p>` : ""}
@@ -1796,15 +1901,43 @@ async function handlePendingShare() {
 
 /* ------------------------------------------------------------------ events */
 document.addEventListener("click", async (e) => {
+  if (S.userMenu && !e.target.closest(".user")) { S.userMenu = false; renderUser(); }
   const b = e.target.closest("[data-action]");
   if (!b) return;
   const a = b.dataset.action, id = b.dataset.id;
+  if (S.addOpen && b.closest(".add-sheet")) { // a tile was used: close the sheet without a re-render
+    S.addOpen = false;
+    $app.querySelector(".add-wrap")?.classList.remove("open");
+  }
   try {
     switch (a) {
       case "signin":
         await S.store.signIn(document.getElementById("demoName")?.value);
         break;
+      case "userMenu":
+        S.userMenu = !S.userMenu;
+        return renderUser();
+      case "userMenuClose":
+        S.userMenu = false;
+        return renderUser();
+      case "addOpen":
+        S.addOpen = !S.addOpen;
+        return render();
+      case "addClose":
+        S.addOpen = false;
+        return render();
+      case "dayJump": {
+        const i = +b.dataset.i;
+        markStrip(i);
+        return $app.querySelectorAll(".day")[i]?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      case "coverNext": {
+        const n = coversOf(S.trip).length;
+        if (n < 2) return;
+        return S.store.updateTrip(S.tripId, { coverIdx: ((Number(S.trip.coverIdx) || 0) + 1) % n, ...stampMe() });
+      }
       case "signout":
+        S.userMenu = false;
         goHome();
         await S.store.signOut();
         break;
@@ -1946,6 +2079,8 @@ document.addEventListener("change", async (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.moreOpen) { S.moreOpen = false; render(); }
+  if (e.key === "Escape" && S.addOpen) { S.addOpen = false; render(); }
+  if (e.key === "Escape" && S.userMenu) { S.userMenu = false; renderUser(); }
   if (e.key === "Enter" && e.target.id === "linkInput") addLink(e.target.value);
   if (e.key === "Enter" && e.target.id === "demoName") document.querySelector("[data-action=signin]")?.click();
 });
