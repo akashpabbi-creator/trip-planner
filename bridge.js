@@ -1,7 +1,7 @@
 // Claude link: a private doc (named by a secret token) that a Claude desktop/Cowork session reads and writes.
 // The app keeps a snapshot of the plan in it; Claude drops proposals into its inbox; the app turns each one into a
 // proposal the couple review. Nothing Claude sends is applied without a tap.
-import { parseJson } from "./ai.js";
+import { parseJson, cleanAction, clip, LIMITS } from "./ai.js";
 import { OP_FORMATS, normCategory, proposeChanges } from "./changes.js";
 
 let ctx;
@@ -185,10 +185,10 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
     const cats = ctx.CATEGORIES;
     const all = (Array.isArray(p.items) ? p.items : []).filter((x) => x && (x.name || x.title));
     const items = all.map((x) => ({
-      name: String(x.name || x.title).slice(0, 140), category: normCategory(x.category, cats) || "sight",
+      name: clip(x.name || x.title, LIMITS.name), category: normCategory(x.category, cats) || "sight",
       rating: Number(x.rating) || null, reviews: Number(x.reviews) || null, priceLevel: String(x.priceLevel || "").slice(0, 6) || null,
-      approxCost: Number(x.approxCost) || null, area: String(x.area || "").slice(0, 80), why: String(x.why || "").slice(0, 240),
-      durationMin: Number(x.durationMin) || 90, address: String(x.address || "").slice(0, 200),
+      approxCost: Number(x.approxCost) || null, area: clip(x.area, 80), why: clip(x.why, LIMITS.why),
+      durationMin: Number(x.durationMin) || 90, address: clip(x.address, LIMITS.location),
       ...(["yes", "no"].includes(x.veg) ? { veg: x.veg } : {}), ...(x.vegNote ? { vegNote: String(x.vegNote).slice(0, 160) } : {}),
     })).filter((x) => !(x.category === "food" && x.veg === "no")).slice(0, 40); // restaurants need good vegetarian options
     if (!items.length) throw new Error("There were no places in the picks.");
@@ -200,7 +200,7 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
   if (kind === "review") {
     const suggestions = (Array.isArray(p.suggestions) ? p.suggestions : []).filter((x) => x && x.title).slice(0, 30).map((x) => ({
       title: String(x.title).slice(0, 140), detail: String(x.detail || "").slice(0, 400),
-      action: x.action && typeof x.action === "object" ? x.action : { type: "none" },
+      action: cleanAction(x.action),
     }));
     if (!suggestions.length && !p.summary) throw new Error("There was no review in that.");
     await S.store.updateTrip(S.tripId, { aiReview: { at: Date.now(), by: S.me.email, source: "Claude", summary: String(p.summary || "").slice(0, 600), suggestions, applied: [] }, ...ctx.stampMe() });

@@ -380,16 +380,19 @@ export const GUIDE_V = 7;
 const WVV = "https://en.wikivoyage.org/w/api.php?action=query&prop=pageviews&redirects=1&format=json&formatversion=2&origin=*&titles=";
 const WVQ = "https://en.wikivoyage.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main&redirects=1&format=json&formatversion=2&origin=*&titles=";
 // Wikimedia answers bursts of requests with 429 and a retry-after: wait it out once.
+let netErrors = 0; // failed requests during the current guide load, to tell "no listings" from "no network"
 async function getJson(url) {
-  for (let k = 0; k < 3; k++) {
-    const r = await fetch(url);
-    if (r.status === 429 && k < 2) {
-      await new Promise((ok) => setTimeout(ok, Math.min(30, Number(r.headers.get("retry-after")) || 3) * 1000));
-      continue;
+  try {
+    for (let k = 0; k < 3; k++) {
+      const r = await fetch(url);
+      if (r.status === 429 && k < 2) {
+        await new Promise((ok) => setTimeout(ok, Math.min(30, Number(r.headers.get("retry-after")) || 3) * 1000));
+        continue;
+      }
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
     }
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  }
+  } catch (e) { netErrors++; throw e; }
 }
 // Several guide pages in one request, with how often travellers read each one (last 60 days).
 async function wvPages(titles) {
@@ -459,9 +462,10 @@ async function addFame(listings) {
   for (const l of listings) l.fame = fame[l.wikidata] || byTitle[l.name.replace(/^the\s+/i, "").toLowerCase()] || 0;
 }
 export async function fetchGuide(dest) {
+  netErrors = 0;
   let page = null;
   for (const q of variants(dest)) if ((page = await wvPage(q).catch(() => null))) break;
-  if (!page) return { listings: [], source: "" };
+  if (!page) return { listings: [], source: "", ...(netErrors ? { failed: true } : {}) };
   let listings = [];
   const sec = page.text.match(/==\s*(?:Cities|Cities and towns|Towns)\s*==([\s\S]*?)\n==[^=]/i);
   const cityNames = sec ? linksIn(sec[1], /^(?!(File|Image|Category):)/i) : [];
@@ -485,7 +489,7 @@ export async function fetchGuide(dest) {
   listings = listings.sort((a, b) => score(b) - score(a)).filter((l) => !seen.has(l.name.toLowerCase()) && once(l.wikidata) && seen.add(l.name.toLowerCase()));
   const per = {};
   listings = listings.filter((l) => (per[(l.city || "") + l.type] = (per[(l.city || "") + l.type] || 0) + 1) <= 15);
-  return { listings, source: "https://en.wikivoyage.org/wiki/" + encodeURIComponent(page.title.replace(/ /g, "_")) };
+  return { listings, source: "https://en.wikivoyage.org/wiki/" + encodeURIComponent(page.title.replace(/ /g, "_")), ...(!listings.length && netErrors ? { failed: true } : {}) };
 }
 
 /* ------------------------------------------------------------- one call */
@@ -500,7 +504,7 @@ export async function loadDestination(trip) {
   }
   const [weather, guide, banner] = await Promise.all([
     lat != null ? fetchWeather(lat, lng, trip.startDate, trip.days.length).catch(() => null) : null,
-    fetchGuide(dest).catch(() => ({ listings: [], source: "" })),
+    fetchGuide(dest).catch(() => ({ listings: [], source: "", failed: true })),
     fetchBanner(dest).catch(() => ""),
   ]);
   const { entries } = await loadCovers({ dest, place, listings: guide.listings, lat, lng, banner });

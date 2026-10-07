@@ -109,8 +109,12 @@ async function firebaseStore(config) {
     },
     updateTrip: (id, patch) => fs.updateDoc(tripRef(id), patch),
     async deleteTrip(id, token) {
-      if (!token) token = (await fs.getDoc(tripRef(id))).data()?.bridge?.token; // older trips kept the token on the trip
+      // Only the owner may delete: the rules block just the trip doc, so without this check anyone could wipe the stops and activity first.
+      const trip = (await fs.getDoc(tripRef(id))).data();
+      if (!trip || trip.owner !== auth.currentUser?.email?.toLowerCase()) throw Object.assign(new Error("Only the owner can delete this trip."), { code: "permission-denied" });
+      if (!token) token = trip.bridge?.token; // older trips kept the token on the trip
       if (token) await fs.deleteDoc(bridgeRef(token)).catch(() => {});
+      if (trip.join?.code) await fs.deleteDoc(fs.doc(db, "joins", trip.join.code)).catch(() => {});
       for (const name of ["items", "activity", "presence"]) {
         const s = await fs.getDocs(sub(id, name));
         await Promise.all(s.docs.map((d) => fs.deleteDoc(d.ref)));
@@ -298,8 +302,13 @@ function demoStore() {
       save();
     },
     async deleteTrip(id, token) {
-      token ||= state.trips[id]?.bridge?.token;
+      state = load();
+      fix();
+      const trip = state.trips[id];
+      if (!trip || trip.owner !== user?.email) throw Object.assign(new Error("Only the owner can delete this trip."), { code: "permission-denied" });
+      token ||= trip.bridge?.token;
       if (token) delete state.bridges[token];
+      try { if (trip.join?.code) delete state.joins[trip.join.code]; } catch {}
       delete state.trips[id];
       delete state.items[id];
       delete state.activity[id];

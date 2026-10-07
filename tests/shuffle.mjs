@@ -27,6 +27,8 @@ try {
   const ctxB = await b.newContext({ viewport: { width: 390, height: 800 }, colorScheme: "light" });
   const p = await ctxB.newPage();
   p.on("pageerror", (e) => errors.push(e.message));
+  const dialogs = [];
+  p.on("dialog", (d) => { dialogs.push(d.message()); d.accept(); });
   await p.route(/^https?:\/\/(?!127\.0\.0\.1)/, (r) => r.fulfill({ status: 404, body: "" }));
   await p.goto(`http://127.0.0.1:${PORT}/`);
   await p.fill("#demoName", "Akash");
