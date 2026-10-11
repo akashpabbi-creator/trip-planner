@@ -1,5 +1,5 @@
 // kit: Exports (day route link, .ics, .kml), Today card, Packing + To-dos, Spending log.
-// Other modules add their sections to the Kit tab through the "kit" slot (shown first).
+// Other modules add their sections to the Kit tab through the "kit" slot (shown first); "kitTop" sits above even those.
 let ctx, S;
 const q = new URLSearchParams(typeof location !== "undefined" ? location.search : ""); // guarded so tests can import this file in Node
 const NOW_OVERRIDE = (q.get("now") || "").match(/^\d{1,2}:\d{2}$/)?.[0] || ""; // test override: ?now=HH:MM
@@ -169,6 +169,7 @@ function todayCard() {
 /* ----------------------------------------------------------------- Kit tab */
 function viewKit() {
   return `<div class="kit">
+    ${ctx.renderSlot("kitTop")}
     ${ctx.renderSlot("kit")}
     <div class="k-suggest"><button class="btn-s" data-action="kSuggest">✨ Suggest items</button><span class="muted small">Packing and to-do ideas from the weather, your plan and where you're going.</span></div>
     ${checklistSection("pack", "Packing", "Nothing to pack yet. Add things yourself, or tap Suggest items.", "Add something to pack")}

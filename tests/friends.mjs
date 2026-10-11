@@ -111,7 +111,7 @@ try {
   await fp.keyboard.press("Escape");
   const addSheet = await fp.textContent(".add-sheet");
   ok(!AI_WORDS.test(addSheet) && !/screenshot/i.test(addSheet), "add sheet: no screenshot or paste-tips tiles, no Gemini or Claude text: " + addSheet.trim().replace(/\s+/g, " ").slice(0, 120));
-  ok((await fp.$$(".add-sheet .icon")).length === 2, "add sheet keeps paste-from-clipboard and new stop");
+  ok((await fp.$$(".add-sheet .icon")).length === 3 && !!(await fp.$(".add-sheet [data-action=noteQuick]")), "add sheet keeps paste-from-clipboard and new stop, plus the trip note tile");
   // Rule-based link saving still works (offline here, so it falls back to the local parser).
   await fp.fill("#linkInput", "https://example.com/some-place-in-goa");
   await fp.click("[data-action=addLink]");

@@ -34,6 +34,7 @@ If the message is missing, ask the user to open the trip in the app, tap **More,
 | "Find the best places to eat/see" | `picks` | Shows on the Discover tab. |
 | "Check these restaurants for vegetarian food" | `changes` with `veg` ops (and `note` ops) | Check menus and reviews with your web search. |
 | "Here's an Instagram link / blog / screenshot" | `changes` with `add` ops | Read it, list the real places. They go to Ideas unless the user says a day. |
+| "Plan from our trip notes" (a request) | `changes` | Work the `tripNotes` into the plan as small, reviewed ops (see section 5). Set `request` to the same words. |
 | "Review our plan" | `review` | Pacing, timing, opening hours, travel, balance, budget. |
 | "Add my bookings" (flights, hotels, trains, tickets) | `changes` with `booking` ops | Search their Gmail for confirmations, never guess details. |
 | "What should we pack?" | `changes` with `check` ops (`group: "pack"`) | Based on weather, plan, destination. Use `todo` for things to book or arrange. |
@@ -297,6 +298,7 @@ If the sandbox has **no network**, `read` can't work: ask the user to paste the 
 - `ideasNotScheduled[]`: saved places not on a day yet (same fields, with `id`).
 - `reactions`: who loved/liked/vetoed which item (`votes`, by first name) and comments. **Never use a vetoed place; put loved places on days first.**
 - `bookings`, `checklist`, `spent`, `weatherByDay` (`max`, `min`, `rainPct`, `sunset`), `guidePlaces` (names from the free travel guide, handy for the base list).
+- `tripNotes`: the couple's shared free-text notes (open ones only, `by` is a first name, newest last). When a request says "Plan from our trip notes" (or "plan from our notes"), turn each note into ops: real named places become `add` ops (on the day the note says, else `toDay: null` for Ideas), wishes about a day become `day`/`move`/`time` ops, things to book or pack become `check` ops, booking details become `booking` ops. Skip a note the plan already reflects or that is only a remark, and don't remove anything the notes don't ask to remove. Otherwise treat the notes as context: wishes and constraints to respect.
 - `pendingProposals`: what's already waiting for their review. Don't pile on duplicates.
 - `requests`: a request the couple typed under "Ask for a change" and sent to you. Answer it with a `changes` payload whose `request` repeats their words. If it has `text` (tips or a transcript they pasted), find the real places it recommends and answer with `add` ops only (max 15).
 - `howToSend`: the payload and op formats (same as this document), in case you don't have the skill.

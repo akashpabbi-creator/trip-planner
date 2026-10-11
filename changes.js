@@ -311,8 +311,8 @@ async function mark(field, idxs) {
 }
 
 /* ------------------------------------------------------ Gemini + Claude ask */
-export async function changePlan(key, snapshot, request, prefs = "") {
-  const prompt = changePrompt(snapshot, request, prefs, "Use Google Search for real places and opening hours.");
+export async function changePlan(key, snapshot, request, prefs = "", extra = "") {
+  const prompt = changePrompt(snapshot, request, prefs, "Use Google Search for real places and opening hours.") + (extra ? "\n\n" + extra : "");
   const { text } = await call(key, prompt, { search: true });
   const out = parseJson(text);
   return { summary: str(out.summary, 500), ops: cleanOps(out.ops) };

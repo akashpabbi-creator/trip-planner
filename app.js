@@ -13,6 +13,7 @@ import * as changesMod from "./changes.js";
 import * as bridgeMod from "./bridge.js";
 import * as bookingsMod from "./bookings.js";
 import * as pasteMod from "./paste.js";
+import * as notesMod from "./notes.js";
 import * as shuffleMod from "./shuffle.js";
 import * as psocialMod from "./proposal-social.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
@@ -576,7 +577,7 @@ function runView(tab) {
 
 function viewAddLink() {
   // Phones: the + opens a bottom sheet of tiles. Desktop: the same buttons sit inline beside the field.
-  const SHORT = { "From a screenshot": "Screenshot", "Paste tips or text": "Paste text" };
+  const SHORT = { "From a screenshot": "Screenshot", "Paste tips or text": "Paste text", "Add a trip note": "Note" };
   const extra = slot("addBar").replace(/<button class="icon"(?![^>]*data-label)([^>]*?)title="([^"]*)"/g, '<button class="icon"$1title="$2" data-label="$2"')
     .replace(/data-label="([^"]*)"/g, (m, l) => `data-label="${l}" data-short="${SHORT[l] || l}"`);
   return `<div class="add-wrap ${S.addOpen ? "open" : ""}">
@@ -2460,7 +2461,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, shuffleMod, psocialMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
