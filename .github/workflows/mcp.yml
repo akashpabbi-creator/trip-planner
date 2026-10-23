@@ -47,5 +47,9 @@ jobs:
         with:
           node-version: 22
       - if: steps.gate.outputs.go == 'true'
-        run: npm ci && npx wrangler deploy
+        # Secrets pasted from Windows can carry a BOM (U+FEFF), spaces or a newline, which wrangler rejects in the auth header.
+        run: |
+          export CLOUDFLARE_API_TOKEN="$(printf %s "$CLOUDFLARE_API_TOKEN" | sed 's/\xEF\xBB\xBF//g' | tr -d '[:space:]')"
+          export CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | sed 's/\xEF\xBB\xBF//g' | tr -d '[:space:]')"
+          npm ci && npx wrangler deploy
         working-directory: mcp
