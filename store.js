@@ -98,6 +98,7 @@ async function firebaseStore(config) {
       }
     },
     signOut: () => authMod.signOut(auth),
+    idToken: () => auth.currentUser?.getIdToken(),
 
     watchTrips(email, cb, onErr) {
       const q = fs.query(fs.collection(db, "trips"), fs.where("members", "array-contains", email));

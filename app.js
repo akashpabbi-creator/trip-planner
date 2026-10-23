@@ -11,6 +11,7 @@ import * as captureMod from "./capture.js";
 import * as kitMod from "./kit.js";
 import * as changesMod from "./changes.js";
 import * as bridgeMod from "./bridge.js";
+import * as connectorMod from "./connector.js";
 import * as bookingsMod from "./bookings.js";
 import * as pasteMod from "./paste.js";
 import * as notesMod from "./notes.js";
@@ -563,14 +564,14 @@ function viewNav(tabs, cur, counts) {
   const rest = tabs.filter((x) => x.more);
   const moreN = rest.filter((x) => x.warn).reduce((s, x) => s + counts.get(x.id), 0);
   const moreOn = S.moreOpen || rest.some((x) => x.id === cur?.id);
-  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}${S.aiUser ? `<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button>` : ""}</nav>
+  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}${S.aiUser ? `<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button><button class="tab-connect" data-action="connectorOpen"><span class="t-ic">🔌</span><span class="t-l">Connector</span></button>` : ""}</nav>
     <nav class="tabs tabs-bar">${tabs.filter((x) => !x.more).map(btn).join("")}
       <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">${NAV_SVG.more}</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
     </nav>
     ${S.moreOpen ? `<div class="more-back" data-action="moreClose"></div>
     <div class="more-sheet" role="menu">
       ${rest.map((x) => { const n = counts.get(x.id); return `<button class="${cur?.id === x.id ? "on" : ""}" role="menuitem" data-action="tab" data-tab="${x.id}"><span class="t-ic">${x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`; }).join("")}
-      ${S.aiUser ? `<button role="menuitem" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button>` : ""}
+      ${S.aiUser ? `<button role="menuitem" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button><button role="menuitem" data-action="connectorOpen"><span class="t-ic">🔌</span><span class="t-l">Connector</span></button>` : ""}
     </div>` : ""}`;
 }
 function runView(tab) {
@@ -2465,7 +2466,7 @@ document.addEventListener("click", async (e) => {
       }
       default: {
         // Feature modules register their own actions.
-        if (a === "bridgeOpen") S.moreOpen = false;
+        if (a === "bridgeOpen" || a === "connectorOpen") S.moreOpen = false;
         const h = REG.actions[a];
         if (h) return await h(b, id, e);
         if (a === "bridgeOpen") { render(); return toast("Coming soon"); }
@@ -2543,7 +2544,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
