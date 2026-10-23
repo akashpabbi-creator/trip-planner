@@ -16,6 +16,7 @@ import * as pasteMod from "./paste.js";
 import * as notesMod from "./notes.js";
 import * as shuffleMod from "./shuffle.js";
 import * as psocialMod from "./proposal-social.js";
+import * as shareMod from "./share.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -736,7 +737,7 @@ function viewIdeas() {
   const bar = socialMod.ideasBar(list, members, CATEGORIES);
   const shown = socialMod.arrangeIdeas(list, members);
   return `<div class="stats">${stats.join("")}</div>${bar}
-    ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.</p>`}`;
+    ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.${/iP(hone|ad|od)/.test(navigator.userAgent) ? " On iPhone, copy it and paste it above." : ""}</p>`}`;
 }
 
 function viewBudget() {
@@ -2165,7 +2166,7 @@ async function handleJoin() {
 function iosTip() {
   const ios = /iP(hone|ad|od)/.test(navigator.userAgent) && navigator.standalone !== true;
   if (!ios || localGet("ios-tip")) return "";
-  return `<div class="ios-tip" role="note"><span>Add Trips to your Home Screen: tap Share, then Add to Home Screen. Sign in here in Safari first.</span><button type="button" class="link" data-action="iosTipClose" aria-label="Dismiss">Got it</button></div>`;
+  return `<div class="ios-tip" role="note"><span>Add Trips to your Home Screen: tap Share, then Add to Home Screen. Sign in here in Safari first. iPhone can't share into the app: copy what you want to save and paste it in the link box.</span><button type="button" class="link" data-action="iosTipClose" aria-label="Dismiss">Got it</button></div>`;
 }
 // A trip that still has the Gemini key or Claude link on it (older versions): the AI user's copy moves to their private doc, once.
 async function migrateAi() {
@@ -2184,31 +2185,55 @@ async function migrateAi() {
     S.migrating = false;
   }
 }
+// What was shared into the app waits in sessionStorage until a trip is open: a link, text (a Gemini answer), and/or screenshots (parked by sw.js).
+const SHARE_KEYS = { url: "tp-shared", text: "tp-shared-text", images: "tp-shared-img" };
+const shareGet = (k) => { try { return sessionStorage.getItem(SHARE_KEYS[k]) || ""; } catch { return ""; } };
+const shareSet = (k, v) => { try { v ? sessionStorage.setItem(SHARE_KEYS[k], v) : sessionStorage.removeItem(SHARE_KEYS[k]); } catch {} };
+const hasPendingShare = () => !!(shareGet("url") || shareGet("text") || shareGet("images"));
 function takeSharedLink() {
   const p = new URLSearchParams(location.search);
-  const raw = [p.get("url"), p.get("text"), p.get("title")].filter(Boolean).join(" ");
-  if (raw && extractUrl(raw)) {
-    sessionStorage.setItem("tp-shared", extractUrl(raw));
-    history.replaceState(null, "", location.pathname + location.hash);
-  }
+  if (!p.has("shared") && !p.get("url") && !p.get("text")) return;
+  const body = p.get("text") || "", raw = [p.get("url"), body, p.get("title")].filter(Boolean).join(" ");
+  // A Gemini answer lists several places (often with source links): keep it as text, not as one link.
+  if (shareMod.parseSharedList(body).length >= 2) shareSet("text", body.slice(0, 20000));
+  else if (extractUrl(raw)) shareSet("url", extractUrl(raw));
+  else if (body.trim().length >= 12) shareSet("text", body.slice(0, 20000));
+  if (Number(p.get("images")) > 0) shareSet("images", p.get("images"));
+  history.replaceState(null, "", location.pathname + location.hash);
 }
+// With several trips the share always asks which one, even if the last trip reopened by itself.
+S.shareWaiting = () => hasPendingShare() && S.trips.length > 1 && !S.shareTrip;
 async function handlePendingShare() {
-  const url = sessionStorage.getItem("tp-shared");
-  if (!url || !S.me) return;
-  if (S.tripId && S.trip) {
-    sessionStorage.removeItem("tp-shared");
-    return addLink(url);
+  if (!hasPendingShare() || !S.me || S.shareAsk) return;
+  if (S.trips.length > 1 && !S.shareTrip) {
+    if ($modal.open) return; // asked again a moment later
+    S.shareAsk = true;
+    const what = shareGet("url") || (shareGet("text") ? "the text you shared" : "your screenshot" + (Number(shareGet("images")) > 1 ? "s" : ""));
+    const first = S.trips.some((t) => t.id === S.tripId) ? S.tripId : S.trips[0].id;
+    openModal(`<h3>Save this to which trip?</h3><p class="muted small">${esc(String(what).slice(0, 120))}</p>
+      <div class="pick-days">${S.trips.map((t) => `<label class="pick"><input type="radio" name="trip" value="${t.id}" ${t.id === first ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>`,
+      async (f) => {
+        S.shareTrip = f.trip;
+        if (f.trip !== S.tripId) openTrip(f.trip);
+      });
+    $modal.addEventListener("close", () => {
+      S.shareAsk = false;
+      if (!S.shareTrip) { // cancelled: drop it, pictures included
+        for (const k of Object.keys(SHARE_KEYS)) shareSet(k, "");
+        window.caches?.delete("share-inbox").catch(() => {});
+      }
+    }, { once: true });
+    return;
   }
   if (!S.tripId && S.trips.length === 1) return openTrip(S.trips[0].id);
-  if (!S.tripId && S.trips.length > 1) {
-    sessionStorage.removeItem("tp-shared");
-    openModal(`<h3>Save this link to which trip?</h3><p class="muted small">${esc(url)}</p>
-      <div class="pick-days">${S.trips.map((t, i) => `<label class="pick"><input type="radio" name="trip" value="${t.id}" ${i === 0 ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>`,
-      async (f) => {
-        sessionStorage.setItem("tp-shared", url);
-        openTrip(f.trip);
-      });
-  }
+  if (!S.trip || (S.shareTrip && S.tripId !== S.shareTrip)) return; // still opening
+  const url = shareGet("url"), text = shareGet("text"), images = shareGet("images");
+  for (const k of Object.keys(SHARE_KEYS)) shareSet(k, "");
+  S.shareTrip = null;
+  if (images) render(); // the screenshot sheet (capture.js) opens on this render
+  if (url) await addLink(url);
+  if (text && !images) ctx.shareText?.(text); // text and pictures together: the pictures get the one sheet
+  else if (text) toast("Share the text again once the screenshots are done.", 5000);
 }
 
 /* ------------------------------------------------------------------ events */
@@ -2492,7 +2517,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
@@ -2572,5 +2597,5 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, br
 
 // After a trip opens, pick up a link that was shared into the app.
 setInterval(() => {
-  if (S.trip && sessionStorage.getItem("tp-shared") && !S.busy) handlePendingShare();
+  if (S.trip && hasPendingShare() && !S.busy) handlePendingShare();
 }, 800);
