@@ -29,8 +29,12 @@ export class FirestoreError extends Error {
   constructor(status, body) {
     super(`Firestore ${status}: ${body?.error?.message || ""}`.trim());
     this.status = status;
+    this.detail = `${body?.error?.message || ''}`.slice(0, 200);
+    this.code = body?.error?.status;
   }
 }
+
+const maskOf = (data) => Object.keys(data).filter((k) => data[k] !== undefined).map((k) => "updateMask.fieldPaths=" + encodeURIComponent(k)).join("&");
 
 export function firestoreClient(env, idToken) {
   const root = `${(env.FIRESTORE_HOST || "https://firestore.googleapis.com").replace(/\/$/, "")}/v1/projects/${env.FIREBASE_PROJECT}/databases/(default)/documents`;
@@ -65,10 +69,34 @@ export function firestoreClient(env, idToken) {
     activity: (tripId, limit = 30) => query(`/trips/${tripId}`, {
       from: [{ collectionId: "activity" }], orderBy: [{ field: { fieldPath: "at" }, direction: "DESCENDING" }], limit,
     }),
-    // For later jobs (writes): patch named fields of one document.
+    // Patch named fields of one document.
     async patch(path, data) {
-      const mask = Object.keys(data).map((k) => "updateMask.fieldPaths=" + encodeURIComponent(k)).join("&");
-      return toDoc(await call("PATCH", `/${path}?${mask}`, { fields: encodeFields(data) }));
+      return toDoc(await call("PATCH", `/${path}?${maskOf(data)}`, { fields: encodeFields(data) }));
+    },
+    // New document with the given id in a collection path like "trips/T1/items". Fails (409) if the id exists.
+    async create(collection, id, data) {
+      return toDoc(await call("POST", `/${collection}?documentId=${encodeURIComponent(id)}`, { fields: encodeFields(data) }));
+    },
+    async remove(path) { await call("DELETE", "/" + path); },
+    // Read-modify-write one trip: fn(current) returns the fields to change (or null for nothing). The write carries the
+    // document's updateTime as a precondition, so if someone else saved in between it reads again and retries.
+    async txTrip(tripId, fn, tries = 5) {
+      for (let i = 0; i < tries; i++) {
+        const raw = await call("GET", "/trips/" + tripId);
+        const patch = fn(toDoc(raw));
+        if (!patch) return null;
+        try {
+          await call("POST", ":commit", { writes: [{
+            update: { name: `projects/${env.FIREBASE_PROJECT}/databases/(default)/documents/trips/${tripId}`, fields: encodeFields(patch) },
+            updateMask: { fieldPaths: Object.keys(patch).filter((k) => patch[k] !== undefined) },
+            currentDocument: { updateTime: raw.updateTime },
+          }] });
+          return patch;
+        } catch (e) {
+          if (i < tries - 1 && (e.status === 409 || e.code === "FAILED_PRECONDITION" || e.code === "ABORTED")) continue;
+          throw e;
+        }
+      }
     },
   };
   return api;

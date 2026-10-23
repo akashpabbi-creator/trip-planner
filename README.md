@@ -81,7 +81,9 @@ A small free Cloudflare Worker in `mcp/` that speaks MCP, so Claude and Gemini c
 
 - **Sign-in.** The assistant registers itself (OAuth, dynamic client registration) and sends you to the Worker's consent page, then to `connect.html` on this site for Google sign-in. `connect.html` hands your Firebase refresh token to the Worker, which keeps it encrypted inside the OAuth grant. It only ever posts to the address in `mcp-config.js`.
 - **Runs as you.** Every call turns that token into a short-lived Firebase ID token and calls the Firestore REST API with it, so `firestore.rules` still decide everything: only your trips, and only accounts with an `aiUsers` doc can connect (checked at sign-in and every few minutes after). No rules or console changes.
-- **Tools now:** `whoami`, `list_trips`, `get_trip`, `get_day`, `search_items`, `recent_activity` (read only).
+- **Read tools:** `whoami`, `list_trips`, `get_trip`, `get_day`, `search_items`, `recent_activity`.
+- **Capture tools:** `save_ideas` (places from screenshots, links, chats: always to Ideas, never a day; duplicates by name skipped; tips kept on the idea, booking tips also become Kit to-dos), `add_trip_note`, `undo_change`. Each change writes an activity entry named after the app that made it ("Claude", "Gemini", from its OAuth registration).
+- **Undo log.** Entries in the trip's existing `activity` collection carry `undo` (JSON list of inverse steps: `deleteItem`, `removeListed`) and `undone`; `mcp/src/undo.js` runs them. Later tools add steps to the same table.
 - **Deploy:** `.github/workflows/mcp.yml` tests the Worker on every change and deploys it when the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist (it skips otherwise). One-time setup: `HANDOFF-connector.md` in the project files.
 - **Tests:** `node tests/mcp-core.mjs` (Worker + emulators) and `node tests/mcp-connect.mjs` (real browser through the sign-in).
 

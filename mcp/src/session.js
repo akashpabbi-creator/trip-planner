@@ -25,7 +25,7 @@ export async function exchange(env, refreshToken) {
 }
 
 // Returns { fs, email, name }: a Firestore client acting as the user. Throws NotAiUser or SignInExpired.
-export async function session(env, refreshToken) {
+export async function session(env, refreshToken, client = "") {
   let s = cache.get(refreshToken);
   if (!s || s.exp - Date.now() < 120000) {
     s = { ...(await exchange(env, refreshToken)), aiAt: 0 };
@@ -37,5 +37,5 @@ export async function session(env, refreshToken) {
     if (!(await fs.exists(`aiUsers/${s.email}`))) { cache.delete(refreshToken); throw new NotAiUser(s.email); }
     s.aiAt = Date.now();
   }
-  return { fs, email: s.email, name: s.name };
+  return { fs, email: s.email, name: s.name, client: client || "AI connector" };
 }

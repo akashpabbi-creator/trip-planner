@@ -76,6 +76,14 @@ const defaultHandler = {
   },
 };
 
+// The name shown in the trip's activity feed: the app that registered itself in OAuth ("Claude", "Gemini", otherwise its own name).
+export function clientLabel(name) {
+  const n = String(name || "").trim();
+  if (/claude|anthropic/i.test(n)) return "Claude";
+  if (/gemini|google/i.test(n)) return "Gemini";
+  return n.replace(/[^\p{L}\p{N} ._-]/gu, "").slice(0, 30) || "AI connector";
+}
+
 // connect.html (github.io) posts the Google sign-in here. Only that origin may call it.
 async function complete(request, env, oauth) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
@@ -93,9 +101,10 @@ async function complete(request, env, oauth) {
     return json(env, { error: "not_ai_user", message: `${who.email} isn't enabled for Claude and Gemini in the trip planner.` }, 403);
   }
   const authReq = JSON.parse(raw);
+  const client = clientLabel((await oauth.lookupClient(authReq.clientId))?.clientName);
   const { redirectTo } = await oauth.completeAuthorization({
     request: authReq, userId: who.email, metadata: { email: who.email }, scope: authReq.scope,
-    props: { email: who.email, name: who.name, refreshToken: who.refreshToken },
+    props: { email: who.email, name: who.name, refreshToken: who.refreshToken, client },
   });
   await env.OAUTH_KV.delete(key);
   return json(env, { redirectTo, email: who.email });
