@@ -83,7 +83,7 @@ try {
     return ids;
   });
   const addOps = (names) => names.map((n) => ({ type: "add", place: { name: n, category: "sight", location: "Rome" }, toDay: 2 }));
-  const propose = (ops, request = "test") => p.evaluate(({ ops, request }) => window.__tripCtx.bridgeIngest({ kind: "changes", request, summary: "s", ops }), { ops, request });
+  const propose = (ops, request = "test") => p.evaluate(({ ops, request }) => window.__tripCtx.proposeChanges({ source: "Shuffle", request, summary: "s", ops }), { ops, request });
   const countTitle = (t) => p.evaluate((t) => window.__tripCtx.S.items.filter((i) => i.title === t).length, t);
   const closeModal = async () => { await p.evaluate(() => { const m = window.__tripCtx.$modal; if (m.open) m.close(); }); };
 
@@ -169,19 +169,20 @@ try {
     c.openModal(`<h3>Edit stop</h3><label>Title<input name="title" id="halfTyped"></label>`, () => {});
   });
   await p.fill("#halfTyped", "half typed note");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes, null, { timeout: 8000 });
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo, null, { timeout: 8000 });
   await p.waitForTimeout(800);
   ok((await p.inputValue("#halfTyped").catch(() => null)) === "half typed note", "Ask Gemini answer arrives while a form is open: the form is left alone");
-  ok(/Gemini suggests 1 change/.test(await toast(p)), "and a toast says where the changes are");
+  ok(/Gemini made 1 change/.test(await toast(p)), "and a toast says what was done, with Undo");
   await closeModal();
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { changes: null }));
-  // with no modal open the review still opens
+  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { undo: null }));
+  // with no modal open nothing pops up: the Undo bar is on the Plan tab
   await p.waitForSelector("#changeInput");
+  geminiReply = { kind: "changes", summary: "x", ops: [{ type: "day", day: 1, notes: "Even slower." }] };
   await p.fill("#changeInput", "make Day 1 slower");
   await p.click("[data-action=chgGemini]");
-  await p.waitForSelector("#chgList .chg-op", { timeout: 8000 });
-  ok(true, "with no form open, the review opens by itself");
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { changes: null }));
+  await p.waitForSelector("#undoBar", { timeout: 8000 });
+  ok(!(await p.evaluate(() => window.__tripCtx.$modal.open)), "with no form open, the change is applied and the Undo bar shows (no window pops up)");
+  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { undo: null }));
   await closeModal();
 
   // paste sheet
@@ -194,14 +195,15 @@ try {
   // close the sheet, open another form, late answer lands
   await p.evaluate(() => { const c = window.__tripCtx; c.$modal.close(); c.openModal(`<h3>Edit stop</h3><input id="halfTyped2" name="t">`, () => {}); });
   await p.fill("#halfTyped2", "keep me");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes, null, { timeout: 8000 });
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo, null, { timeout: 8000 });
   await p.waitForTimeout(700);
   ok((await p.inputValue("#halfTyped2").catch(() => null)) === "keep me", "Find with Gemini answer arrives while another form is open: the form is left alone");
   await closeModal();
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { changes: null }));
+  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { changes: null, undo: null }));
 
   // 3. reopening the sheet while a request runs
   geminiDelay = 2500;
+  geminiReply = { kind: "changes", request: "Find places in pasted text", summary: "Found one.", ops: addOps(["Roscioli"]) };
   await p.evaluate(() => window.__tripCtx.openPaste("Try Da Enzo al 29 in Trastevere, it is great."));
   await p.waitForSelector("#pasteText");
   await p.click("[data-action=pasteGemini]");
@@ -210,7 +212,7 @@ try {
   await p.evaluate(() => window.__tripCtx.openPaste("Another long tip about Rome that goes on a bit, Roscioli is lovely."));
   await p.waitForSelector("#pasteText");
   ok(await p.isDisabled("[data-action=pasteGemini]") && await p.isDisabled("[data-action=pasteClaude]") && /Still reading/.test(await p.textContent("#pasteBusy")) && await p.isVisible("#pasteBusy"), "reopened while busy: buttons are disabled and a busy line shows");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes, null, { timeout: 10000 });
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo, null, { timeout: 10000 });
   await p.waitForTimeout(500);
   ok(await p.isVisible("#pasteText") && await p.isEnabled("[data-action=pasteGemini]"), "the reopened sheet is left open and its buttons come back");
   await closeModal();
@@ -235,11 +237,11 @@ try {
   geminiRaw = 'Here you go: ' + JSON.stringify({ kind: "changes", summary: "ok", ops: [{ type: "day", day: 2, notes: "Easy day." }] }) + " Hope that helps!";
   await p.fill("#changeInput", "do a thing");
   await p.click("[data-action=chgGemini]");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes, null, { timeout: 8000 });
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo, null, { timeout: 8000 });
   ok(true, "an answer with chatter around the JSON still works");
   geminiRaw = null;
   await p.waitForTimeout(600);
-  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { changes: null }));
+  await p.evaluate(() => window.__tripCtx.S.store.updateTrip(window.__tripCtx.S.tripId, { changes: null, undo: null }));
   await closeModal();
   const draftOk = await p.evaluate(async () => {
     const { checkDraft } = await import("./profile.js");

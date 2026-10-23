@@ -150,6 +150,11 @@ try {
   const sendKind = (obj) => py3(["send", "-"], env, JSON.stringify(obj));
   const bad = sendKind({ kind: "changes", ops: [{ type: "add", place: { name: "Meat Palace", category: "food", location: "x", veg: "no" }, toDay: null }] });
   ok(bad.status === 0 && /no vegetarian, vegan or egg/.test(bad.stderr), "script warns, not refuses, a restaurant without veg options");
+  // the warned restaurant is applied straight away now; take it back so the rest of the run starts clean
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.count === 1, null, { timeout: 30000 });
+  ok(await p.evaluate(() => /Meat Palace/.test(window.__tripCtx.S.trip.undo.warnings.join(" "))), "the restaurant with no veg options is kept and warned about, not blocked");
+  await p.evaluate(() => window.__tripCtx.undoAi());
+  await p.waitForFunction(() => !window.__tripCtx.S.trip.undo && !window.__tripCtx.S.items.some((i) => i.title === "Meat Palace"), null, { timeout: 15000 });
   const bad2 = sendKind({ kind: "changes", ops: [{ type: "move", itemId: "nope", toDay: 2 }] });
   ok(bad2.status !== 0 && /isn't in the snapshot/.test(bad2.stderr), "script refuses an id that isn't in the snapshot");
 
@@ -168,32 +173,18 @@ try {
     { type: "booking", booking: { kind: "hotel", title: "Hotel Roma", ref: "BK1", start: "2026-11-10T14:00", end: "2026-11-13T11:00", address: "Via X 1", cost: 54000, currency: "INR" } },
     { type: "check", text: "Travel adapter", group: "pack" },
   ];
+  const pre = await p.evaluate((seed) => { const S = window.__tripCtx.S, it = (id) => S.items.find((i) => i.id === id); return { trevi: it(seed.trevi).dayId, pant: it(seed.pant).dayId, colo: it(seed.colo).time || "" }; }, seed);
   const s1 = sendKind({ kind: "changes", request: "make Day 2 slower", summary: "Slower Day 2, one extra lunch.", ops });
   ok(s1.status === 0, "send changes: " + (s1.stdout || s1.stderr).trim().slice(0, 90));
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes?.source === "Claude", null, { timeout: 15000 });
-  await p.waitForFunction(() => /Claude sent 12 changes to review/.test(document.getElementById("toast").textContent), null, { timeout: 5000 });
-  ok(true, "toast: Claude sent 12 changes to review");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.source === "Claude", null, { timeout: 30000 });
+  await p.waitForFunction(() => /Claude made 12 changes/.test(document.getElementById("toast").textContent), null, { timeout: 15000 }).catch(() => {});
+  ok(/Claude made 12 changes/.test(await p.textContent("#toast")), "toast: Claude made 12 changes (applied straight away)");
   const inboxAfter = await getDoc("bridges/" + tok);
   ok(!inboxAfter.fields.inbox.arrayValue.values?.length, "the app took the entry out of the inbox (takeInbox)");
-  ok(await p.evaluate(() => window.__tripCtx.S.trip.changes.request) === "make Day 2 slower", "proposal stored on trip.changes with request");
+  ok(await p.evaluate(() => window.__tripCtx.S.trip.undo.request) === "make Day 2 slower" && !(await p.evaluate(() => window.__tripCtx.S.trip.changes)), "applied at once: undo record with the request, nothing waiting for review");
   await p.click(".tabs-bar [data-tab=plan]");
-  const banner = await p.textContent(".smart-banner[data-action=chgOpen]");
-  ok(/Claude suggests 12 changes for “make Day 2 slower”/.test(banner), "Plan banner: " + banner.trim().replace(/\s+/g, " "));
-  await p.click("[data-action=chgOpen]");
-  await p.waitForSelector(".chg-op");
-  const rows = await p.$$eval(".chg-op", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim()));
-  ok(rows.length === 12 && rows[0].startsWith("Move “Trevi Fountain” to Day 3 at 10:00"), "review lists each change in plain words: " + rows[0]);
-  ok(rows.some((r) => /Can't apply: Few vegetarian|Can't apply/.test(r)) === false, "all valid at first (the Nowhere place only fails when applied)");
-  // apply one, skip one, then apply all
-  await p.click(".chg-op:nth-child(1) [data-action=chgApply]");
-  await p.waitForFunction((id) => window.__tripCtx.S.items.find((i) => i.id === id)?.dayId === window.__tripCtx.S.trip.days[2].id, seed.trevi);
-  ok(true, "Apply on one change moves Trevi to Day 3");
-  await p.click(".chg-op:nth-child(7) [data-action=chgSkip]");
-  await p.waitForFunction(() => document.querySelectorAll(".chg-op.off").length === 2);
-  ok((await p.$eval("button[value=ok]", (e) => e.textContent)) === "Apply all 10", "button counts what's left: Apply all 10");
-  await p.click("button[value=ok]");
-  await p.waitForFunction(() => !window.__tripCtx.S.trip.changes && !document.querySelector("#modal[open]"), null, { timeout: 30000 });
-  await p.waitForTimeout(600);
+  ok(/Claude changed 12 things for “make Day 2 slower”/.test((await p.textContent("#undoBar")).replace(/\s+/g, " ")) && await p.isVisible("#undoBar [data-action=aiUndo]"), "Plan tab shows the Undo bar");
+  await p.waitForTimeout(800);
   const st = await p.evaluate(() => {
     const { S } = window.__tripCtx, it = (t) => S.items.find((i) => i.title === t), dayN = (i) => S.trip.days.findIndex((d) => d.id === i.dayId) + 1;
     return {
@@ -207,14 +198,26 @@ try {
   ok(st.pant[0] == null && st.pant[1] === "walk" && st.pant[2] === 12, "remove sent Pantheon to Ideas, transport saved");
   ok(st.colo === "08:30", "time op applied");
   ok(st.day2.title === "Slow Rome" && st.day2.base === "Trastevere" && st.day2.notes === "Start late.", "day op applied");
-  ok(st.grill[0] === "no" && st.grill[1] === "Mostly meat" && st.trat === "", "veg op applied; the skipped note op did not run");
+  ok(st.grill[0] === "no" && st.grill[1] === "Mostly meat" && st.trat === "Book ahead.", "veg op and note op applied");
   ok(st.ros && st.ros[0] === 2 && st.ros[1] === "20:00" && st.ros[2] === "yes" && st.ros[3], "add to Day 2 at 20:00 geocoded, veg kept");
   ok(st.borg && st.borg[0] == null && st.borg[1], "add to Ideas geocoded");
   ok(st.nowhere && st.nowhere[0] && !st.nowhere[1], "add that can't be found on the map is kept in Ideas without a pin");
   ok(st.bookings?.length === 1 && st.bookings[0].ref === "BK1" && st.bookings[0].kind === "hotel" && st.bookings[0].id && st.bookings[0].by && st.bookings[0].at, "booking op wrote trip.bookings with the spec's shape");
   ok(st.check?.length === 1 && st.check[0].text === "Travel adapter" && st.check[0].group === "pack" && st.check[0].done === false && st.check[0].auto === false && "who" in st.check[0] && st.check[0].at, "check op wrote trip.checklist with the spec's shape");
   ok(st.log.some((t) => /applied Claude's change: moved “Trevi Fountain” to Day 3/.test(t)), "applied changes are logged in Activity");
-  ok(/applied/.test(await p.textContent("#toast")), "toast: " + (await p.textContent("#toast")).slice(0, 110));
+  ok(st.log.some((t) => /Claude changed the plan \(12 changes\)/.test(t)), "and one summary entry says how many");
+
+  console.log("undo the 12 changes");
+  await p.click("[data-action=aiUndo]");
+  await p.waitForFunction(() => !window.__tripCtx.S.trip.undo, null, { timeout: 30000 });
+  await p.waitForTimeout(1500);
+  const un = await p.evaluate(({ seed }) => { const { S } = window.__tripCtx, it = (id) => S.items.find((i) => i.id === id); return { trevi: it(seed.trevi).dayId, pant: it(seed.pant).dayId, colo: it(seed.colo).time || "", ros: !!S.items.find((i) => i.title === "Roscioli"), nowhere: !!S.items.find((i) => i.title === "Nowhere Land Cafe"), day2: S.trip.days[1].title || "", bookings: S.trip.bookings?.length || 0, check: S.trip.checklist?.length || 0, grill: S.items.find((i) => i.title === "Meat Grill House").veg, undid: S.activity.some((a) => /undid Claude's changes/.test(a.text)) }; }, { seed });
+  ok(un.trevi === pre.trevi && un.pant === pre.pant && un.colo === pre.colo, "Undo puts the moved, removed and re-timed stops back");
+  ok(!un.ros && !un.nowhere && !un.day2 && !un.bookings && !un.check && un.grill !== "no", "and removes the added places, booking and to-do and restores the day and the veg answer");
+  ok(un.undid, "and says so in Activity");
+  ok(sendKind({ kind: "changes", request: "make Day 2 slower", summary: "Again.", ops }).status === 0, "send the same changes again");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.source === "Claude", null, { timeout: 30000 });
+  await p.waitForTimeout(1000);
 
   // 2. picks
   const picks = { kind: "picks", items: [
@@ -250,13 +253,11 @@ try {
     { name: `Dinner ${n}`, category: "food", time: "20:00", durationMin: 90, address: `Via Cena ${n}, Rome`, approxCost: 2500, why: "Veg friendly.", veg: "yes", vegNote: "Risotto", splurge: n === 2 ? "food" : "", market: n === 3 } ] })), stays: [] } };
   const sp = sendKind(plan);
   ok(sp.status === 0, "send plan: " + (sp.stdout || sp.stderr).trim().slice(0, 80));
-  await p.waitForFunction(() => window.__tripCtx.S.trip.proposal?.source === "Claude", null, { timeout: 60000 });
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.source === "Claude" && window.__tripCtx.S.trip.undo.request === "Plan the days", null, { timeout: 90000 });
   await p.click(".tabs-bar [data-tab=plan]");
-  ok(/Claude drafted a plan/.test(await p.textContent(".smart-banner[data-action=openProposal]")), "Plan banner: Claude drafted a plan");
-  await p.click("[data-action=openProposal]");
-  ok(/Claude's plan for Rome/.test(await p.textContent("#modalForm h3")) && /Drafted by Claude/.test(await p.textContent("#modalForm")), "proposal modal says Claude, not Gemini");
-  ok(!/Gemini/.test(await p.textContent("#modalForm")), "no mention of Gemini in the Claude plan");
-  await p.click("[data-close]");
+  ok(/Claude changed \d+ things? for “Plan the days”/.test((await p.textContent("#undoBar")).replace(/\s+/g, " ")), "Plan tab: Claude filled the days, with Undo");
+  ok(!(await p.evaluate(() => window.__tripCtx.S.trip.proposal)) && await p.evaluate(() => window.__tripCtx.S.items.some((i) => /^Sight \d$/.test(i.title) && i.dayId)), "the plan is on the days, not stored as a proposal");
+  await p.click("[data-action=aiKeep]");
 
   // 5. paste fallback (a fenced answer, and an old-style plan answer)
   await p.click(".tabs-bar [data-action=moreToggle]");
@@ -264,15 +265,14 @@ try {
   await p.click("details.about summary >> text=Claude has no internet");
   await p.fill("[name=paste]", "Here you go:\n```json\n" + JSON.stringify({ kind: "changes", request: "pasted", summary: "s", ops: [{ type: "check", text: "Sunscreen", group: "pack" }, { type: "move", itemId: "ghost", toDay: 1 }] }) + "\n```");
   await p.click("#modalForm button[value=ok]");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes?.request === "pasted", null, { timeout: 10000 });
-  ok(true, "pasted fenced json becomes a Claude proposal");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.request === "pasted", null, { timeout: 10000 });
+  ok(true, "pasted fenced json is applied");
   await p.click(".tabs-bar [data-tab=plan]");
-  ok(/Claude suggests 1 change/.test(await p.textContent(".smart-banner[data-action=chgOpen]")), "banner counts only changes that can still be applied (ghost id excluded)");
-  await p.click("[data-action=chgOpen]");
-  ok(/Can't apply: That stop isn't in your trip any more/.test(await p.textContent("#chgList")), "an op with a bad id is greyed with the reason");
-  await p.click("[data-action=chgDiscard]");
-  await p.waitForFunction(() => !window.__tripCtx.S.trip.changes);
-  ok(true, "Discard clears the proposal");
+  ok(/Claude changed 1 thing for “pasted”/.test((await p.textContent("#undoBar")).replace(/\s+/g, " ")), "the bar counts only changes that were applied");
+  ok(/Skipped/.test(await p.textContent("#undoBar")) && /isn't in your trip any more/.test(await p.textContent("#undoBar")), "an op with a bad id is listed as skipped with the reason, nothing blocked");
+  await p.click("[data-action=aiUndo]");
+  await p.waitForFunction(() => !window.__tripCtx.S.trip.undo && !window.__tripCtx.S.trip.checklist?.some((c) => c.text === "Sunscreen"), null, { timeout: 10000 });
+  ok(true, "Undo removes the to-do");
 
   // 6. two phones: each entry is taken once
   console.log("two phones, one inbox");
@@ -283,10 +283,11 @@ try {
   await p2.waitForTimeout(1500);
   const before = (await p.evaluate(() => window.__tripCtx.S.activity.length));
   ok(sendKind({ kind: "changes", request: "two phones", summary: "x", ops: [{ type: "check", text: "Hat", group: "pack" }] }).status === 0, "send while both phones are open");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes?.request === "two phones", null, { timeout: 15000 });
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.request === "two phones", null, { timeout: 15000 });
   await p.waitForTimeout(2500);
-  const sugLogs = await p.evaluate(() => window.__tripCtx.S.activity.filter((a) => /Claude suggested 1 change: two phones/.test(a.text)).length);
-  ok(sugLogs === 1, "exactly one phone turned it into a proposal (logged " + sugLogs + "x)");
+  const sugLogs = await p.evaluate(() => window.__tripCtx.S.activity.filter((a) => /Claude changed the plan \(1 change\): two phones/.test(a.text)).length);
+  ok(sugLogs === 1, "exactly one phone applied it (logged " + sugLogs + "x)");
+  ok(await p.evaluate(() => window.__tripCtx.S.trip.checklist.filter((c) => c.text === "Hat").length === 1), "and the to-do exists once");
   await p2.context().close();
 
   // 7. ask for a change with the link on

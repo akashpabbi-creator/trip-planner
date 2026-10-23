@@ -93,21 +93,17 @@ try {
     { type: "move", itemId: "x", toDay: 1 },
   ] };
   await p.click("[data-action=pasteGemini]");
-  await p.waitForSelector("#modalForm .chg-op");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.source === "Gemini", null, { timeout: 10000 });
   ok(geminiCalls === 1, "one Gemini call");
   ok(geminiPrompt.includes(TIPS) && /Colosseum/.test(geminiPrompt) && /vegetarian/i.test(geminiPrompt) && /"type":"add"/.test(geminiPrompt), "prompt carries the text, the places already saved, the veg rule and the add format");
-  const rows = await p.$$eval(".chg-op", (e) => e.map((x) => x.textContent.replace(/\s+/g, " ").trim()));
-  ok(rows.length === 3 && rows[0].startsWith("Add “Trattoria Rosa” to Day 1") && /vegetarian options/.test(rows[0]), "review lists add ops only: " + rows.join(" | "));
-  ok(/Add “Vatican Museums” to Ideas/.test(rows[1]), "a day the trip doesn't have means Ideas");
-  ok(/Add “Pizzeria Meat House” to Ideas/.test(rows[2]) && !/Can't apply/.test(rows[2]), "a restaurant with no veg options is not blocked (the app alerts instead)");
-  ok(/Gemini's suggested changes/.test(await p.textContent("#modalForm h3")) && /Places from pasted text|Find places in pasted text/.test(await p.textContent("#chgHead")), "review names Gemini and the request");
-  const noneYet = await p.evaluate(() => window.__tripCtx.S.items.length);
-  ok(noneYet === 1, "nothing added until you tap");
-  await p.click("button[value=ok]");
-  await p.waitForFunction(() => !window.__tripCtx.S.trip.changes, null, { timeout: 10000 });
   await p.waitForTimeout(500);
   const got = await p.evaluate(() => { const c = window.__tripCtx; return c.S.items.map((i) => ({ t: i.title, d: c.S.trip.days.findIndex((d) => d.id === i.dayId) + 1, veg: i.veg })); });
-  ok(got.length === 4 && got.some((x) => x.t === "Trattoria Rosa" && x.d === 1 && x.veg === "yes") && got.some((x) => x.t === "Vatican Museums" && x.d === 0), "applying adds the places (Day 1 and Ideas): " + JSON.stringify(got));
+  ok(got.length === 4 && got.some((x) => x.t === "Trattoria Rosa" && x.d === 0 && x.veg === "yes") && got.some((x) => x.t === "Vatican Museums" && x.d === 0) && got.some((x) => x.t === "Pizzeria Meat House" && x.d === 0), "places from pasted text go to Ideas first, never onto a day: " + JSON.stringify(got));
+  ok(!(await p.evaluate(() => window.__tripCtx.S.trip.changes)) && /Pizzeria Meat House/.test(await p.evaluate(() => window.__tripCtx.S.trip.undo.warnings.join(" "))), "nothing waits for review; the no-veg restaurant is kept but warned about");
+  await p.evaluate(() => window.__tripCtx.undoAi());
+  await p.waitForFunction(() => window.__tripCtx.S.items.length === 1 && !window.__tripCtx.S.trip.undo, null, { timeout: 10000 });
+  ok(true, "Undo takes all the pasted places back out");
+  await p.fill("#pasteText", TIPS).catch(() => {});
 
   console.log("Gemini finds nothing");
   geminiReply = { kind: "changes", summary: "none", ops: [] };
@@ -132,12 +128,10 @@ try {
   ok(copied.includes(TIPS) && /"type":"add"/.test(copied) && /vegetarian/.test(copied) && /Find places in pasted text/.test(copied), "copied request has the pasted text, the add format and the veg rule");
   await p.fill("textarea[name=answer]", "```json\n" + JSON.stringify({ kind: "changes", request: "Find places in pasted text", summary: "Two places.", ops: [{ type: "add", place: { name: "Forno Campo", category: "food", location: "Campo de' Fiori, Rome", veg: "yes" }, toDay: null }] }) + "\n```");
   await p.click("#modalForm button[value=ok]");
-  await p.waitForFunction(() => window.__tripCtx.S.trip.changes?.source === "Claude", null, { timeout: 5000 });
-  ok(/Claude suggests 1 change for “Find places in pasted text”/.test(await p.textContent(".smart-banner[data-action=chgOpen]")), "pasted answer becomes a Claude proposal");
-  await p.click("[data-action=chgOpen]");
-  await p.click("button[value=ok]");
-  await p.waitForFunction(() => window.__tripCtx.S.items.some((i) => i.title === "Forno Campo"), null, { timeout: 10000 });
-  ok(true, "applying it adds the place");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.source === "Claude", null, { timeout: 5000 });
+  ok(/Claude changed 1 thing for “Find places in pasted text”/.test((await p.textContent("#undoBar")).replace(/\s+/g, " ")), "pasted answer is applied with an Undo bar");
+  await p.waitForFunction(() => window.__tripCtx.S.items.some((i) => i.title === "Forno Campo" && !i.dayId), null, { timeout: 10000 });
+  ok(true, "the place is in Ideas");
 
   console.log("Ask Claude with the Claude link on");
   await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: null }));

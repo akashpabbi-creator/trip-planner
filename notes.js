@@ -1,7 +1,7 @@
 // Trip notes: free text for the whole trip, shared live. Claude (or Gemini) can turn the open ones into plan changes.
 // Notes live on the trip doc as `tripNotes`; they only leave the app through the Plan buttons and the Claude link snapshot.
 import { QuotaError, geminiWait } from "./ai.js";
-import { changePlan, proposeChanges } from "./changes.js";
+import { changePlan, applyChanges } from "./changes.js";
 
 const MAX_NOTES = 100;
 const MAX_CHARS = 2000;
@@ -160,10 +160,8 @@ export function init(ctx) {
     try {
       const r = await changePlan(ctx.aiKey(), ctx.planSnapshot(), REQUEST, ctx.profileText(ctx.profileOf(S.trip)), RULES);
       if (!r.ops.length) return ctx.toast("Gemini didn't find anything new to change from your notes.", 5000);
-      const res = await proposeChanges({ source: "Gemini", request: REQUEST, summary: r.summary, ops: r.ops });
-      ctx.toast(`Gemini suggests ${res.count} change${res.count > 1 ? "s" : ""}. Review them before anything changes.`, 5000);
-      // A late answer must not replace a form someone is typing in: with a window open, the banner is enough.
-      if (!ctx.$modal.open) setTimeout(() => { if (!ctx.$modal.open) ctx.openChanges(); }, 300);
+      const res = await applyChanges({ source: "Gemini", request: REQUEST, summary: r.summary, ops: r.ops });
+      ctx.toastUndo(`Gemini made ${res.count} change${res.count === 1 ? "" : "s"} from your notes.${res.warnings.length ? " See the warnings on the Plan tab." : ""}`);
     } catch (e) {
       console.warn("notes", e);
       ctx.toast(e instanceof QuotaError ? e.message : "Gemini couldn't do that: " + e.message, e instanceof QuotaError ? 9000 : 5000);

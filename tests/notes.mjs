@@ -147,11 +147,13 @@ try {
   ok(!/primary/.test(await p.getAttribute("[data-action=notePlanClaude]", "class")), "Claude is secondary once Gemini is there");
   geminiReply = { kind: "changes", request: "Plan from our trip notes", summary: "Added the restaurant.", ops: [{ type: "add", place: { name: "Trattoria Rosa", category: "food", location: "Via Roma 1, Rome", veg: "yes", vegNote: "pasta" }, toDay: null }, { type: "check", group: "todo", text: "Book the train" }] };
   await p.click("[data-action=notePlanGemini]");
-  await p.waitForSelector("#modalForm .chg-op");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.source === "Gemini", null, { timeout: 10000 });
   ok(geminiCalls === 1 && geminiPrompt.includes("Try Trattoria Rosa") && geminiPrompt.includes("Day 2 should be slow") && /Our open trip notes are in the plan JSON/.test(geminiPrompt), "prompt carries the notes and the rules");
-  ok((await p.$$(".chg-op")).length === 2 && /Plan from our trip notes/.test(await p.textContent("#chgHead")), "review opens with the proposed ops");
-  await p.click("#modalForm [data-close]").catch(() => p.keyboard.press("Escape"));
-  if (await p.evaluate(() => window.__tripCtx.$modal.open)) await p.keyboard.press("Escape");
+  ok(await p.evaluate(() => window.__tripCtx.S.items.some((i) => i.title === "Trattoria Rosa") && window.__tripCtx.S.trip.checklist?.some((c) => c.text === "Book the train") && !window.__tripCtx.S.trip.changes), "the notes are worked into the plan straight away, nothing waits for review");
+  ok(/Plan from our trip notes/.test(await p.evaluate(() => window.__tripCtx.S.trip.undo.request)) && await p.evaluate(() => window.__tripCtx.S.activity.some((a) => /Gemini changed the plan/.test(a.text))), "Undo record and activity entry");
+  await p.evaluate(() => window.__tripCtx.undoAi());
+  await p.waitForFunction(() => !window.__tripCtx.S.trip.undo && !window.__tripCtx.S.items.some((i) => i.title === "Trattoria Rosa") && !window.__tripCtx.S.trip.checklist?.length, null, { timeout: 10000 });
+  ok(true, "Undo takes the new place and the to-do back out");
 
   console.log("dark mode, and the non-AI view");
   await ctxB.close();

@@ -15,6 +15,7 @@ import * as bookingsMod from "./bookings.js";
 import * as pasteMod from "./paste.js";
 import * as notesMod from "./notes.js";
 import * as shuffleMod from "./shuffle.js";
+import * as undoMod from "./undo.js";
 import * as psocialMod from "./proposal-social.js";
 import * as shareMod from "./share.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
@@ -956,7 +957,6 @@ async function writePlan(tripId, { plan, bases = [] }, empty, { ideas: withIdeas
   return added + placed;
 }
 
-// Gemini drafts the trip; the rules check it; every place is found on the map; the result waits on the trip as a proposal.
 // What both planners are told: our rules, saved places, the guide's places, and each day's weather, sunset and rest time.
 function planInputs(t) {
   const p = profileOf(t);
@@ -971,7 +971,7 @@ function planInputs(t) {
   return { p, dates, opts: { dates, saved, loved, vetoed, guide, cities, shapes, weather: t.weather?.days || [] } };
 }
 
-// Gemini drafts the trip; the rules check it; every place is found on the map; the result waits on the trip as a proposal.
+// Gemini drafts the trip; the rules check it; every place is found on the map; the result goes straight onto the days with Undo.
 async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
   const t = S.trip;
   if (!ctx.aiKey()) return toast("Connect Gemini on the Discover tab first.");
@@ -981,7 +981,7 @@ async function geminiPlan(tripId = S.tripId, { quiet = false } = {}) {
   try {
     const { p, opts } = planInputs(t);
     const draft = await planTrip(ctx.aiKey(), t, profileText(p), opts);
-    await finishDraft(tripId, draft, "Gemini", { quiet });
+    await finishDraft(tripId, draft, "Gemini");
   } catch (e) {
     console.warn(e);
     if (e instanceof QuotaError) toast(e.message, 9000);
@@ -1005,12 +1005,12 @@ function claudePlan(manual) {
   openModal(`<h3>🟠 Plan with Claude</h3>
     <p class="small">Claude opened in a new tab with the request ready${prompt.length < 7000 ? "" : " (it's also copied: paste it in)"}. Send it, wait for the answer, then tap <b>Copy</b> under Claude's reply and paste it here.</p>
     <label>Claude's answer<textarea name="answer" rows="8" placeholder="Paste Claude's whole answer here" required></textarea></label>
-    <p class="muted small">The app checks it against your rules (pace, rest, vegetarian options, no transport stops) and shows it as a plan to review, like Gemini's.</p>
+    <p class="muted small">The app checks it against your rules (pace, rest, vegetarian options, no transport stops) and puts it on your days straight away. You can undo it from the Plan tab.</p>
     <p class="small"><button type="button" class="btn-s" data-action="copyClaudePrompt">Copy the request again</button></p>`, (fd) => {
     const draft = parsePlan(fd.answer);
     S.planning = "Checking Claude's plan…";
     render();
-    finishDraft(S.tripId, draft, "Claude", {})
+    finishDraft(S.tripId, draft, "Claude")
       .catch((e) => toast("Couldn't use Claude's plan: " + e.message))
       .finally(() => { S.planning = false; render(); });
   });
@@ -1018,7 +1018,7 @@ function claudePlan(manual) {
   $form.querySelector("button[value=ok]").textContent = "Use this plan";
 }
 
-async function finishDraft(tripId, draft, source, { quiet = false } = {}) {
+async function finishDraft(tripId, draft, source) {
   const t = S.trip;
   const { p, dates } = planInputs(t);
     const veto = socialMod.dropVetoed(draft, S.items); // places either of you voted 👎 never reach the plan
@@ -1041,10 +1041,18 @@ async function finishDraft(tripId, draft, source, { quiet = false } = {}) {
     const dropped = todo.filter((x) => x.drop);
     if (dropped.length) checked.notes.push(`Left out ${dropped.map((x) => "“" + x.listing.name + "”").join(", ")}: couldn't find ${dropped.length > 1 ? "them" : "it"} on the map.`);
     const plan = checked.plan.filter((x) => !x.drop).map((x) => JSON.parse(JSON.stringify(x)));
-    await S.store.updateTrip(tripId, { proposal: { at: Date.now(), by: S.me.email, byName: S.me.name, source, summary: String(draft.summary || "").slice(0, 400), mode: checked.mode, bases: checked.bases, plan, notes: checked.notes.slice(0, 12), done: [] }, ...stampMe() });
-    await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `asked ${source} to draft a plan for ${t.destination}` });
-    if (!quiet) setTimeout(openProposal, 300);
-    else toast(`${source} drafted a plan for your days. Open it from the Plan tab to review.`, 6000);
+    const pr = { at: Date.now(), by: S.me.email, byName: S.me.name, source, summary: String(draft.summary || "").slice(0, 400), mode: checked.mode, bases: checked.bases, plan, notes: checked.notes.slice(0, 12), done: [] };
+    // What you asked a planner for goes straight onto your days (untouched sample stops are replaced, your own stay), with Undo.
+    // The checks' notes (pace, rest, vegetarian options) come along as warnings.
+    S.planning = `Putting ${source}'s plan on your days…`;
+    render();
+    const res = await ctx.recordAi({ source, request: "Plan the days", summary: pr.summary }, async () => {
+      const n = await acceptProposalNow(t.days.map((_, i) => i), pr);
+      return { count: n, warnings: pr.notes };
+    });
+    await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `asked ${source} to plan the days of ${t.destination} (${res?.count ?? 0} stops). Undo is on the Plan tab` });
+    ctx.toastUndo(`${source} filled your days (${res?.count ?? 0} stops).${pr.notes.length ? " See the notes on the Plan tab." : ""}`);
+    return pr;
 }
 const planWho = (pr) => (S.aiUser ? `${pr?.source || "Gemini"}'s plan` : "the drafted plan");
 function openProposal() {
@@ -1077,9 +1085,10 @@ async function acceptProposal(dayIdxs) {
     S.accepting = false;
   }
 }
-async function acceptProposalNow(dayIdxs) {
-  const tripId = S.tripId, t = S.trip, pr = t.proposal;
-  if (!pr || !dayIdxs.length) return;
+// `direct`: a plan that was never stored on the trip (a fresh answer from Gemini or Claude). Returns the number of stops put on days.
+async function acceptProposalNow(dayIdxs, direct) {
+  const tripId = S.tripId, t = S.trip, pr = direct || t.proposal;
+  if (!pr || !dayIdxs.length) return 0;
   const ids = new Set(dayIdxs.map((i) => t.days[i]?.id).filter(Boolean));
   const out = S.items.filter((i) => ids.has(i.dayId) && (i.sample || ["guide", "plan"].includes(i.suggestedBy)) && untouched(i));
   for (const i of out) await S.store.deleteItem(tripId, i.id);
@@ -1091,10 +1100,15 @@ async function acceptProposalNow(dayIdxs) {
   const bases = pr.bases.filter((b) => dayIdxs.includes(b.dayIndex));
   if (bases.length) await S.store.txTrip(tripId, (cur) => ({ days: cur.days.map((d, i) => { const b = bases.find((x) => x.dayIndex === i); return b ? { ...d, base: b.base } : d; }), ...stampMe() }));
   const done = [...new Set([...(pr.done || []), ...dayIdxs])];
+  if (direct) {
+    if (t.proposal) await S.store.txTrip(tripId, (cur) => (cur.proposal ? { proposal: null, ...stampMe() } : null)); // an older draft is replaced
+    return n;
+  }
   // Read-modify-write so votes and comments the other phone added meanwhile survive.
   await S.store.txTrip(tripId, (cur) => (cur.proposal ? { proposal: done.length >= t.days.length ? null : { ...cur.proposal, done }, ...stampMe() } : null));
   await S.store.log(tripId, { at: Date.now(), by: S.me.email, byName: S.me.name, text: `used ${planWho(t.proposal)} for ${dayIdxs.length === t.days.length ? "every day" : dayIdxs.map((i) => "Day " + (i + 1)).join(", ")} (${n} stops)` });
   toast(`${planWho(t.proposal)[0].toUpperCase() + planWho(t.proposal).slice(1)} is on ${dayIdxs.length === 1 ? "Day " + (dayIdxs[0] + 1) : dayIdxs.length + " days"}.`);
+  return n;
 }
 // Takes out the sample plan nobody has touched and builds it again from the current guide.
 // Your own links go back on the best days; pages that were only a bot check are read again.
@@ -2517,7 +2531,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, changesMod, bridgeMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 

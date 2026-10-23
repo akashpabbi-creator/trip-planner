@@ -1,11 +1,11 @@
 // Paste anything: free text (a friend's WhatsApp tips, a video transcript, a blog post, someone's itinerary) becomes places.
-// Gemini or Claude reads it once and answers with `add` changes, which wait in the usual review. The text is never saved.
+// Gemini or Claude reads it once and answers with `add` changes, which are added to Ideas straight away (with Undo). The text is never saved.
 import { call, parseJson, QuotaError, geminiWait } from "./ai.js";
-import { OP_FORMATS, proposeChanges, cleanOps, CLAUDE_TEXT_MAX } from "./changes.js";
+import { OP_FORMATS, applyChanges, PASTE_REQUEST, cleanOps, CLAUDE_TEXT_MAX } from "./changes.js";
 import { sameName } from "./social.js";
 
 const MAX_CHARS = 20000;
-const REQUEST = "Find places in pasted text";
+const REQUEST = PASTE_REQUEST;
 const CSS = `
 .pst-text { width: 100%; min-height: 160px; max-height: 45vh; resize: vertical; font-size: 15px; }
 .pst-cut { color: var(--warn); }
@@ -106,12 +106,11 @@ export function init(ctx) {
         toast("I couldn't find any new places in that text.", 5000);
         return;
       }
-      const res = await proposeChanges({ source: "Gemini", request: REQUEST, summary: r.summary, ops: r.ops });
-      toast(`Gemini found ${res.count} place${res.count > 1 ? "s" : ""}. Review them before they're added.`, 5000);
-      // Open the review only if this sheet is still what's on screen, or nothing is. Never replace a form someone is typing in.
-      const sheetStill = ctx.$modal.open && field() && sheetNo === mine;
-      if (sheetStill) ctx.$modal.close();
-      if (sheetStill || !ctx.$modal.open) setTimeout(() => { if (!ctx.$modal.open) ctx.openChanges(); }, 300);
+      // Places from pasted text land in Ideas first; you move them to days yourself.
+      const res = await applyChanges({ source: "Gemini", request: REQUEST, summary: r.summary, ops: r.ops, ideasOnly: true });
+      // Close this sheet only if it is still what's on screen. Never close a form someone is typing in.
+      if (ctx.$modal.open && field() && sheetNo === mine) ctx.$modal.close();
+      ctx.toastUndo(`Gemini added ${res.count} place${res.count === 1 ? "" : "s"} to Ideas.`);
     } catch (e) {
       console.warn("paste", e);
       toast(e instanceof QuotaError ? e.message : "Gemini couldn't do that: " + e.message, e instanceof QuotaError ? 9000 : 5000);

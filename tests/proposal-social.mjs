@@ -62,8 +62,9 @@ try {
     { type: "day", day: 1, notes: "Slow start.", why: "Easier mornings." },
     { type: "day", day: 3, title: "Rest day" },
   ] };
-  await p.fill("#changeInput", "make Day 1 slower");
-  await p.click("[data-action=chgGemini]");
+  // Gemini's and Claude's changes apply at once now; a proposal that waits for votes is what Shuffle makes. Store one as Shuffle would.
+  await p.evaluate(async (r) => { const S = window.__tripCtx.S; await S.store.updateTrip(S.tripId, { changes: { at: Date.now(), by: S.me.email, byName: S.me.name, source: "Gemini", request: "make Day 1 slower", summary: r.summary, ops: r.ops, applied: [], skipped: [] } }); }, geminiReply);
+  await p.click("[data-action=chgOpen]");
   await p.waitForSelector("#modalForm .chg-op");
   ok((await p.$$("#chgList .pv")).length === 3 && (await p.$$("#chgAll .pv")).length === 1, "a vote row per change and one for all");
   ok(await p.isVisible("#chgThread .rx-add input"), "comment box under the list");
@@ -134,8 +135,8 @@ try {
   await p.click("[data-action=chgDiscard]");
   await p.waitForFunction(() => !window.__tripCtx.S.trip.changes);
   geminiReply = { kind: "changes", summary: "One more.", ops: [{ type: "day", day: 2, notes: "x" }] };
-  await p.fill("#changeInput", "again");
-  await p.click("[data-action=chgGemini]");
+  await p.evaluate(async (r) => { const S = window.__tripCtx.S; await S.store.updateTrip(S.tripId, { changes: { at: Date.now(), by: S.me.email, byName: S.me.name, source: "Gemini", request: "again", summary: r.summary, ops: r.ops, applied: [], skipped: [] } }); }, geminiReply);
+  await p.click("[data-action=chgOpen]");
   await p.waitForSelector("#modalForm .chg-op");
   c = await chg(p);
   ok(!c.votes && !c.comments?.length, "a new proposal starts with no votes or comments");

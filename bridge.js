@@ -1,8 +1,8 @@
 // Claude link: a private doc (named by a secret token) that a Claude desktop/Cowork session reads and writes.
 // The app keeps a snapshot of the plan in it; Claude drops proposals into its inbox; the app turns each one into a
-// proposal the couple review. Nothing Claude sends is applied without a tap.
+// change: what the couple ask Claude for is applied straight away, with an Undo bar and an activity entry.
 import { parseJson, cleanAction, clip, LIMITS } from "./ai.js";
-import { OP_FORMATS, normCategory, proposeChanges } from "./changes.js";
+import { OP_FORMATS, normCategory, applyChanges, PASTE_REQUEST } from "./changes.js";
 
 let ctx;
 let watching = "";      // token currently watched
@@ -58,7 +58,7 @@ function buildSnapshot() {
   const ask = ctx.bridgeAsk();
   if (ask) snap.requests = [{ request: ask.request, ...(ask.text ? { text: ask.text } : {}), from: ask.by, asked: new Date(ask.at).toISOString() }];
   snap.howToSend = {
-    note: "Everything you send is a proposal the couple review in the app; nothing is applied until they tap. Send by appending {id, at, json} to the bridge inbox (see the trip-planner skill).",
+    note: "What you send for a request from the couple is applied in the app straight away (they can undo it), so keep changes small and honest. Send by appending {id, at, json} to the bridge inbox (see the trip-planner skill).",
     payloadKinds: PAYLOADS,
     ops: OP_FORMATS,
     rules: [
@@ -163,7 +163,6 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
   if (!p || typeof p !== "object") throw new Error("Nothing to use in that.");
   let kind = String(p.kind || "").toLowerCase();
   if (!kind) kind = Array.isArray(p.days) ? "plan" : Array.isArray(p.ops) ? "changes" : Array.isArray(p.suggestions) ? "review" : Array.isArray(p.items) ? "picks" : "";
-  const quiet = !fromPaste;
   const T = S.trip;
   const nice = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   if (kind === "plan") {
@@ -171,14 +170,14 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
     if (!Array.isArray(draft.days) || !draft.days.length) throw new Error("The plan has no days in it.");
     S.planning = "Checking Claude's plan…";
     ctx.render();
-    try { await ctx.finishDraft(S.tripId, draft, "Claude", { quiet }); }
+    try { await ctx.finishDraft(S.tripId, draft, "Claude"); }
     finally { S.planning = false; ctx.render(); }
-    if (quiet) ctx.toast("Claude sent a plan for your days. Review it on the Plan tab.", 6000);
     return "plan";
   }
   if (kind === "changes") {
-    const res = await proposeChanges({ source: "Claude", request: p.request || request, summary: p.summary, ops: p.ops });
-    ctx.toast(`Claude sent ${nice(res.count, "change")} to review${res.replaced ? " (replacing the earlier ones)" : ""}. See the Plan tab.`, 6000);
+    const asked = p.request || request;
+    const res = await applyChanges({ source: "Claude", request: asked, summary: p.summary, ops: p.ops, ideasOnly: asked === PASTE_REQUEST });
+    ctx.toastUndo(`Claude made ${nice(res.count, "change")}.${res.warnings.length ? " See the warnings on the Plan tab." : ""}`);
     return "changes";
   }
   if (kind === "picks") {
@@ -224,8 +223,8 @@ function claudeMessage(token = tokenOf(), standing = false) {
   const base = location.origin + location.pathname.replace(/[^/]*$/, "");
   return [
     standing
-      ? `For our trip planner, always use these details. When I ask about our trip "${t.name}"${t.destination ? ` (${t.destination})` : ""} (for example "review our plan"), use your "${SKILL_NAME}" skill: first read the plan, then send me proposals (never edit the plan directly).`
-      : `Please use your "${SKILL_NAME}" skill to help with my trip "${t.name}"${t.destination ? ` (${t.destination})` : ""}. First read the plan, then send me proposals (never edit the plan directly).`,
+      ? `For our trip planner, always use these details. When I ask about our trip "${t.name}"${t.destination ? ` (${t.destination})` : ""} (for example "review our plan"), use your "${SKILL_NAME}" skill: first read the plan, then send me the changes (never edit the plan directly).`
+      : `Please use your "${SKILL_NAME}" skill to help with my trip "${t.name}"${t.destination ? ` (${t.destination})` : ""}. First read the plan, then send me the changes (never edit the plan directly).`,
     ``,
     `project: ${cfg.projectId || ""}`,
     `apiKey: ${cfg.apiKey || ""}`,
@@ -293,7 +292,7 @@ function consentModal(onConnect, lead = "", cancel = "") {
     <p class="small">Link this trip to a Claude chat (the Claude desktop app or Cowork) so Claude can plan, answer change requests, suggest top places, check restaurants for vegetarian food and read links, screenshots and booking emails. All of it is free with your Claude account.</p>
     <ul class="small">
       <li>Claude reads a copy of your plan (never your Gemini key or anyone's email).</li>
-      <li>Everything Claude sends arrives as a proposal. Nothing changes until you tap Apply.</li>
+      <li>What you ask Claude for is applied straight away, with an Undo button and an entry in Activity.</li>
       <li>Turn it off any time and the link stops working.</li>
     </ul>`, onConnect);
   ctx.$form.querySelector("button[value=ok]").textContent = "Connect Claude";
@@ -311,7 +310,7 @@ function openBridge() {
     ["Top places & vegetarian restaurants", "Find the top places and vegetarian restaurants for our trip"],
     ...(ask ? [["Handle our requests", "Please handle our new request in the trip planner: " + ask.request]] : [])];
   ctx.openModal(`<h3>🟠 Claude is connected</h3>
-    <p class="small">${at ? `Claude can see your plan as of ${esc(ctx.ago(at))}.` : "Your plan is being copied for Claude…"} Anything Claude sends shows up for you to review.</p>
+    <p class="small">${at ? `Claude can see your plan as of ${esc(ctx.ago(at))}.` : "Your plan is being copied for Claude…"} What Claude sends is applied straight away, and you can undo it from the Plan tab.</p>
     <div class="bq-list">${quick.map(([label, req]) => `<button type="button" class="btn-s bq" data-action="bridgeAsk" data-req="${esc(req)}">${esc(label)}</button>`).join("")}
       ${ask ? `<p class="muted small bq-ask">Waiting for Claude: “${esc(ask.request)}”</p>` : ""}</div>
     <div class="bq-row"><input id="bridgeFree" placeholder="Ask Claude anything…" aria-label="Ask Claude anything"><button type="button" class="btn-s primary" data-action="bridgeAskFree">Open</button></div>
