@@ -13,7 +13,7 @@ import { encodeFields } from "../mcp/src/firestore.js";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (!process.env.MCP_CHILD) {
   const dir = mkdtempSync(join(tmpdir(), "tp-mcp-"));
-  writeFileSync(join(dir, "firebase.json"), JSON.stringify({ firestore: { rules: "firestore.rules" }, emulators: { firestore: { port: 8080 }, auth: { port: 9099 }, ui: { enabled: false } } }));
+  writeFileSync(join(dir, "firebase.json"), JSON.stringify({ firestore: { rules: "firestore.rules" }, emulators: { firestore: { host: "127.0.0.1", port: 8080 }, auth: { host: "127.0.0.1", port: 9099 }, hub: { host: "127.0.0.1" }, logging: { host: "127.0.0.1" }, ui: { enabled: false } } }));
   copyFileSync(join(root, "firestore.rules"), join(dir, "firestore.rules"));
   const fb = process.env.FIREBASE_BIN || "/tmp/claude-0/fbt/node_modules/.bin/firebase";
   const r = spawnSync(fb, ["emulators:exec", "--only", "firestore,auth", "--project", "demo-trips", `MCP_CHILD=1 node ${fileURLToPath(import.meta.url)}`], { stdio: "inherit", cwd: dir });
@@ -187,6 +187,64 @@ const gt = await tool(G.token.access_token, "list_trips");
 ok(gt.v.length === 1 && gt.v[0].name === "Goa", "Bob (a second member) sees the shared trip through Gemini");
 const rf = await (await fetch(W + "/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: G.token.refresh_token, client_id: G.reg.client_id, client_secret: G.reg.client_secret }) })).json();
 ok(!!rf.access_token, "the OAuth refresh token works, so the connection stays alive");
+
+console.log("(h) capture tools: Ideas only, named after the client, with undo");
+const gc = (await tool(T, "list_trips")).v; // Alice via Claude; Bob via Gemini (G)
+const GT = G.token.access_token;
+ok(["save_ideas", "add_trip_note", "undo_change"].every((n) => names.includes(n)), "tools/list has the capture tools");
+const sv = await tool(T, "save_ideas", { trip: "Goa", ideas: [
+  { title: "Cabo de Rama Fort", category: "sight", location: "Cabo de Rama, South Goa", tips: ["go before 9am", "closed on Mondays"], source: "Instagram reel by @goa.guide", cost: 0, lat: 15.0875, lng: 73.9217 },
+  { title: "Gunpowder", category: "food", location: "Assagao, Goa", veg: "yes", vegNote: "separate veg menu", tips: ["book 2 days ahead"], url: "https://example.com/gunpowder" },
+  { title: "ritz  classic THALI", category: "food" },
+  { title: "" },
+] });
+if (sv.isError) console.log("save_ideas error:", sv.v);
+ok(sv.v.saved === 2 && sv.v.kitTodos === 1 && sv.v.results.map((r) => r.status).join() === "saved to ideas,saved to ideas,already saved,skipped", "two saved, the duplicate by name and the empty one are skipped: " + JSON.stringify(sv.v.results?.map((r) => r.status)));
+if (!sv.v.results) { console.log("save_ideas error:", sv.v); process.exit(1); }
+ok(sv.v.results[2].where === "day 1", "the duplicate says where the existing one is");
+if (sv.isError) console.log("save_ideas error:", sv.v);
+const ideas2 = await tool(T, "get_day", { trip: "Goa", day: "ideas" });
+const cabo = ideas2.v.ideas.find((i) => i.title === "Cabo de Rama Fort");
+ok(cabo && /go before 9am/.test(cabo.notes) && /Instagram reel/.test(cabo.notes) && cabo.pinned, "the idea is in Ideas with its tips, source and pin");
+const raw = await fsReq("GET", "/trips/T1/items/" + sv.v.results[0].id);
+const f = raw.j.fields || {};
+ok(f.dayId?.nullValue === null && f.addedBy?.stringValue === "alice@example.com" && f.via?.stringValue === "Claude", "stored with no day, added by the account, via Claude (OAuth client name)");
+const gp = (await fsReq("GET", "/trips/T1/items/" + sv.v.results[1].id)).j.fields;
+ok(gp.veg?.stringValue === "yes" && gp.vegSource?.stringValue === "claude" && gp.fromLink?.booleanValue === true, "food keeps veg info and link flag");
+const trip1 = (await fsReq("GET", "/trips/T1")).j.fields;
+const todos = (trip1.checklist?.arrayValue?.values || []).map((v) => v.mapValue.fields.text.stringValue);
+ok(todos.join() === "Book Gunpowder", "a booking tip adds one Kit to-do");
+const act2 = await tool(T, "recent_activity", { limit: 3 });
+ok(act2.v[0].by === "Claude" && /added 2 ideas/.test(act2.v[0].text) && act2.v[0].undoable === true, "the feed says Claude added them and marks it undoable");
+const sv2 = await tool(GT, "save_ideas", { trip: "Goa", ideas: [{ title: "Gunpowder" }, { title: "Mapusa Friday market", category: "shopping", tips: ["go on a Friday"] }] });
+ok(sv2.v.saved === 1 && sv2.v.results[0].status === "already saved", "Gemini re-sending a saved place is skipped, not doubled");
+const act3 = await tool(GT, "recent_activity", { limit: 1 });
+ok(act3.v[0].by === "Gemini", "Gemini's change is named Gemini in the feed");
+const note = await tool(T, "add_trip_note", { trip: "Goa", text: "Sanj wants a slow morning on day 3" });
+const note2 = await tool(T, "add_trip_note", { trip: "Goa", text: "sanj wants a slow morning on day 3" });
+ok(note.v.saved === true && note2.v.saved === false, "a trip note is added once");
+ok((await tool(T, "get_trip", { trip: "Goa" })).v.tripNotes.some((n) => /slow morning/.test(n.text)), "the note shows in get_trip");
+
+console.log("(i) undo");
+const u1 = await tool(T, "undo_change", { trip: "Goa" });
+ok(/trip note/.test(u1.v.undid) && !(await tool(T, "get_trip", { trip: "Goa" })).v.tripNotes.some((n) => /slow morning/.test(n.text)), "undo with no entry reverses the newest change (the note)");
+const u2 = await tool(T, "undo_change", { trip: "Goa", entry: sv.v.undoWith.entry });
+const after = await tool(T, "get_day", { trip: "Goa", day: "ideas" });
+const todos2 = ((await fsReq("GET", "/trips/T1")).j.fields.checklist?.arrayValue?.values || []).length;
+ok(/added 2 ideas/.test(u2.v.undid) && !after.v.ideas.some((i) => i.title === "Cabo de Rama Fort" || i.title === "Gunpowder") && todos2 === 0, "undoing a save removes both ideas and the to-do it added");
+ok(after.v.ideas.some((i) => i.title === "Mapusa Friday market"), "…but not Gemini's later idea");
+const u3 = await tool(T, "undo_change", { trip: "Goa", entry: sv.v.undoWith.entry });
+ok(u3.isError && /already undone/.test(u3.v), "the same change can't be undone twice");
+const mk = await tool(T, "save_ideas", { trip: "Goa", ideas: [{ title: "Chapora Fort" }] });
+await fsReq("PATCH", `/trips/T1/items/${mk.v.results[0].id}?updateMask.fieldPaths=dayId`, { fields: { dayId: { stringValue: "d2" } } });
+const u4 = await tool(T, "undo_change", { trip: "Goa", entry: mk.v.undoWith.entry });
+ok(u4.isError && /put on a day/.test(u4.v), "an idea the couple already put on a day is left alone by undo");
+const act4 = await tool(T, "recent_activity", { trip: "Goa", limit: 30 });
+ok(act4.v.some((r) => /^undid:/.test(r.text)), "undo itself is logged in the feed");
+const stranger = await tool(T, "save_ideas", { trip: "T2", ideas: [{ title: "x" }] });
+ok(stranger.isError, "can't save into a trip the account isn't on");
+const ex = (await fsReq("GET", "/trips/T1/activity", null, A.who.idToken)).j.documents?.[0];
+ok(!!ex, "(activity entries stay inside the existing `activity` collection: no rules change)");
 
 stop();
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");

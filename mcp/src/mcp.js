@@ -5,7 +5,7 @@ import { session, SignInExpired, NotAiUser } from "./session.js";
 const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS = [
   "Akash and Sanj's shared trip planner. Tools read the live plan; the signed-in account can only see trips it is a member of.",
-  "Rules: they are vegetarian (any restaurant is fine if it has vegetarian, vegan or egg options). Never fill empty days unless asked.",
+  "Rules: they are vegetarian (any restaurant is fine if it has vegetarian, vegan or egg options). Never fill empty days unless asked. Things shared from screenshots, links and chats are saved with save_ideas, which puts them in Ideas (never on a day); keep any tip such as 'book 2 days ahead', 'go early' or 'closed Mondays' on the idea.",
   "Pick the trip by name or destination; if unsure, call list_trips and ask.",
 ].join(" ");
 
@@ -17,12 +17,12 @@ async function callTool(params, env, props) {
   const tool = byName[params?.name];
   if (!tool) return { ...text(`Unknown tool "${params?.name}".`), isError: true };
   try {
-    const s = await session(env, props.refreshToken);
+    const s = await session(env, props.refreshToken, props.client);
     return text(await tool.run(params.arguments || {}, s));
   } catch (e) {
     if (e instanceof SignInExpired) return { ...text("The sign-in for this connector has expired. Remove the Trips connector and add it again to sign in."), isError: true };
     if (e instanceof NotAiUser) return { ...text("This account isn't enabled for Claude and Gemini in the trip planner."), isError: true };
-    if (e?.status === 403) return { ...text("The trip planner refused this (not a member of that trip, or the rules don't allow it)."), isError: true };
+    if (e?.status === 403) return { ...text("The trip planner refused this (not a member of that trip, or the rules don't allow it). " + (e.detail || "")), isError: true };
     return { ...text(String(e?.message || e)), isError: true };
   }
 }
