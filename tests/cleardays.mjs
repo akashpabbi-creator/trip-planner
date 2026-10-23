@@ -79,7 +79,13 @@ try {
   await p.keyboard.press("Tab");
   await p.keyboard.press("Shift+Tab");
   const kb = await p.$eval(".pick input", (e) => getComputedStyle(e).outlineStyle);
-  ok(kb === "solid", "keyboard focus still shows a ring");
+  ok(kb === "none", "no ring on the radio itself");
+  ok((await p.$eval(".pick:has(input:focus-visible)", (e) => getComputedStyle(e).boxShadow)) !== "none", "keyboard focus shows on the row instead");
+  // The real sheet must not auto-focus a radio (Android treats that as keyboard focus).
+  await p.evaluate(() => window.__tripCtx.openModal(`<h3>y</h3><div class="pick-days"><label class="pick"><input type="radio" name="t" value="a" checked> A</label></div>`, () => {}));
+  await p.waitForTimeout(200);
+  ok(!(await p.evaluate(() => document.activeElement?.type === "radio")), "sheet does not auto-focus the radio");
+  await p.screenshot({ path: process.env.SHOT || "/tmp/picker.png" });
 } catch (e) {
   fails++;
   console.log("  FAIL exception:", e.stack || e.message);

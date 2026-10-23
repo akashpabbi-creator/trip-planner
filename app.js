@@ -1553,7 +1553,7 @@ function openModal(html, onSubmit) {
     }
   };
   $modal.showModal();
-  $form.querySelector("input,select,textarea")?.focus();
+  $form.querySelector("input:not([type=radio]),select,textarea")?.focus();
 }
 const opt = (obj, sel) => Object.entries(obj).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("");
 const dayOpts = (sel) => `<option value="">💡 Ideas (not on a day yet)</option>` + S.trip.days.map((d, i) => `<option value="${d.id}" ${d.id === sel ? "selected" : ""}>Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}${d.title ? " · " + esc(d.title) : ""}</option>`).join("");
