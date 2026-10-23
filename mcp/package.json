@@ -1,0 +1,8 @@
+{
+  "name": "trips-mcp",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev", "deploy": "wrangler deploy", "test": "node ../tests/mcp-core.mjs" },
+  "dependencies": { "@cloudflare/workers-oauth-provider": "^1.2.4" },
+  "devDependencies": { "wrangler": "^4" }
+}

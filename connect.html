@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Connect to Trips</title>
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f5f0; --fg: #1d2a2a; --card: #fff; --accent: #0f766e; --muted: #5d6b6b; --bad: #b3261e; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #101716; --fg: #e8efee; --card: #1a2423; --accent: #2bb3a7; --muted: #9ab0ae; --bad: #ff8a80; } }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { width: min(26rem, calc(100vw - 32px)); background: var(--card); border-radius: 18px; padding: 28px 24px; box-shadow: 0 6px 30px #0002; }
+    .logo { width: 44px; height: 44px; border-radius: 12px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 22px; }
+    h1 { font-size: 1.3rem; margin: 14px 0 6px; }
+    p { margin: 6px 0; } .muted { color: var(--muted); font-size: .92rem; }
+    button { margin-top: 16px; width: 100%; font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 12px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+    button[disabled] { opacity: .6; cursor: default; }
+    #msg.err { color: var(--bad); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="logo">✈</div>
+    <h1 id="title">Connect your trips</h1>
+    <p id="msg">Sign in with the Google account you use in the trip planner to finish connecting.</p>
+    <button id="go" hidden>Sign in with Google</button>
+    <p class="muted" id="foot">This page only passes your sign-in to your own Trips connector. Nothing is stored here.</p>
+  </main>
+  <script src="config.js"></script>
+  <script src="mcp-config.js"></script>
+  <script type="module">
+    const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+    const $ = (id) => document.getElementById(id);
+    const q = new URLSearchParams(location.search);
+    const id = q.get("id"), w = (q.get("w") || "").replace(/\/$/, "");
+    const mcp = (window.MCP_ORIGIN || "").replace(/\/$/, "");
+    const say = (title, msg, err) => { $("title").textContent = title; $("msg").textContent = msg; $("msg").className = err ? "err" : ""; };
+    const stop = (title, msg) => { say(title, msg, true); $("go").hidden = true; };
+
+    if (!window.FIREBASE_CONFIG) stop("Not set up", "The trip planner has no Firebase sign-in configured here.");
+    else if (!mcp) stop("Connector not set up yet", "The Trips connector address hasn't been added to this site yet (mcp-config.js).");
+    else if (!id || w !== mcp) stop("This link isn't valid", "Go back to Claude or Gemini and start connecting again.");
+    else start();
+
+    async function start() {
+      const { initializeApp } = await import(FB + "firebase-app.js");
+      const A = await import(FB + "firebase-auth.js");
+      // Its own Firebase app, kept for this tab only, so it never touches the planner's own sign-in.
+      const auth = A.getAuth(initializeApp(window.FIREBASE_CONFIG, "connector"));
+      await A.setPersistence(auth, A.browserSessionPersistence);
+      if (window.FIREBASE_EMULATORS) A.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+      let user = null;
+      try { user = (await A.getRedirectResult(auth))?.user || null; } catch (e) { say("Sign-in problem", e.message, true); }
+      const finish = async (u) => {
+        $("go").hidden = true; say("Connecting…", "Almost done.");
+        let r, j = {};
+        try {
+          r = await fetch(mcp + "/connect/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, refreshToken: u.refreshToken }) });
+          j = await r.json().catch(() => ({}));
+        } catch { return stop("Couldn't reach the connector", "Check your connection and try again."); }
+        await A.signOut(auth).catch(() => {});
+        if (!r.ok || !j.redirectTo) return stop("Couldn't connect", j.message || "Go back to Claude or Gemini and start again.");
+        say("Connected", `Signed in as ${j.email}. Taking you back…`);
+        location.replace(j.redirectTo);
+      };
+      if (user) return finish(user);
+      $("go").hidden = false;
+      $("go").onclick = async () => {
+        $("go").disabled = true;
+        try {
+          if (window.FIREBASE_EMULATORS && window.TEST_GOOGLE_USER) {
+            const u = window.TEST_GOOGLE_USER;
+            const tok = JSON.stringify({ sub: u.email, email: u.email, email_verified: true, name: u.name });
+            return finish((await A.signInWithCredential(auth, A.GoogleAuthProvider.credential(tok))).user);
+          }
+          const provider = new A.GoogleAuthProvider();
+          try { return finish((await A.signInWithPopup(auth, provider)).user); }
+          catch (e) {
+            if (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment") return A.signInWithRedirect(auth, provider);
+            throw e;
+          }
+        } catch (e) {
+          $("go").disabled = false;
+          if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") say("Sign-in problem", e.message, true);
+        }
+      };
+    }
+  </script>
+</body>
+</html>

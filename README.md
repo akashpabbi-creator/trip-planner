@@ -75,6 +75,16 @@ Connect Claude (More → Connect Claude) lets a Claude chat in the Claude deskto
 - **The link is a secret.** Anyone who holds it can read the plan and send proposals, but can't change the plan or read anything else. Share it only with your own Claude chat. If it leaks, use "Make a new link".
 - **Turn it off any time.** More → Connect Claude → Turn off. The link stops working straight away. Without a connection Claude can still help: copy the plan, paste Claude's answer into the Connect Claude box.
 
+## Trips connector (MCP) for Claude and Gemini
+
+A small free Cloudflare Worker in `mcp/` that speaks MCP, so Claude and Gemini can read (and, in later steps, change) your trips from their own apps.
+
+- **Sign-in.** The assistant registers itself (OAuth, dynamic client registration) and sends you to the Worker's consent page, then to `connect.html` on this site for Google sign-in. `connect.html` hands your Firebase refresh token to the Worker, which keeps it encrypted inside the OAuth grant. It only ever posts to the address in `mcp-config.js`.
+- **Runs as you.** Every call turns that token into a short-lived Firebase ID token and calls the Firestore REST API with it, so `firestore.rules` still decide everything: only your trips, and only accounts with an `aiUsers` doc can connect (checked at sign-in and every few minutes after). No rules or console changes.
+- **Tools now:** `whoami`, `list_trips`, `get_trip`, `get_day`, `search_items`, `recent_activity` (read only).
+- **Deploy:** `.github/workflows/mcp.yml` tests the Worker on every change and deploys it when the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist (it skips otherwise). One-time setup: `HANDOFF-connector.md` in the project files.
+- **Tests:** `node tests/mcp-core.mjs` (Worker + emulators) and `node tests/mcp-connect.mjs` (real browser through the sign-in).
+
 ## Free services used
 
 Everything runs on free services with no keys: OpenStreetMap (map tiles and place search), OSRM (road routes for Stops along the way), Overpass (places near a route), Open-Meteo (weather), Wikipedia and Wikivoyage (destination and guide), Microlink (link previews), and Frankfurter with open.er-api.com as a fallback (exchange rates for the spending log). Leaflet (the map library) is loaded from unpkg. The only optional key is your own free Gemini key.
