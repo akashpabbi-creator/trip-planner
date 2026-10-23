@@ -3,7 +3,7 @@ import { unfurl, extractUrl, sourceOf, BLOCKED } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
 import { readLink } from "./linkinfo.js";
 import { loadDestination, fetchWeather, GUIDE_V, goodCover, isIllus, illustrationUrl } from "./discover.js";
-import { topPicks, reviewPlan, testKey, extractLink, checkVeg, planTrip, planPrompt, parsePlan, QuotaError, geminiWait } from "./ai.js";
+import { topPicks, reviewPlan, testKey, extractLink, placeNotes, bookTodo, checkVeg, planTrip, planPrompt, parsePlan, QuotaError, geminiWait } from "./ai.js";
 import * as mapMod from "./map.js";
 import * as alongMod from "./along.js";
 import * as socialMod from "./social.js";
@@ -591,7 +591,7 @@ function viewAddLink() {
     <div class="add-sheet" role="dialog" aria-label="Add to the trip">
       <div class="grab"></div>
       <h3>Add to the trip</h3>
-      <p class="muted small">${S.aiUser ? "Links, screenshots and tips" : "Links and places"} all land in Ideas, or straight onto a day.</p>
+      <p class="muted small">${S.aiUser ? "Links, screenshots and tips" : "Links and places"} all land in Ideas. Move them to a day when you are ready.</p>
       <div class="as-grid">
         <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-short="Clipboard" data-sub="Use the copied link">📋</button>
         <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-short="New stop" data-sub="Add a place by name">📍</button>
@@ -1211,7 +1211,7 @@ function prefsCard() {
       ${p.rest ? "<li>☕ A rest block every day, timed to the heat and sunset</li>" : ""}
       ${p.splurges ? "<li>✨ One splurge each: food, stay, experience</li>" : ""}
       <li>🍜 Street food and markets, plus one notable restaurant</li>
-      ${p.autoPlace !== false ? "<li>🔗 Places from your shared links go straight onto the best day</li>" : ""}
+      ${p.linksToDays ? "<li>🔗 Places from your shared links go straight onto the best day</li>" : "<li>🔗 Places from your shared links wait in Ideas until you move them to a day</li>"}
     </ul>
     ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
     <div class="prefs-acts">
@@ -1234,9 +1234,10 @@ function editProfile() {
     ${ta("diet", "Food we eat")}${ta("food", "Where we like to eat")}${ta("stays", "Stays")}${ta("interests", "Interests")}
     <label class="row"><input type="checkbox" name="rest" ${p.rest ? "checked" : ""}> A rest block every day</label>
     <label class="row"><input type="checkbox" name="splurges" ${p.splurges ? "checked" : ""}> One splurge each in food, stay and experience</label>
-    <label class="row"><input type="checkbox" name="autoPlace" ${p.autoPlace !== false ? "checked" : ""}> Put places from shared links straight onto the best day</label>`,
+    <label class="row"><input type="checkbox" name="linksToDays" ${p.linksToDays ? "checked" : ""}> Put places from shared links straight onto the best day (off: they wait in Ideas)</label>`,
     async (f) => {
-      const next = { ...p, home: (f.home || "").trim(), pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges, autoPlace: !!f.autoPlace };
+      const next = { ...p, home: (f.home || "").trim(), pace: f.pace, diet: f.diet.trim(), food: f.food.trim(), stays: f.stays.trim(), interests: f.interests.trim(), rest: !!f.rest, splurges: !!f.splurges, linksToDays: !!f.linksToDays };
+      delete next.autoPlace; // the old on-by-default switch
       await S.store.txTrip(S.tripId, () => ({ profile: next, ...stampMe() }));
       await log("updated the trip preferences");
     });
@@ -1924,12 +1925,12 @@ async function move(id, dir) {
 }
 
 /* --------------------------------------------------------------- add links */
-// Adds places (from a link, a screenshot, Claude or an email) to Ideas: geocodes each one and, when autoPlace is on,
-// puts it on the best day. Callers log and touch the trip. Returns [{ id, title, where }].
+// Adds places (from a link, a screenshot, Claude or an email) to Ideas: geocodes each one and, only when the autoPlace
+// option is true (or the linksToDays preference is on, off by default), puts it on the best day. Callers log and touch the trip. Returns [{ id, title, where }].
 async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
   const t = S.trip;
   const now = Date.now();
-  const auto = autoPlace ?? profileOf(t).autoPlace !== false;
+  const auto = autoPlace ?? !!profileOf(t).linksToDays;
   const out = [];
   for (const p of places) {
     const data = {
@@ -1949,6 +1950,33 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
     const where = auto && !p.unread ? await placeIdea({ ...data, id }) : null;
     out.push({ id, title: data.title, where });
   }
+  return out;
+}
+// Keeps a post's advice: "Book …" to-dos on the Kit checklist and one "Tips from …" trip note. Both are checked again
+// inside the transaction, so saving a similar post twice (or two people at once) doesn't double up.
+async function saveTips({ todos = [], tips = [], label = "this post" } = {}) {
+  const out = { todos: 0, note: false };
+  tips = tips.filter(Boolean);
+  if (!todos.length && !tips.length) return out;
+  const text = `Tips from ${label}: ${tips.join(" · ")}`.slice(0, 2000);
+  await S.store.txTrip(S.tripId, (cur) => {
+    const list = [...(cur.checklist || [])], notes = [...(cur.tripNotes || [])];
+    const have = new Set(list.map((x) => x.group + "|" + x.text.trim().toLowerCase()));
+    out.todos = out.note = 0;
+    for (const x of todos) {
+      const k = "todo|" + x.toLowerCase();
+      if (have.has(k)) continue;
+      have.add(k);
+      list.push({ id: uid(), text: x, group: "todo", who: "", done: false, doneBy: "", at: Date.now(), auto: true, by: S.me.email });
+      out.todos++;
+    }
+    if (tips.length && notes.length < 100 && !notes.some((n) => n.text.trim().toLowerCase() === text.toLowerCase())) {
+      notes.push({ id: uid(), text, by: S.me.email, byName: S.me.name, at: Date.now(), done: false });
+      out.note = true;
+    }
+    return out.todos || out.note ? { ...(out.todos ? { checklist: list } : {}), ...(out.note ? { tripNotes: notes } : {}), ...stampMe() } : null;
+  });
+  if (out.todos) log(`added ${out.todos} booking to-do${out.todos > 1 ? "s" : ""} from a saved link`);
   return out;
 }
 const looksLikeText = (raw) => String(raw || "").trim().length > 40 || /\n/.test(String(raw || "").trim());
@@ -1971,7 +1999,7 @@ async function addLink(raw) {
     const m = await unfurl(url);
     const t = S.trip;
     let places = readLink(m, t);
-    let viaAi = false;
+    let viaAi = false, tips = [];
     if (ctx.aiKey() && !geminiWait()) {
       S.busy = "Gemini is reading the page…";
       render();
@@ -1982,11 +2010,12 @@ async function addLink(raw) {
             title: String(p.name).slice(0, 140), category: CATEGORIES[p.category] ? p.category : "sight",
             location: [p.address, t.destination].filter(Boolean).join(", "), durationMin: Number(p.durationMin) || 90,
             cost: Number(p.approxCost) || 0, bestTime: p.bestTime || "",
-            notes: [p.hours, p.bestTime && `Best at ${p.bestTime}`].filter(Boolean).join(" · "),
+            notes: placeNotes(p), ...(bookTodo(p) ? { todo: bookTodo(p) } : {}),
             ...(p.category === "food" && ["yes", "some", "no"].includes(p.vegetarian) ? { veg: p.vegetarian === "no" ? "no" : "yes", vegSource: "gemini" } : {}),
             description: p.why || (found.length === 1 ? m.description || "" : ""), image: found.length === 1 ? m.image || "" : "", siteName: m.siteName || "", url,
           }));
           viaAi = true;
+          tips = found.tips || [];
         }
       } catch (e) {
         console.warn("gemini link", e.message);
@@ -1995,6 +2024,7 @@ async function addLink(raw) {
     S.busy = places.length > 1 ? `Adding ${places.length} places to the plan…` : "Adding it to the plan…";
     render();
     const added = await addPlaces(places, { url });
+    const kit = await saveTips({ todos: places.map((p) => p.todo).filter(Boolean), tips, label: m.title && !BLOCKED.test(m.title) ? `“${m.title.slice(0, 60)}”` : `this ${sourceOf(url) === "instagram" ? "Instagram" : "saved"} post` });
     const placedOn = added.map((x) => [x.title, x.where]);
     const firstId = added[0]?.id;
     await log(places.length > 1 ? `saved a link with ${places.length} places: ${places.map((p) => "“" + p.title + "”").join(", ")}` : `saved a link: “${places[0].title}”`);
@@ -2006,9 +2036,9 @@ async function addLink(raw) {
       ? days.length === 1 && placedOn.length === 1
         ? `Added “${days[0][0]}” to Day ${days[0][1].dayIndex + 1}${days[0][1].why ? ` ${days[0][1].why}` : ""}.`
         : `Added ${days.length === placedOn.length ? (days.length === 2 ? "both" : "all " + days.length) : days.length + " of " + placedOn.length} places to the plan (${[...new Set(days.map(([, w]) => "Day " + (w.dayIndex + 1)))].sort().join(", ")})${days.length < placedOn.length ? ". The rest are in Ideas" : ""}.`
-      : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : m.ok && !places[0]?.unread ? "Saved to Ideas." : `Saved to Ideas. ${m.ok ? "I couldn't find the places in that page" : "That site blocked the link reader"}${ctx.aiKey() || !S.aiUser ? "" : ", but connecting Gemini on Discover lets it read pages like this"}.`;
-    toast(msg + (viaAi ? " Read by Gemini." : ""), 5000);
-    if (S.tab !== "ideas" && S.tab !== "plan") S.tab = days.length ? "plan" : "ideas";
+      : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : placedOn.length > 1 ? `Saved ${placedOn.length} places to Ideas.` : m.ok && !places[0]?.unread ? "Saved to Ideas." : `Saved to Ideas. ${m.ok ? "I couldn't find the places in that page" : "That site blocked the link reader"}${ctx.aiKey() || !S.aiUser ? "" : ", but connecting Gemini on Discover lets it read pages like this"}.`;
+    toast(msg + (kit.todos ? ` Added ${kit.todos > 1 ? kit.todos + " booking to-dos" : "a booking to-do"} to the Kit.` : "") + (kit.note ? " Tips are in the Kit notes." : "") + (viaAi ? " Read by Gemini." : ""), 6000);
+    if (days.length ? S.tab !== "ideas" && S.tab !== "plan" : S.tab !== "ideas") S.tab = days.length ? "plan" : "ideas";
     if (places.length === 1 && (!m.ok || !places[0].location) && !viaAi && !days.length && !alsoText) editItem(firstId);
   } finally {
     S.busy = false;
@@ -2430,7 +2460,7 @@ setInterval(() => { if (S.tripId && !$modal.open) render(); }, 60000);
 const ctx = {
   S, $form, $modal,
   esc, safeUrl, uid, money, ago, stamp, dayDate, fmtDay, toMin, fromMin, dur, nameOf, who, firstName, toast, friendlyError, stampMe, log, touchTrip,
-  render, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, dayLabel, mapsQ, inTrip,
+  render, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
   untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
   CATEGORIES, MODES, CURRENCIES,
   today, directionsUrl,

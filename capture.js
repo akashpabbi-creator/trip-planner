@@ -1,6 +1,6 @@
 // capture: screenshots to places (the 📷 button and the Android image share target).
 // Images are shrunk in the browser, sent to Gemini once, and never stored (not on the trip, not in a cache).
-import { call, parseJson, cleanPlace, QuotaError, geminiWait } from "./ai.js";
+import { call, parseJson, cleanPlace, placeNotes, bookTodo, QuotaError, geminiWait } from "./ai.js";
 
 const MAX_IMAGES = 6;
 const CSS = `
@@ -11,8 +11,8 @@ const CSS = `
 export async function readImage(key, base64s, trip, prefs = "") {
   const prompt = `We are planning a trip to ${trip.destination || "a destination"}. The attached ${base64s.length > 1 ? base64s.length + " images are screenshots" : "image is a screenshot"} (a social post, map, blog, list or message) that mentions places we could visit, eat at or stay at.
 ${prefs ? "Our preferences:\n" + prefs + "\n" : ""}Read all the text in the image(s), use Google Search to confirm each place, and list every specific place it recommends.
-Return ONLY a JSON object in a \`\`\`json block: {"places": [{"name": string, "category": "sight"|"activity"|"food"|"stay"|"shopping"|"nature", "address": street address or area, "durationMin": typical visit minutes, "approxCost": number in ${trip.currency || "INR"} for two people or null, "bestTime": "sunrise"|"morning"|"lunch"|"afternoon"|"sunset"|"evening"|"night"|"", "hours": opening hours and closed days or "", "vegetarian": "yes"|"no"|"" (food only: "yes" if it serves good vegetarian dishes, even if it also serves meat; "no" only if it has little or nothing vegetarian), "why": one sentence on why it's recommended}]}
-Only real, named places, at most 10. If the screenshot shows one place, return just that place.`;
+Return ONLY a JSON object in a \`\`\`json block: {"places": [{"name": string, "category": "sight"|"activity"|"food"|"stay"|"shopping"|"nature", "address": street address or area, "durationMin": typical visit minutes, "approxCost": number in ${trip.currency || "INR"} for two people or null, "bestTime": "sunrise"|"morning"|"lunch"|"afternoon"|"sunset"|"evening"|"night"|"", "hours": opening hours and closed days or "", "vegetarian": "yes"|"no"|"" (food only: "yes" if it serves good vegetarian dishes, even if it also serves meat; "no" only if it has little or nothing vegetarian), "why": one sentence on why it's recommended, "tips": short actionable advice shown for this place (e.g. "go before 8am", "cash only"), up to 200 characters, or "", "bookAheadDays": number of days ahead it says to book, or null}]}
+Only real, named places, at most 10. If the screenshot shows one place, return just that place. Only include advice the image actually gives.`;
   const parts = base64s.map((data) => ({ inline_data: { mime_type: "image/jpeg", data } }));
   const { text } = await call(key, prompt, { search: true, parts });
   const out = parseJson(text);
@@ -85,19 +85,20 @@ export function init(ctx) {
         title: String(p.name).slice(0, 120), category: ctx.CATEGORIES[p.category] ? p.category : "sight",
         location: [p.address, t.destination].filter(Boolean).join(", "), durationMin: Number(p.durationMin) || 90,
         cost: Number(p.approxCost) || 0, bestTime: p.bestTime || "",
-        notes: [p.hours, p.bestTime && `Best at ${p.bestTime}`].filter(Boolean).join(" · "), description: p.why || "",
+        notes: placeNotes(p), description: p.why || "",
         ...(p.category === "food" && ["yes", "some", "no"].includes(p.vegetarian) ? { veg: p.vegetarian === "no" ? "no" : "yes", vegSource: "gemini" } : {}),
       }));
       S.busy = places.length > 1 ? `Adding ${places.length} places to the plan…` : "Adding it to the plan…";
       ctx.render();
       const added = await ctx.addPlaces(places, { source: "screenshot" });
+      await ctx.saveTips({ todos: fresh.map(bookTodo).filter(Boolean) });
       await ctx.log(places.length > 1 ? `added ${places.length} places from a screenshot: ${places.map((p) => "“" + p.title + "”").join(", ")}` : `added “${places[0].title}” from a screenshot`);
       await ctx.touchTrip();
       const days = added.filter((x) => x.where?.dayIndex != null);
       toast(days.length
         ? `Added ${added.length > 1 ? added.length + " places" : "“" + added[0].title + "”"} from the screenshot (${[...new Set(days.map((x) => "Day " + (x.where.dayIndex + 1)))].sort().join(", ")})${days.length < added.length ? ". The rest are in Ideas" : ""}.`
         : `Saved ${added.length > 1 ? added.length + " places" : "“" + added[0].title + "”"} to Ideas from the screenshot.`, 5000);
-      if (S.tab !== "ideas" && S.tab !== "plan") S.tab = days.length ? "plan" : "ideas";
+      if (days.length ? S.tab !== "ideas" && S.tab !== "plan" : S.tab !== "ideas") S.tab = days.length ? "plan" : "ideas";
     } catch (e) {
       console.warn("screenshot", e);
       toast(e instanceof QuotaError ? e.message : "Couldn't read that screenshot: " + (e.message || e), 6000);
