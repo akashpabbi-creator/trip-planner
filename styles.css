@@ -797,5 +797,6 @@ dialog .bq-row .btn-s { border-radius: 99px; padding: 8px 16px; }
 .trip-danger { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
 .pick input[type=radio] { accent-color: var(--accent, #1fa88f); outline: none; box-shadow: none; }
 .pick input[type=radio]:focus { outline: none; box-shadow: none; }
-.pick input[type=radio]:focus-visible { outline: 2px solid var(--accent, #1fa88f); outline-offset: 2px; }
+.pick input[type=radio]:focus-visible { outline: none; }
+.pick:has(input:focus-visible) { box-shadow: 0 0 0 2px var(--accent); } /* keyboard focus shows on the row, never a box on the radio */
 .pick:has(input:checked) { border-color: var(--accent, #1fa88f); }
