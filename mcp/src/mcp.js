@@ -1,11 +1,15 @@
 // Minimal MCP server over Streamable HTTP (stateless, JSON responses): initialize, ping, tools/list, tools/call.
-import { TOOLS, byName } from "./tools.js";
+import { TOOLS as BASE } from "./tools.js";
+import { CONTROL } from "./control.js";
 import { session, SignInExpired, NotAiUser } from "./session.js";
 
+const TOOLS = [...BASE, ...CONTROL];
+const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
 const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS = [
   "Akash and Sanj's shared trip planner. Tools read the live plan; the signed-in account can only see trips it is a member of.",
   "Rules: they are vegetarian (any restaurant is fine if it has vegetarian, vegan or egg options). Never fill empty days unless asked. Things shared from screenshots, links and chats are saved with save_ideas, which puts them in Ideas (never on a day); keep any tip such as 'book 2 days ahead', 'go early' or 'closed Mondays' on the idea.",
+  "Changes the user asks for (plan_day, move_item, update_item, update_day, bookings, Kit and so on) apply at once and are logged with an Undo; say what you changed and offer undo_change. Every change tool returns `warnings` (vegetarian options, rest block, too many sights): always pass them on, never hide them. Run check_plan after a big edit. Do not fill or rebuild days the user didn't ask for, and don't delete when moving to Ideas will do.",
   "Pick the trip by name or destination; if unsure, call list_trips and ask.",
 ].join(" ");
 

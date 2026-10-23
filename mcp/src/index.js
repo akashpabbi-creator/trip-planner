@@ -65,6 +65,7 @@ const defaultHandler = {
         return new Response(null, { status: 302, headers: approved.headers });
       }
       if (url.pathname === "/connect/complete") return await complete(request, env, oauth);
+      if (url.pathname === "/connections" || url.pathname === "/disconnect") return await manage(request, env, oauth, url.pathname === "/disconnect");
       if (url.pathname === "/") return html(page("Trips connector", `<h1>Trips connector</h1><p>This is the MCP address for the trip planner. Add <code>${esc(url.origin)}/mcp</code> as a custom connector in Claude or Gemini.</p>`));
       return new Response("Not found", { status: 404 });
     } catch (e) {
@@ -103,11 +104,37 @@ async function complete(request, env, oauth) {
   const authReq = JSON.parse(raw);
   const client = clientLabel((await oauth.lookupClient(authReq.clientId))?.clientName);
   const { redirectTo } = await oauth.completeAuthorization({
-    request: authReq, userId: who.email, metadata: { email: who.email }, scope: authReq.scope,
+    request: authReq, userId: who.email, metadata: { email: who.email, client }, scope: authReq.scope,
     props: { email: who.email, name: who.name, refreshToken: who.refreshToken, client },
   });
   await env.OAUTH_KV.delete(key);
   return json(env, { redirectTo, email: who.email });
+}
+
+// The app's Connect card (More, Connect Claude) lists and revokes connections. The caller proves who they are with their own
+// Firebase ID token (looked up with Google), so one account can only ever see and cut its own connections.
+async function manage(request, env, oauth, revoke) {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
+  if (request.method !== "POST") return json(env, { error: "method_not_allowed" }, 405);
+  if (request.headers.get("Origin") !== allowedOrigin(env)) return new Response("Forbidden", { status: 403 });
+  const { idToken, id } = await request.json().catch(() => ({}));
+  if (typeof idToken !== "string" || !idToken) return json(env, { error: "bad_request", message: "Missing sign-in." }, 400);
+  const lookup = (env.IDENTITY_URL || "https://identitytoolkit.googleapis.com/v1/accounts:lookup") + "?key=" + encodeURIComponent(env.FIREBASE_API_KEY);
+  const r = await fetch(lookup, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idToken }) });
+  const u = (await r.json().catch(() => ({}))).users?.[0];
+  if (!r.ok || !u?.email || u.emailVerified === false) return json(env, { error: "bad_sign_in", message: "Google sign-in could not be verified." }, 401);
+  const email = String(u.email).toLowerCase();
+  const grants = [];
+  for (let cursor; ;) {
+    const page = await oauth.listUserGrants(email, { limit: 100, cursor });
+    grants.push(...page.items);
+    if (!page.cursor || grants.length >= 500) break;
+    cursor = page.cursor;
+  }
+  if (!revoke) return json(env, { connections: grants.map((g) => ({ id: g.id, client: g.metadata?.client || "AI connector", since: g.createdAt ? g.createdAt * 1000 : undefined })) });
+  const mine = id ? grants.filter((g) => g.id === id) : grants;
+  for (const g of mine) await oauth.revokeGrant(g.id, email);
+  return json(env, { revoked: mine.length });
 }
 
 // The OAuth metadata names the Worker's own address, which is only known per request, so build the provider per origin.

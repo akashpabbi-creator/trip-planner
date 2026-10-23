@@ -54,7 +54,23 @@ export function firestoreClient(env, idToken) {
     const rows = await call("POST", `${parent}:runQuery`, { structuredQuery });
     return rows.filter((r) => r.document).map((r) => toDoc(r.document));
   };
+  const docName = (path) => `projects/${env.FIREBASE_PROJECT}/databases/(default)/documents/${path}`;
   const api = {
+    // Several writes in one atomic request (the Worker's free plan allows few outgoing requests per call).
+    // b.create fails if the id exists; b.patch changes only the named fields; b.remove deletes.
+    batch() {
+      const writes = [];
+      return {
+        get size() { return writes.length; },
+        create(path, data) { writes.push({ update: { name: docName(path), fields: encodeFields(data) }, currentDocument: { exists: false } }); },
+        patch(path, data) {
+          const keys = Object.keys(data).filter((k) => data[k] !== undefined);
+          writes.push({ update: { name: docName(path), fields: encodeFields(data) }, updateMask: { fieldPaths: keys }, currentDocument: { exists: true } });
+        },
+        remove(path) { writes.push({ delete: docName(path) }); },
+        async commit() { for (let i = 0; i < writes.length; i += 200) await call("POST", ":commit", { writes: writes.slice(i, i + 200) }); },
+      };
+    },
     async get(path) {
       try { return toDoc(await call("GET", "/" + path)); }
       catch (e) { if (e.status === 404) return null; throw e; }
