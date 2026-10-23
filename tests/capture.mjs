@@ -84,7 +84,7 @@ console.log("service worker share handler");
   ok(only.url === "./?shared=1" && only.saved === 0 && store.size === 0, "empty share: plain ./?shared=1 and inbox emptied");
   const fd2 = new FormData(); fd2.append("images", new File([new Uint8Array([7])], "c.jpg", { type: "image/jpeg" }));
   const resp = await sw.handleShare({ formData: async () => fd2 });
-  ok(resp.status === 303 && resp.headers.get("location") === "https://x.test/trip/?shared=1" && store.size === 1, "handleShare answers 303 to the app with images cached");
+  ok(resp.status === 303 && resp.headers.get("location") === "https://x.test/trip/?shared=1&images=1" && store.size === 1, "handleShare answers 303 to the app with images cached");
   const bad = await sw.handleShare({ formData: async () => { throw new Error("nope"); } });
   ok(bad.status === 303 && bad.headers.get("location") === "https://x.test/trip/", "a broken share still redirects to the app");
   ok(sw.SHELL.includes("bookings.js") && sw.SHELL.includes("capture.js") && /^trips-shell-v(1[7-9]|[2-9]\d)/.test(sw.CACHE), "SHELL lists bookings.js; cache bumped to " + sw.CACHE);

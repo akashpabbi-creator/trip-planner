@@ -121,13 +121,13 @@ export function init(ctx) {
     return out;
   }
   async function checkShared() {
-    if (checked || !S.trip || !window.caches) return;
+    if (checked || !S.trip || !window.caches || S.shareWaiting?.()) return; // with several trips, wait for "which trip?"
     checked = true;
     try {
       if (!(await caches.has("share-inbox"))) return;
       const n = (await (await caches.open("share-inbox")).keys()).length;
       if (!n) return;
-      if (!S.aiUser) { await caches.delete("share-inbox"); return; }
+      if (!S.aiUser) { await caches.delete("share-inbox"); return toast("Reading screenshots is only set up for accounts with Gemini or Claude, so this one wasn't added.", 6000); }
       if (!canRead()) { await caches.delete("share-inbox"); return noGemini(); }
       sheet(`<h3>📷 You shared ${n > 1 ? n + " screenshots" : "a screenshot"}</h3>
         <p>Read ${n > 1 ? "them" : "it"} and add the places to “${esc(S.trip.name)}”?</p>
