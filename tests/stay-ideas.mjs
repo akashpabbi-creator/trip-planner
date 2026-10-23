@@ -50,13 +50,10 @@ try {
       { type: "add", place: { name: "Misty Hills Homestay", category: "stay", location: "Misty Hills Homestay, Sakleshpur" }, toDay: 1 },
       { type: "add", place: { name: "Manjarabad Fort", category: "sight", location: "Manjarabad, Sakleshpur" }, toDay: 1 }] });
   });
-  await p.waitForSelector("[data-action=chgOpen]");
-  await p.click("[data-action=chgOpen]");
-  await p.click("#modalForm button[value=ok]");
-  await p.waitForFunction(() => /changes? applied/.test(document.getElementById("toast").textContent), null, { timeout: 40000 });
-  const toast = await p.textContent("#toast");
-  ok(/^4 changes applied/.test(toast), "toast says 4 changes applied: " + toast);
-  ok(/without a map pin/.test(toast) && /so it's in Ideas/.test(toast), "toast carries the notes");
+  await p.waitForFunction(() => window.__tripCtx.S.trip.undo?.count === 4, null, { timeout: 40000 });
+  const toast = await p.evaluate(() => window.__tripCtx.S.trip.undo.warnings.join(" "));
+  ok(await p.isVisible("#undoBar"), "4 changes applied straight away, with an Undo bar");
+  ok(/without a map pin/.test(toast) && /so it's in Ideas/.test(toast), "the bar warns about places the map could not find: " + toast);
   await p.waitForTimeout(500);
   const items = await p.evaluate(() => Object.fromEntries(window.__tripCtx.S.items.map((i) => [i.title, { cat: i.category, dayId: i.dayId, lat: i.lat }])));
   const day1 = await p.evaluate(() => window.__tripCtx.S.trip.days[0].id);

@@ -1,11 +1,11 @@
 ---
 name: trip-planner
-description: Work on Akash and Sanj's shared trip plan from the Claude app. Reads the live plan through the "Claude link", then sends back proposals (a day-by-day plan, change requests, top picks, vegetarian checks, places from links and screenshots, a plan review, bookings from Gmail, packing lists). The couple review everything in their trip planner app before anything changes. Use whenever the user mentions their trip planner, trip plan, a Claude link, or pastes a message with a project, apiKey and token.
+description: Work on Akash and Sanj's shared trip plan from the Claude app. Reads the live plan through the "Claude link", then sends back changes (a day-by-day plan, change requests, top picks, vegetarian checks, places from links and screenshots, a plan review, bookings from Gmail, packing lists). What the couple ask for is applied in their trip planner app straight away, with Undo and an entry in Activity. Use whenever the user mentions their trip planner, trip plan, a Claude link, or pastes a message with a project, apiKey and token.
 ---
 
 # Trip planner (Claude link)
 
-The couple plan trips together in a small web app (the "trip planner"). It has a **Claude link**: a private document that holds a copy of the current plan and an inbox. You read the plan from it and put proposals in the inbox. The app turns each proposal into something the couple review and accept, whole or one item at a time. You never edit the plan directly, and you don't need to sign in to anything.
+The couple plan trips together in a small web app (the "trip planner"). It has a **Claude link**: a private document that holds a copy of the current plan and an inbox. You read the plan from it and put changes in the inbox. For a request from the couple the app applies a `plan` or `changes` payload straight away and shows an Undo bar (picks, reviews and places from links still wait for them). You never edit the plan directly, and you don't need to sign in to anything.
 
 Everything here is free: no paid APIs, only plain HTTPS calls to Firestore with the details the user pasted.
 
@@ -30,11 +30,11 @@ If the message is missing, ask the user to open the trip in the app, tap **More,
 | They ask for | You send | Notes |
 |---|---|---|
 | "Plan my days" / "build the itinerary" | `plan` | Only when they ask. Fills days. |
-| "Make Day 2 slower", "swap X and Y", "move dinner later", "add a rest stop" | `changes` | Small, reviewed edits. |
+| "Make Day 2 slower", "swap X and Y", "move dinner later", "add a rest stop" | `changes` | Small edits, applied straight away (they can undo). |
 | "Find the best places to eat/see" | `picks` | Shows on the Discover tab. |
 | "Check these restaurants for vegetarian food" | `changes` with `veg` ops (and `note` ops) | Check menus and reviews with your web search. |
 | "Here's an Instagram link / blog / screenshot" | `changes` with `add` ops | Read it, list the real places. They go to Ideas unless the user says a day. |
-| "Plan from our trip notes" (a request) | `changes` | Work the `tripNotes` into the plan as small, reviewed ops (see section 5). Set `request` to the same words. |
+| "Plan from our trip notes" (a request) | `changes` | Work the `tripNotes` into the plan as small ops (see section 5). Set `request` to the same words. |
 | "Review our plan" | `review` | Pacing, timing, opening hours, travel, balance, budget. |
 | "Add my bookings" (flights, hotels, trains, tickets) | `changes` with `booking` ops | Search their Gmail for confirmations, never guess details. |
 | "What should we pack?" | `changes` with `check` ops (`group: "pack"`) | Based on weather, plan, destination. Use `todo` for things to book or arrange. |
@@ -43,7 +43,7 @@ Anything else the app can hold (a note on a stop, a day title, a stay base, how 
 
 ## 3. Rules (never break these)
 
-1. **Proposals only.** Everything you send is a suggestion. Say so. Never claim you changed their plan; tell them to open the trip planner and review.
+1. **Changes land at once.** A `plan` or `changes` payload for a request from the couple is applied as soon as the app picks it up, with an Undo button. Keep changes small and honest, and tell them what you sent and that they can undo it from the Plan tab. The app shows any warnings (no vegetarian options, a crowded day) instead of blocking.
 2. **Vegetarian rule.** They are vegetarian. Every restaurant needs at least some vegetarian, vegan or egg options. This is a loose rule: any cuisine or kind of place is fine (steakhouse, seafood, BBQ...) as long as the menu has a few such dishes; do not exclude places by cuisine. Check menus and reviews (web search) and set `veg` and a short `vegNote` ("order the cacio e pepe, ricotta ravioli"). Watch for hidden fish sauce, dashi, shrimp paste, lard, gelatin and meat stock. If a place has nothing vegetarian, vegan or egg-based, still set `veg: "no"` honestly and prefer another place; the app keeps it but raises a clear alert for the couple (so does an unverified place). Never guess `yes`.
 3. **Days fill only on demand.** Send a `plan` only when they ask you to plan or fill days. In `changes`, don't add stops to empty days unless the request says so; put new finds in Ideas (`"toDay": null`).
 4. **Keep what the couple chose.** Don't remove or move places they saved or marked must-do (`mustDo: true`) unless they ask. Prefer the smallest change that does what they asked (at most 12 ops).
@@ -421,8 +421,8 @@ Each suggestion has a `title` (short imperative), a `detail` (1-2 sentences) and
 
 1. `read` the plan. 2. Do the work (search the web, read the link, read Gmail...). 3. Write the payload file. 4. `python3 trip_planner.py send payload.json` (it checks first: fix every ERROR, think about every warning). 5. Tell the user, in plain words, what you sent and where to find it:
 
-- `changes`: "On the Plan tab you'll see 'Claude suggests 6 changes'. Tap Review, then Apply or Skip each one."
-- `plan`: "On the Plan tab, tap Review under 'Claude drafted a plan' and use each day you like."
+- `changes`: "Claude's 6 changes are already in your plan. The Plan tab has an Undo button if you want them back."
+- `plan`: "Your days are filled in. The Plan tab has an Undo button (and any warnings)."
 - `picks`: "Open Discover: the top picks are there, tap Add on the ones you like."
 - `review`: "Open Smart: the review is at the top, tap Apply on the ones you agree with."
 
@@ -456,7 +456,7 @@ The same box is also offered after "Ask Claude" (under the Plan tab's "Ask for a
 
 **Packing and to-dos.** From `weatherByDay`, the stops (hikes, temples, beaches), the destination (abroad: passport, visa check, forex card, travel insurance, plug adapter) and bookings (download tickets), send `check` ops: `pack` for things to bring, `todo` for things to do or book ("Book Colosseum tickets"). Don't repeat what's already in `checklist`. Keep it short and specific.
 
-**Plan the days.** Only on request. Read everything (including `reactions` and `ideasNotScheduled`), then send one `plan` (6.2) and tell them to review it day by day.
+**Plan the days.** Only on request. Read everything (including `reactions` and `ideasNotScheduled`), then send one `plan` (6.2) and tell them it fills their untouched days at once, and that they can undo it.
 
 ## 10. If something goes wrong
 

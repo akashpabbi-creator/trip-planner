@@ -143,28 +143,30 @@ try {
   ok(/voted these down[^\n]*Tourist Trap Pizza/.test(prompt), "planPrompt names vetoed places");
 
   // finishDraft drops a vetoed name from a fake draft (geocode mocked), then accepting places loved ideas and skips the vetoed one
+  const before = await a.evaluate(() => JSON.stringify(Object.fromEntries(window.__tripCtx.S.items.map((i) => [i.id, i.dayId || ""]))));
   const res = await a.evaluate(async () => {
     const c = window.__tripCtx;
     const day = (n, items) => ({ day: n, base: "Rome", theme: "x", items });
     const it = (name, category, time) => ({ name, category, time, durationMin: 60, address: name + ", Rome", approxCost: 10, why: "nice", veg: category === "food" ? "yes" : "", vegNote: "pasta" });
     const draft = { summary: "test", days: [day(1, [it("Pantheon", "sight", "10:00"), it("Tourist Trap Pizza", "food", "13:00"), it("Trastevere Walk", "sight", "16:00")]), day(2, [it("Trevi Fountain", "sight", "10:00")]), day(3, [it("Capitoline Museums", "sight", "10:00")])], stays: [] };
-    await c.finishDraft(c.S.tripId, draft, "Gemini", { quiet: true });
+    const pr = await c.finishDraft(c.S.tripId, draft, "Gemini");
     await new Promise((r) => setTimeout(r, 300));
-    const pr = c.S.trip.proposal;
     return { names: pr.plan.filter((x) => x.listing).map((x) => x.listing.name), notes: pr.notes };
   });
   ok(res.names.includes("Pantheon") && !res.names.some((n) => /Tourist Trap/i.test(n)), "finishDraft: vetoed name dropped, others kept: " + res.names.join(", "));
   ok(res.notes.some((n) => /Tourist Trap Pizza/.test(n) && /👎/.test(n)), "finishDraft: note explains: " + res.notes.join(" / "));
-  await a.click(".tabs-bar [data-tab=plan]");
-  await a.evaluate(() => document.querySelector("[data-action=openProposal]")?.click());
-  const opened = await a.waitForSelector("#modalForm button[value=ok]", { timeout: 3000 }).then(() => true).catch(() => false);
-  if (opened) {
-    await a.click("#modalForm button[value=ok]");
-    await a.waitForTimeout(2500);
-    const where = await a.evaluate(() => Object.fromEntries(window.__tripCtx.S.items.filter((i) => ["Colosseum", "Villa Borghese", "Tourist Trap Pizza"].includes(i.title)).map((i) => [i.title, !!i.dayId])));
-    ok(where["Colosseum"] && where["Villa Borghese"], "accepting a plan places your loved ideas on days");
-    ok(where["Tourist Trap Pizza"] === false, "the vetoed idea is not placed");
-  } else ok(false, "proposal modal opened");
+  // the plan goes straight onto the days (no proposal to open), loved ideas get placed and the vetoed one does not
+  await a.waitForTimeout(2500);
+  const where = await a.evaluate(() => Object.fromEntries(window.__tripCtx.S.items.filter((i) => ["Colosseum", "Villa Borghese", "Tourist Trap Pizza"].includes(i.title)).map((i) => [i.title, !!i.dayId])));
+  ok(!(await a.evaluate(() => window.__tripCtx.S.trip.proposal)), "a fresh plan is not stored as a proposal");
+  ok(where["Colosseum"] && where["Villa Borghese"], "the plan places your loved ideas on days");
+  ok(where["Tourist Trap Pizza"] === false, "the vetoed idea is not placed");
+  ok(await a.evaluate(() => window.__tripCtx.S.trip.undo?.source === "Gemini" && window.__tripCtx.S.trip.undo.created.length > 0), "the plan fill left an Undo record");
+  await a.evaluate(() => window.__tripCtx.undoAi());
+  await a.waitForFunction(() => !window.__tripCtx.S.trip.undo, null, { timeout: 10000 });
+  await a.waitForTimeout(1500);
+  const afterUndo = await a.evaluate(() => JSON.stringify(Object.fromEntries(window.__tripCtx.S.items.map((i) => [i.id, i.dayId || ""]))));
+  ok(afterUndo === before, "Undo brings every stop back to where it was (new stops gone, moved and replaced stops restored)");
 } catch (e) {
   fails++;
   console.log("  FAIL exception:", e.message);

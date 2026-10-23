@@ -1,11 +1,13 @@
 // Ask for a change: one line on the Plan tab. Gemini or Claude turns a request into a list of small changes ("ops"),
-// which wait on the trip as a proposal. Nothing is applied until someone taps Apply. This module also owns the ops engine
-// (applyOp / opText), shared with the Claude link (bridge.js).
+// which are applied straight away with Undo and an activity entry (applyChanges). Shuffle, which is rule-based, still waits
+// on the trip as a proposal to review (proposeChanges). This module also owns the ops engine (applyOp / opText), shared
+// with the Claude link (bridge.js).
 import { call, parseJson, QuotaError, geminiWait } from "./ai.js";
 import { geocode, has } from "./smart.js";
 import { voteRow, thread, summary } from "./proposal-social.js";
 
 let ctx;
+export const PASTE_REQUEST = "Find places in pasted text";
 const BOOKING_KINDS = ["flight", "hotel", "train", "bus", "ferry", "car", "tickets", "other"];
 const OP_TYPES = ["move", "remove", "add", "time", "transport", "day", "veg", "note", "booking", "check"];
 
@@ -216,6 +218,54 @@ export async function applyOp(op, { source = "" } = {}) {
   return { ok: false, note: "Not something the app can do." };
 }
 
+/* ------------------------------------------------------------ direct apply */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const PACE_MAX = 4; // sights on one day before the app warns (cool days allow 4, others 3)
+// Gemini's and Claude's changes: applied now, recorded for Undo, one activity entry. The app's checks (vegetarian options,
+// pace) never block a change; they come back as warnings the person sees on the Undo bar.
+// Returns { count, warnings, skipped } or throws when there is nothing the app can do.
+// `ideasOnly`: places found in pasted text or a link land in Ideas first (no day, no time); the person moves them.
+export async function applyChanges({ source, request = "", summary = "", ops, ideasOnly = false }) {
+  const clean = cleanOps(ideasOnly ? (ops || []).filter((o) => o?.type === "add").map(({ time, ...o }) => ({ ...o, toDay: null })) : ops);
+  if (!clean.length) throw new Error("There were no changes in the answer.");
+  const usable = clean.filter((op) => !problem(op));
+  if (!usable.length) {
+    const why = clean.map((op) => problem(op)).find(Boolean);
+    throw new Error(`None of those changes could be applied${why ? ": " + why : "."}`);
+  }
+  if (source === "Claude" && ctx.bridgeAsk?.()) ctx.setBridgeAsk(null);
+  const skipped = clean.filter((op) => problem(op)).map((op) => `Skipped “${opText(op)}”: ${problem(op)}`);
+  const out = await ctx.recordAi({ source, request, summary }, async () => {
+    let count = 0;
+    const warnings = [...skipped], days = new Set();
+    for (const [k, op] of usable.entries()) {
+      let r;
+      // A place that's already in the trip is not added twice.
+      if (op.type === "add" && ctx.S.items.some((it) => samePlace(it.title, op.place?.name))) r = { ok: true, dup: true };
+      else r = await applyOp(op, { source }).catch((e) => { console.warn("apply", e); return { ok: false, note: "Couldn't apply one of the changes." }; });
+      if (r.ok && !r.dup) count++;
+      if (!r.ok) warnings.push(`Skipped “${opText(op)}”: ${r.note}`);
+      else if (r.note && !r.dup) warnings.push(r.note);
+      if (r.ok && !r.dup) {
+        const p = op.place || {};
+        if ((op.type === "add" && p.category === "food" && p.veg !== "yes") || (op.type === "veg" && op.veg === "no"))
+          warnings.push(`${q(op.type === "add" ? p.name : nameFor(op.itemId))} has no vegetarian options confirmed (it's flagged in Smart).`);
+        if ((op.type === "move" || op.type === "add") && op.toDay) days.add(op.toDay);
+      }
+      if (k < usable.length - 1) await sleep(150); // let the stop list catch up before the next change reads it
+    }
+    await sleep(300);
+    for (const n of days) {
+      const sights = ctx.dayItems(dayId(n)).filter((i) => !i.rest && !["food", "stay", "transport", "other"].includes(i.category)).length;
+      if (sights > PACE_MAX) warnings.push(`Day ${n} now has ${sights} sights, more than your usual pace of 3 to 4.`);
+    }
+    return { count, warnings };
+  });
+  const count = out?.count ?? 0;
+  await ctx.log(`${source === "Claude" ? "Claude" : source} changed the plan (${count} change${count === 1 ? "" : "s"})${request ? ": " + str(request, 80) : ""}. Undo is on the Plan tab`);
+  return { count, warnings: out?.warnings || [], skipped: skipped.length };
+}
+
 /* -------------------------------------------------------------- proposals */
 // Gemini and Claude are named only for people who have them; everyone else sees a neutral label.
 const lbl = (c) => (ctx.S.aiUser || !/^(Gemini|Claude)$/.test(c.source) ? c.source : "");
@@ -318,7 +368,7 @@ export async function changePlan(key, snapshot, request, prefs = "", extra = "")
 export function changePrompt(snapshot, request, prefs, searchLine) {
   return `You help a couple change their shared trip plan. They asked: “${request}”
 ${prefs ? `Their preferences and hard rules:\n${prefs}\n` : ""}Rules:
-- Propose the smallest set of changes that does what they asked (at most 12). The couple review each change before anything happens.
+- Propose the smallest set of changes that does what they asked (at most 12). The changes are applied straight away (the couple can undo them), so keep them small and safe.
 - Keep what they chose: don't remove or move their must-do stops or places they saved unless the request asks for it.
 - Restaurants need at least some vegetarian, vegan or egg options (any cuisine is fine). Set veg yes/no honestly; the app alerts the couple about "no" and unverified ones.
 - Don't fill empty days unless the request asks for it.
@@ -342,11 +392,9 @@ async function askGemini() {
   ctx.render();
   try {
     const r = await changePlan(ctx.aiKey(), ctx.planSnapshot(), request, ctx.profileText(ctx.profileOf(t)));
-    const res = await proposeChanges({ source: "Gemini", request, summary: r.summary, ops: r.ops });
+    const res = await applyChanges({ source: "Gemini", request, summary: r.summary, ops: r.ops });
     draft = "";
-    ctx.toast(`Gemini suggests ${res.count} change${res.count > 1 ? "s" : ""}. Review them on the Plan tab.`, 5000);
-    // A late answer must not replace a form someone is typing in: with a window open, the banner is enough.
-    if (!ctx.$modal.open) setTimeout(() => { if (!ctx.$modal.open) openChanges(); }, 300);
+    ctx.toastUndo(`Gemini made ${res.count} change${res.count === 1 ? "" : "s"}.${res.warnings.length ? " See the warning" + (res.warnings.length > 1 ? "s" : "") + " on the Plan tab." : ""}`);
   } catch (e) {
     console.warn(e);
     ctx.toast(e instanceof QuotaError ? e.message : "Gemini couldn't do that: " + e.message, e instanceof QuotaError ? 9000 : 5000);
@@ -373,7 +421,7 @@ export async function askClaudeFor(request, { text = "", lead = "", extra = "", 
     ctx.bridgeSyncNow?.();
     onDone?.();
     ctx.render();
-    if (!ctx.openClaude) ctx.toast("Saved for Claude. In Claude, say “check my trip planner”. Claude's changes will show up here to review.", 7000);
+    if (!ctx.openClaude) ctx.toast("Saved for Claude. In Claude, say “check my trip planner”. Claude's changes are applied here straight away, and you can undo them.", 7000);
     else ctx.openClaude("Please handle our new request in the trip planner: " + str(request, 200));
     return;
   }
@@ -385,7 +433,7 @@ export async function askClaudeFor(request, { text = "", lead = "", extra = "", 
   ctx.openModal(`<h3>🟠 Ask Claude</h3>
     <p class="small">The request is copied (with your plan${text ? " and your text" : ""}). Paste it into a new chat in the Claude app, wait for the answer, tap <b>Copy</b> under it and paste it here.</p>
     <label>Claude's answer<textarea name="answer" rows="7" placeholder="Paste Claude's whole answer here" required></textarea></label>
-    <p class="muted small">You'll see each change in plain words and choose which to apply. Tip: <button type="button" class="link" data-action="bridgeOpen">connect Claude</button> to skip the copying.</p>
+    <p class="muted small">The changes are applied straight away and you can undo them. Tip: <button type="button" class="link" data-action="bridgeOpen">connect Claude</button> to skip the copying.</p>
     <p class="small"><button type="button" class="btn-s" data-action="chgCopyAgain">Copy the request again</button></p>`, async (fd) => {
     if (!ctx.bridgeIngest) return ctx.toast("Couldn't read that yet."), false;
     await ctx.bridgeIngest(fd.answer, { fromPaste: true, request });
@@ -518,6 +566,7 @@ export function init(c) {
   ctx.opText = opText;
   ctx.pendingChanges = () => pending().length;
   ctx.openChanges = openChanges;
+  ctx.proposeChanges = proposeChanges; // proposals that wait for review (Shuffle makes them; tests make them too)
   ctx.askClaudeFor = askClaudeFor;
   // Fills the "Ask for a change" line (used by Shuffle when there is nothing to swap) and puts the cursor there.
   ctx.setChangeDraft = (text) => {

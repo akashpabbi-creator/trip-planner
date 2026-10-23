@@ -151,6 +151,8 @@ async function firebaseStore(config) {
     },
     updateItem: (tripId, itemId, patch) => fs.updateDoc(fs.doc(db, "trips", tripId, "items", itemId), patch),
     deleteItem: (tripId, itemId) => fs.deleteDoc(fs.doc(db, "trips", tripId, "items", itemId)),
+    // Puts a deleted stop back under its old id (Undo).
+    restoreItem: (tripId, itemId, data) => fs.setDoc(fs.doc(db, "trips", tripId, "items", itemId), data),
     batchUpdateItems(tripId, updates) {
       const b = fs.writeBatch(db);
       for (const [itemId, patch] of updates) b.update(fs.doc(db, "trips", tripId, "items", itemId), patch);
@@ -205,7 +207,7 @@ async function firebaseStore(config) {
         return inbox;
       }),
   };
-  for (const k of ["updateTrip", "updatePrivate", "updateItem", "deleteItem", "batchUpdateItems", "setItemPath", "arrayAdd", "arrayRemove", "txTrip"]) {
+  for (const k of ["updateTrip", "updatePrivate", "updateItem", "deleteItem", "restoreItem", "batchUpdateItems", "setItemPath", "arrayAdd", "arrayRemove", "txTrip"]) {
     const fn = store[k];
     store[k] = (...a) => settle(track(fn(...a)));
   }
@@ -336,6 +338,10 @@ function demoStore() {
     },
     async deleteItem(tripId, itemId) {
       delete tripItems(tripId)[itemId];
+      save();
+    },
+    async restoreItem(tripId, itemId, data) {
+      tripItems(tripId)[itemId] = { id: itemId, ...structuredClone(data) };
       save();
     },
     async batchUpdateItems(tripId, updates) {
