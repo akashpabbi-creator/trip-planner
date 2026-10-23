@@ -42,6 +42,15 @@ export function bestTimeOf(text) {
   return "";
 }
 
+// "book 3 days ahead", "reserve a week in advance": the advice as a short phrase, or "".
+export function bookAheadOf(text) {
+  const m = String(text).match(/\b(?:book|reserve|reservations?)\b[^.\n]{0,30}?\b(\d{1,2}|a|one|two|three|four|five|seven)\s*(days?|weeks?)\s*(?:ahead|in advance|before|prior)/i);
+  if (!m) return "";
+  const n = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, seven: 7 }[m[1].toLowerCase()] || +m[1];
+  const d = /week/i.test(m[2]) ? n * 7 : n;
+  return `Book ${d} day${d > 1 ? "s" : ""} ahead`;
+}
+
 export function hoursOf(text) {
   const t = String(text);
   const open = t.match(/\b(?:open|timings?|hours)\s*[:\-]?\s*([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?\s*(?:-|–|to)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?)/i);
@@ -87,7 +96,7 @@ export function readLink(m, trip) {
     return {
       ...base, title: name.slice(0, 140), category,
       durationMin: MINUTES[category] || 60, cost: cost || 0, bestTime: when,
-      notes: [hours, when && `Best at ${when}`].filter(Boolean).join(" · "),
+      notes: [bookAheadOf(text), hours, when && `Best at ${when}`].filter(Boolean).join(" · "),
       ...(veg ? { veg } : {}),
       location: extra.location || "",
     };
