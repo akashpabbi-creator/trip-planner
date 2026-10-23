@@ -29,9 +29,10 @@ export function init(ctx) {
       && !bothLove(it, members) && !booked.some((t) => sameName(t, it.title)));
   }
   function candidates() {
-    return ctx.ideas().filter((it) => !isVetoed(it) && !it.time && !["stay", "transport"].includes(it.category));
+    return ctx.ideas().filter((it) => !isVetoed(it) && !it.time && !["stay", "transport"].includes(it.category) && !(it.category === "food" && it.veg === "no"));
   }
 
+  // Known no-veg restaurants are never auto-swapped in (nothing is dropped; they stay in Ideas).
   // Picks swaps for a day: [{ out, in }]. `skip` is a key to avoid when another arrangement exists.
   function pick(dayId, skip) {
     const day = ctx.dayItems(dayId);
