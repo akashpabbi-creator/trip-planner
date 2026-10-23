@@ -99,7 +99,7 @@ try {
   const rows = await p.$$eval(".chg-op", (e) => e.map((x) => x.textContent.replace(/\s+/g, " ").trim()));
   ok(rows.length === 3 && rows[0].startsWith("Add “Trattoria Rosa” to Day 1") && /vegetarian options/.test(rows[0]), "review lists add ops only: " + rows.join(" | "));
   ok(/Add “Vatican Museums” to Ideas/.test(rows[1]), "a day the trip doesn't have means Ideas");
-  ok(/Can't apply: Few vegetarian/.test(rows[2]), "a restaurant with little vegetarian food is blocked");
+  ok(/Add “Pizzeria Meat House” to Ideas/.test(rows[2]) && !/Can't apply/.test(rows[2]), "a restaurant with no veg options is not blocked (the app alerts instead)");
   ok(/Gemini's suggested changes/.test(await p.textContent("#modalForm h3")) && /Places from pasted text|Find places in pasted text/.test(await p.textContent("#chgHead")), "review names Gemini and the request");
   const noneYet = await p.evaluate(() => window.__tripCtx.S.items.length);
   ok(noneYet === 1, "nothing added until you tap");
@@ -107,7 +107,7 @@ try {
   await p.waitForFunction(() => !window.__tripCtx.S.trip.changes, null, { timeout: 10000 });
   await p.waitForTimeout(500);
   const got = await p.evaluate(() => { const c = window.__tripCtx; return c.S.items.map((i) => ({ t: i.title, d: c.S.trip.days.findIndex((d) => d.id === i.dayId) + 1, veg: i.veg })); });
-  ok(got.length === 3 && got.some((x) => x.t === "Trattoria Rosa" && x.d === 1 && x.veg === "yes") && got.some((x) => x.t === "Vatican Museums" && x.d === 0), "applying adds the places (Day 1 and Ideas): " + JSON.stringify(got));
+  ok(got.length === 4 && got.some((x) => x.t === "Trattoria Rosa" && x.d === 1 && x.veg === "yes") && got.some((x) => x.t === "Vatican Museums" && x.d === 0), "applying adds the places (Day 1 and Ideas): " + JSON.stringify(got));
 
   console.log("Gemini finds nothing");
   geminiReply = { kind: "changes", summary: "none", ops: [] };
