@@ -44,7 +44,7 @@ Anything else the app can hold (a note on a stop, a day title, a stay base, how 
 ## 3. Rules (never break these)
 
 1. **Proposals only.** Everything you send is a suggestion. Say so. Never claim you changed their plan; tell them to open the trip planner and review.
-2. **Vegetarian rule.** They are vegetarian. Every restaurant must serve good vegetarian dishes. It does **not** have to be a pure vegetarian restaurant; meat on the menu is fine if there are several proper vegetarian dishes. Check menus and reviews (web search) and set `veg` and a short `vegNote` ("order the cacio e pepe, ricotta ravioli"). Watch for hidden fish sauce, dashi, shrimp paste, lard, gelatin and meat stock. If a place has little or nothing vegetarian, leave it out (the app refuses it anyway). Eggs are fine.
+2. **Vegetarian rule.** They are vegetarian. Every restaurant needs at least some vegetarian, vegan or egg options. This is a loose rule: any cuisine or kind of place is fine (steakhouse, seafood, BBQ...) as long as the menu has a few such dishes; do not exclude places by cuisine. Check menus and reviews (web search) and set `veg` and a short `vegNote` ("order the cacio e pepe, ricotta ravioli"). Watch for hidden fish sauce, dashi, shrimp paste, lard, gelatin and meat stock. If a place has nothing vegetarian, vegan or egg-based, still set `veg: "no"` honestly and prefer another place; the app keeps it but raises a clear alert for the couple (so does an unverified place). Never guess `yes`.
 3. **Days fill only on demand.** Send a `plan` only when they ask you to plan or fill days. In `changes`, don't add stops to empty days unless the request says so; put new finds in Ideas (`"toDay": null`).
 4. **Keep what the couple chose.** Don't remove or move places they saved or marked must-do (`mustDo: true`) unless they ask. Prefer the smallest change that does what they asked (at most 12 ops).
 5. **Use real, named places** with a street or area you can give an address for. Don't invent places, times, prices or booking references. If unsure, leave the field empty or ask the user.
@@ -142,7 +142,7 @@ def check(p, snap=None):
             foods = [i for i in day.get("items", []) if i.get("category") == "food"]
             for i in foods:
                 if i.get("veg") == "no":
-                    err.append(f'Day {day.get("day")}: "{i.get("name")}" has few vegetarian options. Replace it.')
+                    warn.append(f'Day {day.get("day")}: "{i.get("name")}" has no vegetarian, vegan or egg options. The app will alert the couple; prefer a place that has some.')
             if len(foods) < 2:
                 warn.append(f'Day {day.get("day")}: needs lunch (13:00) and dinner (20:00) at places with good vegetarian food.')
     elif k == "changes":
@@ -185,9 +185,9 @@ def check(p, snap=None):
                     err.append(f"{w}: category must be one of {CATS}")
                 if pl.get("category") == "food":
                     if pl.get("veg") == "no":
-                        err.append(f'{w}: "{pl.get("name")}" has few vegetarian options. Leave it out.')
+                        warn.append(f'{w}: "{pl.get("name")}" has no vegetarian, vegan or egg options. The app will alert the couple.')
                     elif pl.get("veg") != "yes":
-                        warn.append(f'{w}: "{pl.get("name")}" is a restaurant: check the menu and set veg "yes" plus a vegNote.')
+                        warn.append(f'{w}: "{pl.get("name")}" is a restaurant: check the menu for vegetarian, vegan or egg options and set veg "yes" plus a vegNote.')
     elif k == "picks":
         items = p.get("items")
         if not isinstance(items, list) or not items:
@@ -197,9 +197,9 @@ def check(p, snap=None):
             if not i.get("name"):
                 err.append("a pick has no name")
             if i.get("category") == "food" and i.get("veg") == "no":
-                err.append(f'"{i.get("name")}" has few vegetarian options. Leave it out.')
+                warn.append(f'"{i.get("name")}" has no vegetarian, vegan or egg options. The app will alert the couple.')
             elif i.get("category") == "food" and i.get("veg") != "yes":
-                warn.append(f'"{i.get("name")}" is a restaurant: set veg "yes" only after checking its vegetarian dishes.')
+                warn.append(f'"{i.get("name")}" is a restaurant: set veg "yes" only after checking it has vegetarian, vegan or egg options.')
     elif k == "review":
         if not isinstance(p.get("suggestions"), list):
             err.append("review needs a suggestions list")
@@ -348,7 +348,7 @@ Op reference (every op may also carry `why`, one plain sentence the couple see):
 | `booking` | `booking{kind, title, ref, start, end, from, to, address, cost, currency, notes}` | saves a booking. `kind`: flight, hotel, train, bus, ferry, car, tickets, other. `start`/`end` are local times `YYYY-MM-DDTHH:MM`. |
 | `check` | `text`, `group` (`pack` or `todo`) | adds a packing item or a to-do |
 
-Ops that the app can't apply (an id that's gone, a day out of range, a restaurant with few vegetarian options) are shown greyed with the reason. The couple apply or skip each op, or apply all.
+Ops that the app can't apply (an id that's gone, a day out of range, a deleted stop) are shown greyed with the reason. The couple apply or skip each op, or apply all.
 
 ### 6.2 `plan`: fill the days (only when asked)
 
@@ -376,7 +376,7 @@ Rules for a plan (these are the app's own rules, so follow them or the app will 
 
 - Exactly one entry in `days` per trip day (`day` 1..N), grouped by area, finishing outdoor sights before sunset (`weatherByDay[].sunset`).
 - Pace comes from `preferences`: usually 3-4 sights a day in cities (never fewer than 2), 2-3 for beach/hill/nature stays.
-- **Every day has lunch (13:00) and dinner (20:00)** at places with good vegetarian dishes.
+- **Every day has lunch (13:00) and dinner (20:00)** at places with vegetarian, vegan or egg options.
 - Do **not** add a rest block; the app adds one and keeps its window free.
 - Exactly one food splurge (a named restaurant that can do a serious vegetarian menu), one experience splurge (tour, guide, ticket, class) and one stay splurge (in `stays`, `splurge: true`). Set `"splurge": "food"` or `"experience"` on the item.
 - Include one market visit (`"market": true`).
@@ -446,7 +446,7 @@ The same box is also offered after "Ask Claude" (under the Plan tab's "Ask for a
 
 **Top picks.** Search the web for the destination's best-reviewed sights, activities, food, stays; send `picks` (6.3). Prefer places near the days' bases (`days[].stayingIn`). Skip things already in the plan.
 
-**Vegetarian check.** For each restaurant in the plan (`category: "food"`, esp. where the card shows no veg tag), search its menu and reviews. Send `veg` ops: `yes` with `note` naming dishes, or `no` when there's little or nothing vegetarian, and add a `changes` suggestion (a replacement `add`, plus a `move` or `remove`) when it's a `no`.
+**Vegetarian check.** For each restaurant in the plan (`category: "food"`, esp. where the card shows no veg tag), search its menu and reviews. Send `veg` ops: `yes` with `note` naming dishes, or `no` when there's nothing vegetarian, vegan or egg-based (any cuisine counts as long as it has some). The app alerts the couple about `no` and unchecked places, so tell them which; offer a replacement `add` plus a `move` or `remove` when it's a `no`.
 
 **Links and screenshots.** The user shares an Instagram/blog/maps link or a screenshot. Read it (open the link, or read the image), list every real place it recommends (at most 10), find each one's address, and send `add` ops with `toDay: null` (Ideas) unless they said where. Restaurants get `veg` + `vegNote`. Say which places you couldn't identify.
 

@@ -30,7 +30,7 @@ export function pastePrompt(text, trip, existing, prefs = "") {
 ${prefs ? "Our preferences and hard rules:\n" + prefs + "\n" : ""}Rules:
 - List every specific, real, named place the text recommends (at most 15). Use Google Search to confirm each one and to find its street or area. Skip vague mentions ("a nice cafe").
 - Only add \`add\` changes. "toDay" is a day number only when the text clearly lays out days and that day exists (days are numbered from 1, the trip has ${trip.days.length}); otherwise null, so it goes to Ideas.
-- Restaurants must serve good vegetarian dishes (they don't have to be pure vegetarian): set "veg" to "yes" if they do, "no" if there is little or nothing vegetarian, and a short "vegNote".
+- Restaurants need at least some vegetarian, vegan or egg options (any cuisine is fine, not only pure veg places): set "veg" to "yes" if they have them, "no" if there is nothing like that, "" if unverified, and a short "vegNote".
 - Skip places we already have: ${existing.length ? existing.join("; ") : "(none yet)"}.
 - "why" is one sentence on why the text recommends it.
 Text:

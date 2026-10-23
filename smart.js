@@ -325,18 +325,28 @@ export function analyse(ctx) {
       out.push({ id: "splurge", kind: "splurge", level: "info", title: `No ${missing.join(", ")} splurge picked yet`, detail: "You like one deliberate splurge each in food, stay and experience. To mark one, open a stop and write “Food splurge” (or “Stay splurge”, “Experience splurge”) in its notes.", changes: [] });
   }
 
-  // 12. Restaurants on the plan with few vegetarian options: swap for one that has them.
+  // 12. Restaurants on the plan: alert when one has no vegetarian, vegan or egg options, or is unverified.
+  // Never auto-dropped: the swap is offered as a change the couple can apply or ignore.
   const vegIdeas = ideas().filter((x) => x.category === "food" && x.veg === "yes");
   for (const { d, i, items } of days)
-    for (const it of items.filter((x) => x.category === "food" && x.veg === "no")) {
-      const alt = vegIdeas.length ? [...vegIdeas].sort((a, b) => (km(a, it) ?? 99) - (km(b, it) ?? 99))[0] : null;
-      if (alt) vegIdeas.splice(vegIdeas.indexOf(alt), 1);
-      out.push({
-        id: `veg-${it.id}`, kind: "veg", level: "fix",
-        title: `Day ${i + 1}: “${it.title}” has few vegetarian options`,
-        detail: (it.vegNote ? it.vegNote + ". " : "") + (alt ? `Swap it for “${alt.title}”, which has vegetarian dishes${km(alt, it) != null && km(alt, it) < 3 ? " and is close by" : ""}.` : "Move it to Ideas and pick a place with vegetarian dishes."),
-        changes: [{ type: "item", id: it.id, patch: { dayId: null, order: 0, time: "" } }, ...(alt ? [{ type: "item", id: alt.id, patch: { dayId: d.id, order: it.order, time: it.time || "" } }] : [])],
-      });
+    for (const it of items.filter((x) => x.category === "food" && x.veg !== "yes")) {
+      if (it.veg === "no") {
+        const alt = vegIdeas.length ? [...vegIdeas].sort((a, b) => (km(a, it) ?? 99) - (km(b, it) ?? 99))[0] : null;
+        if (alt) vegIdeas.splice(vegIdeas.indexOf(alt), 1);
+        out.push({
+          id: `veg-${it.id}`, kind: "veg", level: "fix",
+          title: `Day ${i + 1}: “${it.title}” has no vegetarian, vegan or egg options`,
+          detail: (it.vegNote ? it.vegNote + ". " : "") + (alt ? `Keep it if you like, or swap it for “${alt.title}”, which has vegetarian options${km(alt, it) != null && km(alt, it) < 3 ? " and is close by" : ""}.` : "Check the menu, or move it to Ideas and pick a place with vegetarian options."),
+          changes: [{ type: "item", id: it.id, patch: { dayId: null, order: 0, time: "" } }, ...(alt ? [{ type: "item", id: alt.id, patch: { dayId: d.id, order: it.order, time: it.time || "" } }] : [])],
+        });
+      } else {
+        out.push({
+          id: `veg-${it.id}`, kind: "veg", level: "tip",
+          title: `Day ${i + 1}: check “${it.title}” has vegetarian, vegan or egg options`,
+          detail: "Not verified yet. Look at the menu or reviews (Gemini or Claude can run a vegetarian check), then mark it.",
+          changes: [],
+        });
+      }
     }
 
   const order = { fix: 0, tip: 1, info: 2 };

@@ -77,10 +77,10 @@ try {
   ok(/make Day 1 slower/.test(geminiPrompt) && /vegetarian/i.test(geminiPrompt) && /itemId/.test(geminiPrompt) && geminiPrompt.includes(ids.b), "prompt has the request, the veg rule, the op formats and the plan with ids");
   const rows = await p.$$eval(".chg-op", (e) => e.map((x) => x.textContent.replace(/\s+/g, " ").trim()));
   ok(rows.length === 5 && rows[0].startsWith("Move “Pantheon” to Day 2"), "review lists the changes: " + rows[0]);
-  ok(/Can't apply: That stop isn't in your trip/.test(rows[2]) && /Can't apply: The app doesn't know/.test(rows[3]) && /Can't apply: Few vegetarian/.test(rows[4]), "invalid ops are greyed with a reason");
-  ok((await p.$eval("button[value=ok]", (e) => e.textContent)) === "Apply all 2", "Apply all counts only what can be applied");
+  ok(/Can't apply: That stop isn't in your trip/.test(rows[2]) && /Can't apply: The app doesn't know/.test(rows[3]) && !/Can't apply/.test(rows[4]), "invalid ops are greyed with a reason");
+  ok((await p.$eval("button[value=ok]", (e) => e.textContent)) === "Apply all 3", "Apply all counts only what can be applied");
   await p.click("[data-close]");
-  ok(/Gemini suggests 2 changes for “make Day 1 slower”/.test(await p.textContent(".smart-banner[data-action=chgOpen]")), "Plan banner names Gemini and counts changes");
+  ok(/Gemini suggests 3 changes for “make Day 1 slower”/.test(await p.textContent(".smart-banner[data-action=chgOpen]")), "Plan banner names Gemini and counts changes");
   const unchanged = await p.evaluate((id) => window.__tripCtx.S.items.find((i) => i.id === id).dayId === window.__tripCtx.S.trip.days[0].id, ids.b);
   ok(unchanged, "nothing is applied until you tap");
   await p.click("[data-action=chgOpen]");

@@ -152,7 +152,7 @@ export async function testKey(key) {
 // Top-rated places for the destination, grounded in Google Search so ratings are real.
 export async function topPicks(key, trip, prefs = "") {
   const prompt = `You are a travel researcher.${prefs ? `
-Our preferences (follow them: restaurants must serve good vegetarian dishes, they do not need to be pure vegetarian; stays that fit them):\n${prefs}\n` : ""} For a trip to ${trip.destination}${trip.startDate ? ` starting ${trip.startDate}` : ""} for ${trip.days.length} days, budget ${trip.budget || "not set"} ${trip.currency || ""} for ${trip.members?.length || 2} people.
+Our preferences (follow them: restaurants need at least some vegetarian, vegan or egg options, any cuisine is fine; stays that fit them):\n${prefs}\n` : ""} For a trip to ${trip.destination}${trip.startDate ? ` starting ${trip.startDate}` : ""} for ${trip.days.length} days, budget ${trip.budget || "not set"} ${trip.currency || ""} for ${trip.members?.length || 2} people.
 Use Google Search to find currently top-rated, well-reviewed places (Google Maps / TripAdvisor ratings). Return ONLY a JSON array in a \`\`\`json block, no other text, with 24 items: 7 sightseeing ("sight"), 4 activities ("activity"), 7 restaurants/cafes ("food"), 4 places to stay across price levels ("stay"), 2 nature spots ("nature").
 Each item: {"name": string, "category": "sight"|"activity"|"food"|"stay"|"nature", "rating": number (e.g. 4.6), "reviews": number or null, "priceLevel": "$"|"$$"|"$$$"|"$$$$"|null, "approxCost": number in ${trip.currency || "local currency"} for two people or null, "area": neighbourhood, "why": one short sentence on why it's loved, "durationMin": typical visit length in minutes, "address": street address or area for maps}.`;
   const { text } = await call(key, prompt, { search: true });
@@ -190,12 +190,12 @@ Only real, named places, at most 10. If the link is about one place, return just
   return Object.assign(places, { tips: (Array.isArray(out.tips) ? out.tips : []).map((x) => clip(x, LIMITS.tip)).filter(Boolean).slice(0, 5) });
 }
 
-// Checks whether restaurants serve good vegetarian food (they don't have to be pure vegetarian).
+// Checks whether restaurants have vegetarian, vegan or egg options (any cuisine is fine; they need not be pure veg).
 export async function checkVeg(key, destination, names) {
   if (!names.length) return [];
-  const prompt = `For each restaurant or cafe in ${destination}, use Google Search (menus, Google Maps and Zomato/TripAdvisor reviews) to check whether it serves good vegetarian food. It does NOT need to be a pure vegetarian restaurant: a place that serves meat but has several proper vegetarian dishes counts as "yes". Eggs are fine.
+  const prompt = `For each restaurant or cafe in ${destination}, use Google Search (menus, Google Maps and Zomato/TripAdvisor reviews) to check whether it has at least some vegetarian, vegan or egg options. Any cuisine or kind of place is fine (steakhouse, seafood, BBQ...): it counts as "yes" if the menu has even a few vegetarian, vegan or egg dishes.
 Places: ${JSON.stringify(names)}
-Return ONLY a JSON array in a \`\`\`json block, one entry per place in the same order: [{"name": string, "veg": "yes"|"no"|"unknown", "note": "up to 12 words, e.g. the vegetarian dishes to order, or why not"}]. Use "no" only when there is little or nothing vegetarian.`;
+Return ONLY a JSON array in a \`\`\`json block, one entry per place in the same order: [{"name": string, "veg": "yes"|"no"|"unknown", "note": "up to 12 words, e.g. the vegetarian dishes to order, or why not"}]. Use "no" only when you find nothing vegetarian, vegan or egg-based; use "unknown" if you cannot verify the menu.`;
   const { text } = await call(key, prompt, { search: true });
   const arr = parseJson(text);
   return Array.isArray(arr) ? arr : [];
@@ -211,7 +211,7 @@ ${prefs}
 Rules for the plan:
 - Use Google Search for real, currently open, well-reviewed places. Every place must be a real named place you can give an address for.
 - Pace: ${shapes.length ? "the number of sights per day below (cooler days fit more)" : "3 to 4 sights or activities a day in cities, 2 to 3 for beach, hill or nature stays"}. Never fewer than 2 sights a day. Group each day by area to keep travel short, and finish outdoor sights before sunset.
-- Every day has lunch (13:00) and dinner (20:00) at places that serve good vegetarian dishes (they do not need to be pure vegetarian). Do NOT add a rest block, the app adds one; keep its window free.
+- Every day has lunch (13:00) and dinner (20:00) at places with at least some vegetarian, vegan or egg options (any cuisine is fine, they need not be pure vegetarian). If you cannot confirm a place has such options, set veg "unknown" or "no" honestly instead of guessing. Do NOT add a rest block, the app adds one; keep its window free.
 ${shapes.length ? shapes.map((s, i) => `- Day ${i + 1}: ${s.sights} sights${weather[i] ? `, ${weather[i].max}°/${weather[i].min}°` : ""}${weather[i]?.sunset ? `, sunset ${weather[i].sunset}` : ""}, rest ${s.rest.time} for ${s.rest.min} min.`).join("\n") : ""}
 - Exactly one splurge each: one food splurge dinner, one experience splurge (a tour, guide, ticket or class worth paying for), one stay splurge (in "stays").
 - Include one market visit in the trip.

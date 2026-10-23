@@ -52,17 +52,15 @@ export function dayShape(w, mode = "dense") {
 }
 
 /* --------------------------------------------------------- choosing places */
-// Vegetarian check: a place only has to offer good vegetarian food, it doesn't have to be pure veg.
-// "yes": vegetarian dishes are clearly on offer. "no": the place is built around meat or fish
-// (steakhouse, seafood shack, BBQ, kebab house...). "": no signal either way, which is most places.
-const VEG = /\b(vegetarian|vegan|veg\b|veg options|veggie|plant[- ]based|pure veg|jain|dosa|idli|thali|paneer|dal\b|chaat|falafel|hummus|tofu|udupi|pizza|pasta|risotto|salad|south indian|north indian|gujarati|rajasthani|punjabi|meze|mezze)/i;
-const MEAT_ONLY = /\b(steak ?house|steaks?|seafood|fish market|crab shack|oyster bar|bbq|barbe?cue|smokehouse|butcher|kebab house|kebabs?|fried chicken|rotisserie|churrascaria|rodizio|grill house|shawarma|biryani house|meat ?house|carvery|yakiniku|korean bbq|izakaya|ramen|pho\b|crab|lobster|oysters?)\b/i;
+// Vegetarian check (loose rule): a place only needs vegetarian, vegan or egg options; cuisine never rules it out.
+// "yes": such options are clearly on offer. "no": verified (or stated) to have little or nothing of them.
+// "": not verified, which is allowed but flagged by Smart so the couple can check.
+const VEG = /\b(vegetarian|vegan|veg\b|veg options|veggie|plant[- ]based|pure veg|jain|eggs?\b|omelet+e?|omelette|dosa|idli|thali|paneer|dal\b|chaat|falafel|hummus|tofu|udupi|pizza|pasta|risotto|salad|south indian|north indian|gujarati|rajasthani|punjabi|meze|mezze)/i;
 export function vegLevel(l) {
-  if (l.veg) return l.veg; // already checked (e.g. by Gemini)
+  if (l.veg) return l.veg; // already checked (e.g. by Gemini or Claude)
   const t = text(l);
   if (/\b(no vegetarian|not (?:suitable|good) for vegetarians|meat lovers?)\b/i.test(t)) return "no";
   if (VEG.test(t)) return "yes";
-  if (MEAT_ONLY.test(t)) return "no";
   return "";
 }
 const POSH = /\b(fine dining|tasting menu|michelin|chef|degustation|upscale|gourmet|award)/i;
@@ -80,7 +78,8 @@ const priceNum = (l) => {
   const n = String(l.price || "").replace(/[, ]/g, "").match(/\d+(\.\d+)?/g);
   return n ? Math.max(...n.map(Number)) : null;
 };
-export const vegOk = (l) => vegLevel(l) !== "no";
+// Never excludes a place: the couple are alerted instead (Smart "veg" check). Used only to rank known-good places first.
+export const vegOk = () => true;
 
 // Destinations where vegetarian food needs a phrase because fish/meat stock is structural.
 const VEG_TIPS = [
@@ -177,10 +176,11 @@ function buildCity(trip, listings, p) {
   const put = (listing, dayIndex, time, note, extra = {}) => listing && out.push({ listing, dayIndex, time, note, ...extra });
 
   // Splurges first, so they are reserved.
-  // Places with clear vegetarian dishes first, then places with no signal; meat-only places are left out.
+  // Places with clear veg/vegan/egg options first, then unverified ones, then known-no ones (Smart alerts on those).
   // Gelato, cafes and bakeries are snacks, not lunch or dinner. Other towns' places are a last resort.
-  const eats = of("eat").filter((l) => vegOk(l) && !SNACK.test(l.name)).sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes"));
-  const moreEats = (p.moreEats || []).filter((l) => vegOk(l) && !SNACK.test(l.name));
+  const vegRank = (l) => ({ yes: 0, no: 2 })[vegLevel(l)] ?? 1;
+  const eats = of("eat").filter((l) => !SNACK.test(l.name)).sort((a, b) => vegRank(a) - vegRank(b));
+  const moreEats = (p.moreEats || []).filter((l) => !SNACK.test(l.name)).sort((a, b) => vegRank(a) - vegRank(b));
   // This town's places first; another town's only once this one has run out.
   const meal = (c, list) => take(near(c, list.filter((l) => !used.has(l.name)))) || take(near(c, moreEats.filter((l) => !used.has(l.name))));
   let foodSplurge = null, staySplurge = null, expSplurge = null;
@@ -265,7 +265,7 @@ export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listing
       if (seen.has(key)) continue;
       if (TRANSPORT.test(x.name)) { notes.push(`Left out “${x.name}” on day ${i + 1}: it's a transport hub, not a stop.`); continue; }
       const l = listing(x, cat);
-      if (cat === "food" && vegLevel(l) === "no") { notes.push(`Left out “${x.name}” on day ${i + 1}: few vegetarian options.`); continue; }
+      if (cat === "food" && vegLevel(l) === "no") notes.push(`Heads-up: “${x.name}” on day ${i + 1} may have no vegetarian, vegan or egg options. Check before you go.`);
       const day = dates[i];
       if (day && x.closedDays && new RegExp(day.slice(0, 3), "i").test(x.closedDays)) { notes.push(`“${x.name}” is closed on ${day}s, so it went to Ideas.`); plan.push({ listing: l, dayIndex: null, time: "", note: `Closed ${x.closedDays}` }); seen.add(key); continue; }
       const t = toMin(x.time);
@@ -292,8 +292,8 @@ export function checkDraft(draft, trip, p = profileOf(trip), dates = [], listing
     const meals = mine.filter((x) => x.dayIndex === i && x.listing?.category === "food").map((x) => toMin(x.time) ?? 0);
     const base = bases.find((b) => b.dayIndex === i)?.base || "";
     const pick = () => {
-      const pool = listings.filter((l) => l.type === "eat" && vegOk(l) && !seen.has(l.name.toLowerCase()) && !drafted.has(l.name.toLowerCase()) && (!l.city || !base || l.city.toLowerCase() === base.toLowerCase()));
-      const l = pool.sort((a, b) => (vegLevel(b) === "yes") - (vegLevel(a) === "yes"))[0];
+      const pool = listings.filter((l) => l.type === "eat" && !seen.has(l.name.toLowerCase()) && !drafted.has(l.name.toLowerCase()) && (!l.city || !base || l.city.toLowerCase() === base.toLowerCase()));
+      const l = pool.sort((a, b) => vegRank(a) - vegRank(b))[0];
       if (l) seen.add(l.name.toLowerCase());
       return l;
     };
