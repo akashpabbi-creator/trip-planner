@@ -1,5 +1,5 @@
 // capture: screenshots to places (the 📷 button and the Android image share target).
-// Images are shrunk in the browser, sent to Gemini once, and never stored (not on the trip, not in a cache).
+// Images are shrunk in the browser and sent to Gemini once; the original is kept only in the trip's Google Drive folder (drive.js), when it has one.
 import { call, parseJson, cleanPlace, placeNotes, bookTodo, QuotaError, geminiWait } from "./ai.js";
 
 const MAX_IMAGES = 6;
@@ -55,17 +55,17 @@ export function init(ctx) {
     const limit = !!ctx.aiKey();
     sheet(`<h3>📷 Add from a screenshot</h3>
       <p>${limit ? "Gemini's free limit is used up for now, so I can't read pictures right now." : "Reading a screenshot needs a free Gemini key, which you can connect on the Discover tab."}</p>
-      <p class="muted small">Your picture is never saved anywhere. It goes to Gemini once to read the place names and is then dropped.</p>
+      <p class="muted small">${S.trip?.driveFolder ? "Your picture goes to Gemini once to read the place names; the original is kept in the trip’s Google Drive folder." : "Your picture is never saved anywhere. It goes to Gemini once to read the place names and is then dropped."}</p>
       <div class="cap-actions"><button type="button" class="primary" data-action="bridgeOpen" data-close>Send to Claude instead</button><button type="button" data-close>Close</button></div>`);
   }
-  function pick() {
+  function pick(driveToken) {
     const inp = document.createElement("input");
     inp.type = "file"; inp.accept = "image/*"; inp.multiple = true;
-    inp.onchange = () => readFiles([...inp.files]);
+    inp.onchange = () => readFiles([...inp.files], driveToken);
     inp.click();
   }
 
-  async function readFiles(files) {
+  async function readFiles(files, driveToken) {
     files = files.filter((f) => /^image\//.test(f.type));
     if (!files.length || !S.trip) return;
     if (files.length > MAX_IMAGES) toast(`Reading the first ${MAX_IMAGES} pictures.`);
@@ -74,6 +74,8 @@ export function init(ctx) {
     S.busy = `Reading ${files.length > 1 ? files.length + " screenshots" : "the screenshot"}…`;
     ctx.render();
     try {
+      // The original pictures go to the trip's Drive folder (if it has one) while Gemini reads the shrunk copies.
+      const saved = ctx.drive?.ready() ? ctx.drive.save(files, driveToken) : Promise.resolve([]);
       const b64 = [];
       for (const f of files) b64.push(await downscale(f));
       const found = await readImage(ctx.aiKey(), b64, t, ctx.profileText(ctx.profileOf(t)));
@@ -85,9 +87,11 @@ export function init(ctx) {
         title: String(p.name).slice(0, 120), category: ctx.CATEGORIES[p.category] ? p.category : "sight",
         location: [p.address, t.destination].filter(Boolean).join(", "), durationMin: Number(p.durationMin) || 90,
         cost: Number(p.approxCost) || 0, bestTime: p.bestTime || "",
-        notes: placeNotes(p), description: p.why || "",
+        notes: placeNotes(p), description: p.why || "", driveFiles: [],
         ...(p.category === "food" && ["yes", "some", "no"].includes(p.vegetarian) ? { veg: p.vegetarian === "no" ? "no" : "yes", vegSource: "gemini" } : {}),
       }));
+      const driveFiles = await saved;
+      if (driveFiles.length) for (const pl of places) pl.driveFiles = driveFiles;
       S.busy = places.length > 1 ? `Adding ${places.length} places to the plan…` : "Adding it to the plan…";
       ctx.render();
       const added = await ctx.addPlaces(places, { source: "screenshot" });
@@ -131,17 +135,18 @@ export function init(ctx) {
       if (!canRead()) { await caches.delete("share-inbox"); return noGemini(); }
       sheet(`<h3>📷 You shared ${n > 1 ? n + " screenshots" : "a screenshot"}</h3>
         <p>Read ${n > 1 ? "them" : "it"} and add the places to “${esc(S.trip.name)}”?</p>
-        <p class="muted small">The picture goes to Gemini once and is not saved.</p>
+        <p class="muted small">The picture goes to Gemini once${S.trip.driveFolder ? " and a copy is saved in the trip’s Drive folder" : " and is not saved"}.</p>
         <div class="cap-actions"><button type="button" class="primary" data-action="captureShared" data-id="read">Read ${n > 1 ? "them" : "it"}</button><button type="button" data-action="captureShared" data-id="skip">Not now</button></div>`);
     } catch (e) { console.warn("shared pictures", e); }
   }
 
   ctx.slot("addBar", () => !S.aiUser ? "" : `<button class="icon" data-action="capturePick" title="Add places from a screenshot" data-label="From a screenshot" data-sub="Read places off a photo">📷</button>`);
-  ctx.action("capturePick", () => !S.aiUser ? null : (canRead() ? pick() : noGemini()));
+  ctx.action("capturePick", () => !S.aiUser ? null : (canRead() ? pick(ctx.drive?.warm()) : noGemini()));
   ctx.action("captureShared", async (btn, id) => {
     ctx.$modal.close();
+    const tk = id === "read" ? ctx.drive?.warm() : null; // Google's sign-in popup has to start from this tap
     const files = await sharedFiles();
-    if (id === "read") await readFiles(files);
+    if (id === "read") await readFiles(files, tk);
   });
   ctx.on("open", () => { checked = false; });
   ctx.on("render", checkShared);

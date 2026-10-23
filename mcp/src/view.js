@@ -57,6 +57,8 @@ export function tripView(trip, items) {
       day: i + 1, date: dayDate(trip, i), title: d.title, stayingIn: d.base,
       stops: items.filter((it) => it.dayId === d.id).length,
     })),
+    // The trip's Google Drive folder (set in the app). File the Trip Sheet PDF and notes here.
+    driveFolder: trip.driveFolder?.id ? clean({ id: trip.driveFolder.id, name: trip.driveFolder.name, url: trip.driveFolder.url }) : undefined,
     ideasCount: ideasOf(trip, items).length,
     bookings: (trip.bookings || []).map((b) => clean({ id: b.id, kind: b.kind, title: b.title, ref: b.ref, from: b.from, to: b.to, date: b.date, start: b.start, end: b.end })),
     tripNotes: (trip.tripNotes || []).map((n) => clean({ id: n.id, text: n.text, by: nameOf(n.by), done: n.done })),

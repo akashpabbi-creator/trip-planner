@@ -72,7 +72,7 @@ export const TOOLS = [
   },
   {
     name: "get_trip",
-    description: "One trip in full: dates, travellers, a one-line overview of every day, how many ideas are waiting, bookings, shared trip notes, extras, checklist. Use get_day for the stops of a day.",
+    description: "One trip in full: dates, travellers, a one-line overview of every day, how many ideas are waiting, bookings, shared trip notes, extras, checklist, and driveFolder (the trip's Google Drive folder: save the Trip Sheet PDF and any notes there, by its id, when it is set). Use get_day for the stops of a day.",
     inputSchema: { type: "object", properties: { trip: TRIP } },
     async run(a, c) {
       const trip = matchTrip(await c.fs.tripsFor(c.email), a.trip);

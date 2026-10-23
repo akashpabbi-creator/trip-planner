@@ -19,6 +19,7 @@ import * as shuffleMod from "./shuffle.js";
 import * as undoMod from "./undo.js";
 import * as psocialMod from "./proposal-social.js";
 import * as shareMod from "./share.js";
+import * as driveMod from "./drive.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -1969,6 +1970,7 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
       durationMin: p.durationMin || 60, cost: p.cost || 0, mustDo: false, notes: p.notes || "", bestTime: p.bestTime || "",
       ...(p.veg ? { veg: p.veg } : {}), ...(p.vegSource ? { vegSource: p.vegSource } : {}), ...(p.vegNote ? { vegNote: p.vegNote } : {}),
       ...(source ? { via: source } : {}),
+      ...(Array.isArray(p.driveFiles) && p.driveFiles.length ? { driveFiles: p.driveFiles } : {}),
       fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
     };
     if (!has(data) && !p.noGeo) {
@@ -2544,7 +2546,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
