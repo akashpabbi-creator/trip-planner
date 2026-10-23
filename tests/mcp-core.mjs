@@ -100,7 +100,8 @@ const tool = async (token, name, args = {}) => {
 for (const e of ["alice@example.com", "bob@example.com", "eve@example.com", "dave@example.com"]) await seed("aiUsers", e, { on: true });
 const days = [{ id: "d1", title: "Old town", base: "Panjim", notes: "" }, { id: "d2", title: "Beaches", base: "", notes: "" }];
 await seed("trips", "T1", { name: "Goa", destination: "Goa, India", startDate: "2026-12-20", currency: "INR", budget: 80000, days, owner: "alice@example.com",
-  members: ["alice@example.com", "bob@example.com"], memberNames: { "alice@example.com": "Alice", "bob@example.com": "Bob" }, extras: [], tripNotes: [{ id: "n1", text: "Try a thali place", by: "bob@example.com" }] });
+  members: ["alice@example.com", "bob@example.com"], memberNames: { "alice@example.com": "Alice", "bob@example.com": "Bob" }, extras: [], tripNotes: [{ id: "n1", text: "Try a thali place", by: "bob@example.com" }],
+  driveFolder: { id: "DRV1", name: "Travel - Sanj_Akash/Goa - December 2026", url: "https://drive.google.com/drive/folders/DRV1", by: "alice@example.com" } });
 await seed("trips", "T2", { name: "Secret Rome", destination: "Rome", startDate: "2027-03-01", days: [{ id: "x1" }], owner: "eve@example.com", members: ["eve@example.com"], memberNames: {} });
 await seed("trips", "T3", { name: "Dave solo", destination: "Hampi", days: [{ id: "h1" }], owner: "dave@example.com", members: ["dave@example.com"], memberNames: {} });
 const item = (id, o) => seed("trips/T1/items", id, { category: "sight", dayId: null, order: 0, addedBy: "alice@example.com", addedAt: 1000, ...o });
@@ -146,6 +147,7 @@ const trips = await tool(T, "list_trips");
 ok(trips.v.length === 1 && trips.v[0].id === "T1" && trips.v[0].days === 2, "list_trips returns only the member's trip (not T2/T3)");
 const tv = await tool(T, "get_trip", {});
 ok(tv.v.name === "Goa" && tv.v.days.length === 2 && tv.v.days[0].stops === 2 && tv.v.ideasCount === 2 && tv.v.tripNotes[0].by === "Bob", "get_trip with no name picks the only trip: days, stops, ideas, notes");
+ok(tv.v.driveFolder?.id === "DRV1" && tv.v.driveFolder.name.endsWith("Goa - December 2026") && !("by" in tv.v.driveFolder), "get_trip returns the trip's Drive folder (id, name, url)");
 const d1 = await tool(T, "get_day", { trip: "goa", day: 1 });
 ok(d1.v.date === "2026-12-20" && d1.v.schedule.map((s) => s.title).join() === "Fontainhas walk,Ritz Classic thali" && d1.v.schedule[1].estStart === "11:00", "get_day 1: ordered stops with computed start times");
 const ideas = await tool(T, "get_day", { trip: "Goa", day: "ideas" });

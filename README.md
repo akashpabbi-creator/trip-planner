@@ -87,6 +87,15 @@ A small free Cloudflare Worker in `mcp/` that speaks MCP, so Claude and Gemini c
 - **Deploy:** `.github/workflows/mcp.yml` tests the Worker on every change and deploys it when the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets exist (it skips otherwise). One-time setup: `HANDOFF-connector.md` in the project files.
 - **Tests:** `node tests/mcp-core.mjs` (Worker + emulators) and `node tests/mcp-connect.mjs` (real browser through the sign-in).
 
+## Trip folder in Google Drive
+
+Each trip can have a Drive folder (Kit tab, top). AI users pick it once with Google's folder picker: either an existing folder, or "Create Goa - December 2026 inside a folder I pick" (pick `Travel - Sanj_Akash`). The folder id and link are stored on the trip doc as `driveFolder` (not a secret; Drive's own sharing decides who can open it).
+
+- **Permission.** Only the narrow `drive.file` scope, asked for (a Google sign-in popup for the same account) when a folder is set or when a screenshot is filed; it only sees folders you picked and files the app makes. The token lives in memory for about an hour. Needs the Drive API and Picker API on `our-trips-ab49a` and the scope on the consent screen (done 2026-10-23).
+- **Screenshots.** A screenshot shared into the app (📷 or the Android share sheet) is uploaded in full size to the folder while Gemini reads a shrunk copy; each idea gets `driveFiles` and a "📎 Screenshot" link. If Drive fails the places are still added.
+- **Connector.** `get_trip` returns `driveFolder` ({id, name, url}) so Claude files the Trip Sheet PDF there.
+- **Test:** `node tests/drive.mjs`.
+
 ## Free services used
 
 Everything runs on free services with no keys: OpenStreetMap (map tiles and place search), OSRM (road routes for Stops along the way), Overpass (places near a route), Open-Meteo (weather), Wikipedia and Wikivoyage (destination and guide), Microlink (link previews), and Frankfurter with open.er-api.com as a fallback (exchange rates for the spending log). Leaflet (the map library) is loaded from unpkg. The only optional key is your own free Gemini key.

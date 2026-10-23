@@ -65,6 +65,7 @@ async function firebaseStore(config) {
   const tripRef = (id) => fs.doc(db, "trips", id);
   const sub = (tripId, name) => fs.collection(db, "trips", tripId, name);
 
+  let driveTok = {};
   const store = {
     mode: "firebase",
     onSync(cb) {
@@ -96,6 +97,20 @@ async function firebaseStore(config) {
           await authMod.signInWithRedirect(auth, provider);
         } else throw e;
       }
+    },
+    // Google Drive access (drive.file only: folders the user picks and files the app makes), asked for when first needed.
+    // Re-authenticates the SAME account with the extra scope; the token lasts about an hour and is only kept in memory.
+    async driveToken() {
+      if (window.FIREBASE_EMULATORS) return "emulator-drive-token";
+      if (driveTok.t && driveTok.exp > Date.now() + 120000) return driveTok.t;
+      const provider = new authMod.GoogleAuthProvider();
+      provider.addScope("https://www.googleapis.com/auth/drive.file");
+      provider.setCustomParameters({ login_hint: auth.currentUser?.email || "" });
+      const r = await authMod.reauthenticateWithPopup(auth.currentUser, provider);
+      const t = authMod.GoogleAuthProvider.credentialFromResult(r)?.accessToken;
+      if (!t) throw new Error("Google didn't give Drive access");
+      driveTok = { t, exp: Date.now() + 55 * 60000 };
+      return t;
     },
     signOut: () => authMod.signOut(auth),
     idToken: () => auth.currentUser?.getIdToken(),
@@ -286,6 +301,7 @@ function demoStore() {
       sessionStorage.setItem(nameKey, JSON.stringify(user));
       userCbs.forEach((cb) => cb(user));
     },
+    driveToken: async () => "demo-drive-token",
     async signOut() {
       user = null;
       sessionStorage.removeItem(nameKey);
