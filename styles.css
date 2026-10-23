@@ -793,3 +793,9 @@ dialog .bq-row .btn-s { border-radius: 99px; padding: 8px 16px; }
 .itin-actions > button { height: auto; line-height: 1.25; text-align: left; white-space: normal; }
 .itin-day ul.itin-bks { list-style: none; padding-left: 0; }
 .itin-bk { margin: 4px 0; }
+
+.trip-danger { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; }
+.pick input[type=radio] { accent-color: var(--accent, #1fa88f); outline: none; box-shadow: none; }
+.pick input[type=radio]:focus { outline: none; box-shadow: none; }
+.pick input[type=radio]:focus-visible { outline: 2px solid var(--accent, #1fa88f); outline-offset: 2px; }
+.pick:has(input:checked) { border-color: var(--accent, #1fa88f); }

@@ -1568,7 +1568,7 @@ function tripForm(t = {}) {
       <label>Expected budget<input name="budget" type="number" min="0" max="100000000" inputmode="decimal" value="${esc(t.budget || "")}"></label>
       <label>Currency<select name="currency">${CURRENCIES.map((c) => `<option ${c === (t.currency || "INR") ? "selected" : ""}>${c}</option>`).join("")}</select></label>
     </div>
-    ${t.id && t.owner === S.me?.email ? `<button type="button" class="danger link" data-action="deleteTrip">Delete this trip</button>` : ""}`;
+    ${t.id ? `<div class="trip-danger">${(t.days || []).length ? `<button type="button" class="danger link" data-action="clearDays">Clear all days</button>` : ""}${t.owner === S.me?.email ? `<button type="button" class="danger link" data-action="deleteTrip">Delete this trip</button>` : ""}</div>` : ""}`;
 }
 
 // Whitespace is not a name. Returns the thing to tell the person, or "" when the form is fine.
@@ -1658,6 +1658,18 @@ function editTrip() {
   const fv = (k) => $form.elements[k].value;
   const asked = { name: fv("name"), destination: fv("destination"), startDate: fv("startDate"), budget: fv("budget"), currency: fv("currency") };
   const askedDays = Math.max(1, Math.min(60, +fv("numDays") || t.days.length));
+  // Every day emptied at once: stops go back to Ideas (rest blocks are removed), with Undo and an Activity entry.
+  $form.querySelector("[data-action=clearDays]")?.addEventListener("click", async () => {
+    const ids = new Set(S.trip.days.map((d) => d.id));
+    const stops = S.items.filter((it) => ids.has(it.dayId));
+    const real = stops.filter((it) => !it.rest).length;
+    if (!stops.length) return toast("Your days are already empty.");
+    if (!confirm(`Clear all ${ids.size} days? The ${real} stop${real === 1 ? "" : "s"} go back to Ideas. You can undo it.`)) return;
+    $modal.close();
+    const res = await ctx.recordAi({ source: "You", request: "Clear all days", summary: `Cleared all days; ${real} stops back to Ideas` }, async () => ({ count: await releaseDays([...ids]) }));
+    await log(`cleared all days (${real} stop${real === 1 ? "" : "s"} back to Ideas)`);
+    ctx.toastUndo(`Cleared all days. ${res?.count ?? real} stops are back in Ideas.`);
+  });
   $form.querySelector("[data-action=deleteTrip]")?.addEventListener("click", async () => {
     if (!wasOwner) return;
     if (!confirm("Delete this trip for everyone? This can't be undone.")) return;
