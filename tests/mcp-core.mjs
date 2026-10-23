@@ -29,7 +29,7 @@ const ok = (c, m) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") 
 const persist = mkdtempSync(join(tmpdir(), "tp-wr-"));
 const worker = spawn(join(root, "mcp/node_modules/.bin/wrangler"), ["dev", "--local", "--port", String(PORT), "--ip", "127.0.0.1", "--persist-to", persist,
   "--var", "FIREBASE_PROJECT:demo-trips", "--var", "FIREBASE_API_KEY:x", "--var", `ALLOWED_ORIGIN:${ORIGIN}`, "--var", `CONNECT_URL:${ORIGIN}/trip-planner/connect.html`,
-  "--var", "FIRESTORE_HOST:http://127.0.0.1:8080", "--var", "SECURETOKEN_URL:http://127.0.0.1:9099/securetoken.googleapis.com/v1/token"],
+  "--var", "FIRESTORE_HOST:http://127.0.0.1:8080", "--var", "IDENTITY_URL:http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:lookup", "--var", "SECURETOKEN_URL:http://127.0.0.1:9099/securetoken.googleapis.com/v1/token"],
   { cwd: join(root, "mcp"), stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, WRANGLER_SEND_METRICS: "false", NO_COLOR: "1" } });
 let wlog = "";
 worker.stdout.on("data", (d) => (wlog += d)); worker.stderr.on("data", (d) => (wlog += d));
@@ -245,6 +245,132 @@ const stranger = await tool(T, "save_ideas", { trip: "T2", ideas: [{ title: "x" 
 ok(stranger.isError, "can't save into a trip the account isn't on");
 const ex = (await fsReq("GET", "/trips/T1/activity", null, A.who.idToken)).j.documents?.[0];
 ok(!!ex, "(activity entries stay inside the existing `activity` collection: no rules change)");
+
+console.log("(j) full control: plan a day, move, edit, remove, rest/veg/pace warnings, undo");
+const names2 = ((await mcp(T, "tools/list")).j?.result?.tools || []).map((t) => t.name);
+ok(["plan_day", "move_item", "update_item", "remove_item", "update_day", "add_day", "remove_day", "update_trip", "add_booking", "update_booking", "remove_booking", "add_extra", "remove_extra", "add_todo", "set_todo", "remove_todo", "set_trip_note", "check_plan"].every((n) => names2.includes(n)), "tools/list has the control tools");
+await seed("trips", "T4", { name: "Hampi", destination: "Hampi, India", startDate: "2027-01-10", currency: "INR", days: [{ id: "h1", title: "", base: "", notes: "" }, { id: "h2", title: "", base: "", notes: "" }, { id: "h3", title: "", base: "", notes: "" }],
+  owner: "alice@example.com", members: ["alice@example.com", "bob@example.com"], memberNames: { "alice@example.com": "Alice", "bob@example.com": "Bob" }, extras: [], checklist: [], tripNotes: [{ id: "n9", text: "Sunrise at Matanga", by: "bob@example.com", done: false }] });
+const H = "Hampi";
+const pd = await tool(T, "plan_day", { trip: H, day: 1, stops: [
+  { title: "Virupaksha Temple", category: "sight", location: "Hampi Bazaar", time: "08:00", lat: 15.335, lng: 76.46 },
+  { title: "Mango Tree", category: "food", location: "Hampi" },
+  { title: "Vittala Temple", category: "sight" }, { title: "Hampi Bazaar", category: "sight" }, { title: "Lotus Mahal", category: "sight" }, { title: "Elephant Stables", category: "sight" },
+] });
+ok(!pd.isError && pd.v.onDay.length === 6, "plan_day puts six stops on day 1 directly: " + (pd.isError ? pd.v : ""));
+const w = (pd.v.warnings || []).join(" | ");
+ok(/Mango Tree” isn't checked for vegetarian/.test(w) && /no rest block/.test(w) && /5 sights is too many/.test(w), "warnings: unchecked veg, no rest block, too many sights");
+const d1h = await tool(T, "get_day", { trip: H, day: 1 });
+ok(d1h.v.schedule.map((s) => s.title).join() === "Virupaksha Temple,Mango Tree,Vittala Temple,Hampi Bazaar,Lotus Mahal,Elephant Stables" && d1h.v.schedule[0].fixedTime === "08:00" && d1h.v.schedule[0].addedBy === "Alice", "stops are on the day in order, with the fixed time");
+const rawv = (await fsReq("GET", "/trips/T4/items/" + pd.v.onDay.length)).s; // (no such id; just exercising rules)
+const actp = await tool(T, "recent_activity", { trip: H, limit: 3 });
+ok(actp.v[0].by === "Claude" && /planned day 1/.test(actp.v[0].text) && actp.v[0].undoable, "the activity feed shows Claude planned day 1, undoable");
+
+const fixv = await tool(T, "update_item", { trip: H, item: "Mango Tree", changes: { veg: "yes", vegNote: "veg thali" } });
+const fixr = await tool(T, "plan_day", { trip: H, day: 1, stops: [{ rest: true, time: "14:00", position: 4 }] });
+const dropped = await tool(T, "remove_item", { trip: H, item: "Elephant Stables" });
+const w2 = (dropped.v.warnings || []).join(" | ");
+ok(fixv.v.changed.includes("veg") && !/Mango/.test(w2) && !/rest block/.test(w2) && !/too many/.test(w2), "after the fixes: veg checked, rest block added, four sights: no warnings left (" + w2 + ")");
+const d1b = await tool(T, "get_day", { trip: H, day: 1 });
+ok(d1b.v.schedule[3].title === "Rest & recharge" && d1b.v.schedule.length === 6, "the rest block went to position 4");
+
+const mv = await tool(T, "move_item", { trip: H, item: "Lotus Mahal", day: 2 });
+const d2 = await tool(T, "get_day", { trip: H, day: 2 });
+const d1c = await tool(T, "get_day", { trip: H, day: 1 });
+ok(d2.v.schedule[0].title === "Lotus Mahal" && d1c.v.schedule.length === 5 && d1c.v.schedule.every((s, i) => true), "move_item moves a stop to another day");
+const toIdeas = await tool(T, "move_item", { trip: H, item: "Lotus Mahal", day: "ideas" });
+ok((await tool(T, "get_day", { trip: H, day: "ideas" })).v.ideas.some((i) => i.title === "Lotus Mahal"), "move_item back to Ideas");
+const reb = await tool(T, "plan_day", { trip: H, day: 3, replace: true, stops: [{ item: "Lotus Mahal", time: "09:00" }, { title: "Anegundi village", category: "nature" }] });
+ok(reb.v.onDay.join() === "Lotus Mahal,Anegundi village" && !(reb.v.notes || []).length, "plan_day moves an existing idea onto a day and creates a new place");
+const amb = await tool(T, "move_item", { trip: H, item: "temple", day: 2 });
+ok(amb.isError && /matches several/.test(amb.v), "an ambiguous place name asks for an id");
+
+console.log("   undo of the control changes");
+const un1 = await tool(T, "undo_change", { trip: H }); // the rebuild of day 3
+const d3 = await tool(T, "get_day", { trip: H, day: 3 });
+ok(!un1.isError && (d3.v.schedule || []).length === 0 && (await tool(T, "get_day", { trip: H, day: "ideas" })).v.ideas.some((i) => i.title === "Lotus Mahal") && !(await tool(T, "search_items", { trip: H, query: "Anegundi" })).v.length, "undoing the day rebuild removes the new place and sends Lotus Mahal back to Ideas");
+const un2 = await tool(T, "undo_change", { trip: H }); // move to ideas
+ok(!un2.isError && (await tool(T, "get_day", { trip: H, day: 2 })).v.schedule[0].title === "Lotus Mahal", "undoing a move puts the stop back on its day");
+await tool(T, "undo_change", { trip: H }); // move to day 2
+const un4 = await tool(T, "undo_change", { trip: H }); // remove Elephant Stables
+ok(!un4.isError && (await tool(T, "get_day", { trip: H, day: 1 })).v.schedule.some((s) => s.title === "Elephant Stables"), "undoing a delete brings the place back");
+// a hand edit after the AI change blocks undo
+const e1 = await tool(T, "update_item", { trip: H, item: "Mango Tree", changes: { notes: "ask for no onion" } });
+await fsReq("PATCH", `/trips/T4/items/${(await tool(T, "search_items", { trip: H, query: "Mango" })).v[0].id}?updateMask.fieldPaths=notes`, { fields: { notes: { stringValue: "edited by hand" } } });
+const ue = await tool(T, "undo_change", { trip: H, entry: e1.v.undoWith.entry });
+ok(ue.isError && /changed since/.test(ue.v), "undo refuses to overwrite something the couple edited by hand since");
+
+console.log("   days, trip, bookings, extras, Kit, notes");
+const ud = await tool(T, "update_day", { trip: H, day: 2, title: "Sunrise and boulders", base: "Hospet", startTime: "6:30" });
+const gt2 = (await tool(T, "get_trip", { trip: H })).v;
+ok(gt2.days[1].title === "Sunrise and boulders" && gt2.days[1].stayingIn === "Hospet", "update_day");
+const ad = await tool(T, "add_day", { trip: H, after: 1 });
+ok(ad.v.days === 4 && (await tool(T, "get_trip", { trip: H })).v.days[1].stops === 0, "add_day inserts an empty day");
+await tool(T, "undo_change", { trip: H });
+const rd = await tool(T, "remove_day", { trip: H, day: 1 });
+const afterRd = (await tool(T, "get_trip", { trip: H })).v;
+ok(afterRd.days.length === 2 && afterRd.ideasCount >= 4 && rd.v.movedToIdeas.length >= 4, "remove_day sends its stops to Ideas, nothing is deleted");
+const urd = await tool(T, "undo_change", { trip: H });
+const afterU = (await tool(T, "get_trip", { trip: H })).v;
+ok(!urd.isError && afterU.days.length === 3 && afterU.days[0].stops >= 4, "undoing remove_day restores the day and its stops");
+const ut = await tool(T, "update_trip", { trip: H, name: "Hampi long weekend", budget: 30000 });
+ok((await tool(T, "get_trip", { trip: H })).v.name === "Hampi long weekend", "update_trip");
+await tool(T, "undo_change", { trip: H });
+ok((await tool(T, "get_trip", { trip: "Hampi" })).v.name === "Hampi", "…and undo restores the name");
+const bk = await tool(T, "add_booking", { trip: H, kind: "hotel", title: "Evolve Back", ref: "EB123", start: "2027-01-10", end: "2027-01-12T11:00", cost: 18000 });
+const bk2 = await tool(T, "add_booking", { trip: H, kind: "hotel", title: "Evolve Back", ref: "EB123" });
+const bkb = await tool(T, "add_booking", { trip: H, kind: "train", title: "Late train", start: "2027-03-01T10:00" });
+const gb = (await tool(T, "get_trip", { trip: H })).v.bookings;
+ok(bk.v.saved && bk2.v.saved === false && gb.length === 2 && gb[0].start === "2027-01-10T00:00" && (bkb.v.warnings || []).length === 1, "add_booking: saved once, duplicate skipped, out-of-dates warned");
+const ub = await tool(T, "update_booking", { trip: H, id: bk.v.id, ref: "EB999", cost: 19000 });
+ok((await tool(T, "get_trip", { trip: H })).v.bookings[0].ref === "EB999", "update_booking");
+await tool(T, "undo_change", { trip: H });
+ok((await tool(T, "get_trip", { trip: H })).v.bookings[0].ref === "EB123", "…undone");
+const rb = await tool(T, "remove_booking", { trip: H, id: bkb.v.id });
+await tool(T, "undo_change", { trip: H });
+ok((await tool(T, "get_trip", { trip: H })).v.bookings.length === 2, "remove_booking, then undo puts it back");
+const exr = await tool(T, "add_extra", { trip: H, label: "Return flights", cost: 24000 });
+ok((await tool(T, "get_trip", { trip: H })).v.extras.length === 1 && (await tool(T, "add_extra", { trip: H, label: "return flights", cost: 24000 })).v.saved === false, "add_extra, once");
+await tool(T, "remove_extra", { trip: H, id: exr.v.id });
+const todo = await tool(T, "add_todo", { trip: H, text: "Buy sunscreen", group: "pack" });
+const st = await tool(T, "set_todo", { trip: H, id: todo.v.id, done: true });
+const ck = (await tool(T, "get_trip", { trip: H })).v.checklist;
+ok(ck.length === 1 && ck[0].done === true && ck[0].group === "pack", "add_todo and set_todo");
+await tool(T, "undo_change", { trip: H });
+ok((await tool(T, "get_trip", { trip: H })).v.checklist[0].done === false, "…ticking undone");
+await tool(T, "remove_todo", { trip: H, id: todo.v.id });
+ok((await tool(T, "get_trip", { trip: H })).v.checklist.length === 0, "remove_todo");
+const sn = await tool(T, "set_trip_note", { trip: H, id: "n9", done: true });
+ok((await tool(T, "get_trip", { trip: H })).v.tripNotes[0].done === true, "set_trip_note marks done");
+await tool(T, "set_trip_note", { trip: H, id: "n9", remove: true });
+await tool(T, "undo_change", { trip: H });
+ok((await tool(T, "get_trip", { trip: H })).v.tripNotes.length === 1, "removing a note is undoable");
+const cp = await tool(T, "check_plan", { trip: H });
+ok(cp.v.days === 3 && Array.isArray(cp.v.warnings) && cp.v.emptyDays.includes(3), "check_plan reports empty days and warnings without changing anything");
+const gtl = await tool(GT, "update_trip", { trip: "T2", name: "x" });
+ok(gtl.isError, "control tools can't touch a trip the account isn't on");
+const dirty = (await fsReq("GET", "/trips/T4", null, A.who.idToken)).j.fields;
+ok(!JSON.stringify(dirty).includes("refreshToken") && !JSON.stringify(dirty).includes("access_token"), "no secrets land on the trip doc");
+
+console.log("(k) disconnect endpoint (for the app's Connect card)");
+const cx = (path, body, origin = ORIGIN) => fetch(W + path, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify(body) });
+const B2 = await connect({ email: "bob@example.com", name: "Claude" });
+const lst = await (await cx("/connections", { idToken: (await signIn("bob@example.com")).idToken })).json();
+ok(lst.connections?.length >= 2 && lst.connections.some((x) => x.client === "Gemini") && lst.connections.some((x) => x.client === "Claude"), "an account lists its own connections: " + JSON.stringify(lst.connections?.map((x) => x.client)));
+ok((await cx("/connections", { idToken: (await signIn("bob@example.com")).idToken }, "https://evil.example")).status === 403, "other websites can't call it");
+ok((await cx("/disconnect", { idToken: "garbage" })).status === 401, "a bad sign-in is refused");
+const aliceList = await (await cx("/connections", { idToken: A.who.idToken })).json();
+ok(aliceList.connections.every((x) => x.client === "Claude") && aliceList.connections.length >= 1, "Alice sees only her own connections");
+const one = lst.connections.find((x) => x.client === "Gemini");
+const rv = await (await cx("/disconnect", { idToken: (await signIn("bob@example.com")).idToken, id: one.id })).json();
+ok(rv.revoked === 1, "one connection can be revoked");
+const gone = await tool(GT, "list_trips");
+ok(gone.v !== undefined && !Array.isArray(gone.v), "the revoked connection stops working at once");
+const live = await tool(B2.token.access_token, "list_trips");
+ok(Array.isArray(live.v), "other connections keep working");
+const all = await (await cx("/disconnect", { idToken: (await signIn("bob@example.com")).idToken })).json();
+ok(all.revoked >= 1 && !Array.isArray((await tool(B2.token.access_token, "list_trips")).v), "disconnect with no id cuts everything for the account");
+ok((await tool(T, "list_trips")).v.length >= 1, "…and never touches another account");
 
 stop();
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");

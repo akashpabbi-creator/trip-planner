@@ -3,17 +3,17 @@
 import { matchTrip, tripSummary, tripView, dayView, stop, ideasOf, onDay, memberNameOf } from "./view.js";
 import { newId, record, stamp, undo } from "./undo.js";
 
-const TRIP = { type: "string", description: "Trip name, destination, start date (YYYY-MM-DD) or id. Optional when there is only one trip." };
-const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
-const writes = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
-const CATEGORIES = ["sight", "activity", "food", "stay", "shopping", "nature", "transport", "other"];
-const sameTitle = (a, b) => { const n = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim(); return !!n(a) && n(a) === n(b); };
-const str = (v, max) => (v == null ? "" : String(v).trim().slice(0, max));
-const num = (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== "" && v !== null ? Number(v) : 0);
+export const TRIP = { type: "string", description: "Trip name, destination, start date (YYYY-MM-DD) or id. Optional when there is only one trip." };
+export const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
+export const writes = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+export const CATEGORIES = ["sight", "activity", "food", "stay", "shopping", "nature", "transport", "other"];
+export const sameTitle = (a, b) => { const n = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim(); return !!n(a) && n(a) === n(b); };
+export const str = (v, max) => (v == null ? "" : String(v).trim().slice(0, max));
+export const num = (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== "" && v !== null ? Number(v) : 0);
 const BOOK = /\bbook(ing)?\b|reserv|tickets?\b|pre-?book/i;
 
 // One Ideas card in the same shape the app writes for a saved link, so it behaves like one the couple saved themselves.
-function ideaDoc(p, c) {
+export function ideaDoc(p, c) {
   const title = str(p.title, 140);
   if (!title) throw new Error("Each idea needs a title.");
   const url = /^https?:\/\//i.test(str(p.url, 2000)) ? str(p.url, 2000) : "";
@@ -35,7 +35,7 @@ function ideaDoc(p, c) {
   };
 }
 
-const IDEA_PROPS = {
+export const IDEA_PROPS = {
   title: { type: "string", description: "Name of the place or thing, as people would search for it." },
   category: { type: "string", enum: CATEGORIES },
   location: { type: "string", description: "Address, area or town. Include the town so it can be found on the map." },
