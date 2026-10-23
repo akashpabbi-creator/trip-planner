@@ -1,0 +1,15 @@
+name = "trips-mcp"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# No ids needed: `wrangler deploy` creates this KV namespace on first deploy (free plan).
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+
+# All public values (the Firebase web key is not a secret; the Firestore rules protect the data).
+[vars]
+FIREBASE_PROJECT = "our-trips-ab49a"
+FIREBASE_API_KEY = "AIzaSyDrEN_jDzHweWVPzBT8ZZVR1Jhey87ZnHE"
+ALLOWED_ORIGIN = "https://akashpabbi-creator.github.io"
+CONNECT_URL = "https://akashpabbi-creator.github.io/trip-planner/connect.html"
