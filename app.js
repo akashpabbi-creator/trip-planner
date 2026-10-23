@@ -632,7 +632,7 @@ function card(it, opts = {}) {
         ${Number(it.cost) ? `<span>${money(it.cost)}</span>` : ""}
         ${it.location ? `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it.location)}" target="_blank" rel="noopener">📍 ${esc(it.location)}</a>` : ""}
         ${badge ? `<span class="tag">${badge}</span>` : ""}
-        ${it.category === "food" ? vegTag(it.veg, it.vegNote) : ""}
+        ${it.category === "food" ? vegTag(it.veg, it.vegNote, true) : ""}
       </div>
       ${it.description ? `<p class="c-desc">${esc(it.description.slice(0, 220))}${it.description.length > 220 ? "…" : ""}</p>` : ""}
       ${it.notes ? `<p class="c-notes">📝 ${esc(it.notes)}</p>` : ""}
@@ -1134,10 +1134,11 @@ const mapsQ = (loc) => {
   return encodeURIComponent(d && !loc.toLowerCase().includes(d.split(",")[0].toLowerCase()) ? `${loc}, ${d}` : loc);
 };
 
-function vegTag(level, note = "") {
+function vegTag(level, note = "", flagUnknown = false) {
   const tip = note ? ` title="${esc(note)}"` : "";
   if (level === "yes") return `<span class="tag veg-tag"${tip}>🥗 Veg options</span>`;
-  if (level === "no") return `<span class="tag nonveg-tag"${tip}>⚠️ Few veg options</span>`;
+  if (level === "no") return `<span class="tag nonveg-tag"${tip}>⚠️ No veg/egg options</span>`;
+  if (flagUnknown) return `<span class="tag nonveg-tag"${tip}>❓ Veg options unchecked</span>`;
   return "";
 }
 function discoverCard(x, src, idx) {

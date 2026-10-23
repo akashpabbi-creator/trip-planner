@@ -29,7 +29,7 @@ export function init(ctx) {
       && !bothLove(it, members) && !booked.some((t) => sameName(t, it.title)));
   }
   function candidates() {
-    return ctx.ideas().filter((it) => !isVetoed(it) && !it.time && !["stay", "transport"].includes(it.category) && !(it.category === "food" && it.veg === "no"));
+    return ctx.ideas().filter((it) => !isVetoed(it) && !it.time && !["stay", "transport"].includes(it.category));
   }
 
   // Picks swaps for a day: [{ out, in }]. `skip` is a key to avoid when another arrangement exists.

@@ -62,7 +62,7 @@ function buildSnapshot() {
     payloadKinds: PAYLOADS,
     ops: OP_FORMATS,
     rules: [
-      "Restaurants must serve good vegetarian dishes (they do not need to be pure vegetarian).",
+      "Restaurants need at least some vegetarian, vegan or egg options (any cuisine is fine; they need not be pure vegetarian). Set veg \"yes\", \"no\" or \"\" (unverified) honestly; the app alerts the couple about \"no\" and unverified ones.",
       "Days fill only when asked: do not add stops to empty days unless the request says so.",
       "Keep what the couple chose: do not remove or move their saved or must-do stops unless asked.",
       "Use only itemIds that appear in this snapshot. Days are numbered from 1.",
@@ -190,7 +190,7 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
       approxCost: Number(x.approxCost) || null, area: clip(x.area, 80), why: clip(x.why, LIMITS.why),
       durationMin: Number(x.durationMin) || 90, address: clip(x.address, LIMITS.location),
       ...(["yes", "no"].includes(x.veg) ? { veg: x.veg } : {}), ...(x.vegNote ? { vegNote: String(x.vegNote).slice(0, 160) } : {}),
-    })).filter((x) => !(x.category === "food" && x.veg === "no")).slice(0, 40); // restaurants need good vegetarian options
+    })).slice(0, 40); // restaurants with no veg/vegan/egg options are kept but flagged in Smart
     if (!items.length) throw new Error("There were no places in the picks.");
     await S.store.updateTrip(S.tripId, { aiPicks: { for: T.destination, at: Date.now(), by: S.me.email, source: "Claude", items }, ...ctx.stampMe() });
     await ctx.log(`received Claude's top picks (${items.length} places)`);

@@ -149,7 +149,7 @@ try {
   ok(rd.status === 0 && JSON.parse(rd.stdout).destination === "Rome", "read prints the snapshot");
   const sendKind = (obj) => py3(["send", "-"], env, JSON.stringify(obj));
   const bad = sendKind({ kind: "changes", ops: [{ type: "add", place: { name: "Meat Palace", category: "food", location: "x", veg: "no" }, toDay: null }] });
-  ok(bad.status !== 0 && /few vegetarian/.test(bad.stderr), "script refuses a restaurant without vegetarian options");
+  ok(bad.status === 0 && /no vegetarian, vegan or egg/.test(bad.stderr), "script warns, not refuses, a restaurant without veg options");
   const bad2 = sendKind({ kind: "changes", ops: [{ type: "move", itemId: "nope", toDay: 2 }] });
   ok(bad2.status !== 0 && /isn't in the snapshot/.test(bad2.stderr), "script refuses an id that isn't in the snapshot");
 
@@ -221,12 +221,11 @@ try {
     { name: "Palatine Hill", category: "sight", rating: 4.7, reviews: 52000, priceLevel: "$$", approxCost: 2000, area: "Ancient Rome", why: "Quiet views.", durationMin: 120, address: "Via di San Gregorio 30" },
     { name: "Veg Haven", category: "food", rating: 4.5, reviews: 800, why: "Good veg.", veg: "yes", vegNote: "Lasagne" },
     { name: "Steak Only", category: "food", veg: "no" } ] };
-  ok(sendKind(picks).status !== 0, "script refuses a pick with few vegetarian options");
-  picks.items.pop();
-  ok(sendKind(picks).status === 0, "send picks");
+  const sent = sendKind(picks);
+  ok(sent.status === 0 && /no vegetarian, vegan or egg/.test(sent.stderr), "send picks: script warns on a pick with no veg options but keeps it");
   await p.waitForFunction(() => window.__tripCtx.S.trip.aiPicks?.source === "Claude", null, { timeout: 15000 });
   const pk = await p.evaluate(() => window.__tripCtx.S.trip.aiPicks);
-  ok(pk.items.length === 2 && pk.for === "Rome", "picks stored on trip.aiPicks with source Claude");
+  ok(pk.items.length === 3 && pk.for === "Rome", "picks stored on trip.aiPicks with source Claude");
   await p.click(".tabs-bar [data-action=moreToggle]");
   await p.click(".more-sheet [data-tab=discover]");
   ok(/picked by Claude/.test(await p.textContent(".discover")) && /Palatine Hill/.test(await p.textContent(".discover")), "Discover heading says Claude and lists the picks");

@@ -116,8 +116,6 @@ export function problem(op) {
       if (!p.name) return "Needs a name.";
       if (op.toDay != null && needDay(op.toDay)) return needDay(op.toDay);
       if (op.time && hhmm(op.time) === null) return "That isn't a time.";
-      // Restaurants need good vegetarian options (they don't have to be pure veg).
-      if (p.category === "food" && p.veg === "no") return "Few vegetarian options, so it isn't added.";
       return "";
     }
     default: return "The app doesn't know this kind of change.";
@@ -322,7 +320,7 @@ export function changePrompt(snapshot, request, prefs, searchLine) {
 ${prefs ? `Their preferences and hard rules:\n${prefs}\n` : ""}Rules:
 - Propose the smallest set of changes that does what they asked (at most 12). The couple review each change before anything happens.
 - Keep what they chose: don't remove or move their must-do stops or places they saved unless the request asks for it.
-- Restaurants must serve good vegetarian dishes (they don't have to be pure vegetarian).
+- Restaurants need at least some vegetarian, vegan or egg options (any cuisine is fine). Set veg yes/no honestly; the app alerts the couple about "no" and unverified ones.
 - Don't fill empty days unless the request asks for it.
 - ${searchLine}
 - Use only itemIds that appear in the plan. Days are numbered from 1.
