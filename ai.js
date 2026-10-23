@@ -106,13 +106,28 @@ export function parseJson(text) {
 
 // AI answers can be long or odd: keep each text field to a sane length before it reaches the trip.
 export const clip = (v, n) => (v == null ? "" : String(v).slice(0, n)).trim();
-export const LIMITS = { name: 120, location: 200, notes: 300, why: 240 };
+export const LIMITS = { name: 120, location: 200, notes: 300, why: 240, tip: 200 };
 // A place from a link or screenshot answer (extractLink / readImage shape).
 export function cleanPlace(x) {
   return {
     ...x, name: clip(x.name, LIMITS.name), address: clip(x.address, LIMITS.location), hours: clip(x.hours, LIMITS.notes), why: clip(x.why, LIMITS.why),
     bestTime: clip(x.bestTime, 20), vegetarian: clip(x.vegetarian, 8).toLowerCase(),
+    tips: clip(x.tips, LIMITS.tip), bookAheadDays: bookDays(x.bookAheadDays),
   };
+}
+// "Book 3 days ahead" as a whole number of days (1 to 365), or null when the post doesn't say.
+const bookDays = (v) => { const n = Math.round(Number(v)); return v != null && v !== "" && n >= 1 && n <= 365 ? n : null; };
+const daysAhead = (n) => `${n} day${n > 1 ? "s" : ""} ahead`;
+// The note on a saved place: booking advice and the post's tip first, then hours and best time. Under the notes limit.
+export function placeNotes(p) {
+  const booked = p.bookAheadDays && !/\b(book|reserv)/i.test(p.tips || "");
+  return [booked && `Book ${daysAhead(p.bookAheadDays)}`, p.tips, p.hours, p.bestTime && `Best at ${p.bestTime}`].filter(Boolean).join(" · ").slice(0, LIMITS.notes).trim();
+}
+// A to-do like "Book Trattoria Verde (3 days ahead)" when the post says to book or reserve, else "".
+export function bookTodo(p) {
+  const says = /\b(book|reserv)/i.test(p.tips || "") && !/\b(no need|don'?t need|not (needed|required)|without)\b[^.]*\b(book|reserv)/i.test(p.tips || "");
+  if (!p.bookAheadDays && !says) return "";
+  return `Book ${String(p.name || p.title || "").slice(0, 80)}${p.bookAheadDays ? ` (${daysAhead(p.bookAheadDays)})` : ""}`;
 }
 // The "action" of a review suggestion: same limits for the place, and a time that is a real HH:MM or nothing.
 export function cleanAction(a) {
@@ -166,11 +181,13 @@ export async function extractLink(key, url, preview, trip, prefs = "") {
   const prompt = `We are planning a trip to ${trip.destination || "a destination"} and saved this link for ideas: ${url}
 Preview we could read: ${JSON.stringify({ title: preview.title, caption: preview.description, site: preview.siteName }).slice(0, 2500)}
 ${prefs ? "Our preferences:\n" + prefs + "\n" : ""}Read the page (or, if it can't be opened, use the preview and Google Search) and list every specific place it recommends that we could visit, eat at or stay at.
-Return ONLY a JSON object in a \`\`\`json block: {"places": [{"name": string, "category": "sight"|"activity"|"food"|"stay"|"shopping"|"nature", "address": street address or area, "durationMin": typical visit minutes, "approxCost": number in ${trip.currency || "INR"} for two people or null, "bestTime": "sunrise"|"morning"|"lunch"|"afternoon"|"sunset"|"evening"|"night"|"", "hours": opening hours and closed days or "", "vegetarian": "yes"|"no"|"" (food only: "yes" if it serves good vegetarian dishes, even if it also serves meat; "no" only if it has little or nothing vegetarian), "why": one sentence from the post on why it's recommended}]}
-Only real, named places, at most 10. If the link is about one place, return just that place.`;
+Return ONLY a JSON object in a \`\`\`json block: {"places": [{"name": string, "category": "sight"|"activity"|"food"|"stay"|"shopping"|"nature", "address": street address or area, "durationMin": typical visit minutes, "approxCost": number in ${trip.currency || "INR"} for two people or null, "bestTime": "sunrise"|"morning"|"lunch"|"afternoon"|"sunset"|"evening"|"night"|"", "hours": opening hours and closed days or "", "vegetarian": "yes"|"no"|"" (food only: "yes" if it serves good vegetarian dishes, even if it also serves meat; "no" only if it has little or nothing vegetarian), "why": one sentence from the post on why it's recommended, "tips": short actionable advice the post gives for this place (e.g. "go before 8am to avoid queues", "cash only", "reserve via WhatsApp"), up to 200 characters, or "", "bookAheadDays": number of days ahead the post says to book, or null}], "tips": up to 5 short general actionable tips from the post that aren't about one place (e.g. "carry cash for the village stalls"), or []}
+Only real, named places, at most 10. If the link is about one place, return just that place. Only include advice the post actually gives; don't invent tips.`;
   const { text } = await call(key, prompt, { search: "url" });
   const out = parseJson(text);
-  return Array.isArray(out.places) ? out.places.filter((x) => x && typeof x === "object" && x.name).slice(0, 10).map(cleanPlace) : [];
+  const places = Array.isArray(out.places) ? out.places.filter((x) => x && typeof x === "object" && x.name).slice(0, 10).map(cleanPlace) : [];
+  // The general tips ride along on the array so callers that only want places keep working.
+  return Object.assign(places, { tips: (Array.isArray(out.tips) ? out.tips : []).map((x) => clip(x, LIMITS.tip)).filter(Boolean).slice(0, 5) });
 }
 
 // Checks whether restaurants have vegetarian, vegan or egg options (any cuisine is fine; they need not be pure veg).
