@@ -79,6 +79,13 @@ function localGet(k) {
 function localSet(k, v) {
   try { localStorage.setItem("tp-" + k, v); } catch {}
 }
+// sessionStorage lasts while the app stays open (reloads, a trip in the background) and is gone once it is closed.
+function sessionGet(k) {
+  try { return sessionStorage.getItem("tp-" + k); } catch { return null; }
+}
+function sessionSet(k, v) {
+  try { v ? sessionStorage.setItem("tp-" + k, v) : sessionStorage.removeItem("tp-" + k); } catch {}
+}
 
 /* ------------------------------------------------------------------ helpers */
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -226,7 +233,8 @@ function openTrip(id, opts = {}) {
   S.moreOpen = false;
   S.addOpen = false;
   S.stripDay = 0;
-  localSet("trip", id);
+  localSet("trip", id); // last trip opened: the default when something is shared into the app
+  sessionSet("trip", id);
   S.tab = tabMemory()[id] || S.tab;
   enterTripEntry(id, opts);
   let prevItems = new Map();
@@ -320,7 +328,7 @@ function goHome({ fromBack } = {}) {
   NAV.tripEntry = false;
   stopTrip();
   S.tripId = null;
-  localSet("trip", "");
+  sessionSet("trip", "");
   history.replaceState(null, "", location.pathname + location.search);
   render();
 }
@@ -2297,7 +2305,8 @@ async function handlePendingShare() {
     if ($modal.open) return; // asked again a moment later
     S.shareAsk = true;
     const what = shareGet("url") || (shareGet("text") ? "the text you shared" : "your screenshot" + (Number(shareGet("images")) > 1 ? "s" : ""));
-    const first = S.trips.some((t) => t.id === S.tripId) ? S.tripId : S.trips[0].id;
+    const last = S.tripId || localGet("trip");
+    const first = S.trips.some((t) => t.id === last) ? last : S.trips[0].id;
     openModal(`<h3>Save this to which trip?</h3><p class="muted small">${esc(String(what).slice(0, 120))}</p>
       <div class="pick-days">${S.trips.map((t) => `<label class="pick"><input type="radio" name="trip" value="${t.id}" ${t.id === first ? "checked" : ""}> ${esc(t.name)}</label>`).join("")}</div>`,
       async (f) => {
@@ -2647,7 +2656,8 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, chang
       if (first) {
         first = false;
         const linked = (location.hash.match(/trip=([\w-]+)/) || [])[1];
-        const want = linked || localGet("trip");
+        // A fresh start (the app was closed) opens on Your trips; a reload or a trip link reopens the trip.
+        const want = linked || sessionGet("trip");
         if (want && trips.some((t) => t.id === want)) openTrip(want);
         else if (linked) notInvited(linked, u.email);
       }
