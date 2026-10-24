@@ -21,6 +21,7 @@ import * as undoMod from "./undo.js";
 import * as psocialMod from "./proposal-social.js";
 import * as shareMod from "./share.js";
 import * as driveMod from "./drive.js";
+import * as homeMod from "./home.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -419,19 +420,12 @@ function viewSignIn() {
 }
 
 function viewHome() {
-  const trips = [...S.trips].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const trips = homeMod.list(S.trips);
   return `<section class="home">
     <div class="home-head"><h2>Your trips</h2><button class="primary" data-action="newTrip">+ New trip</button></div>
     ${trips.length ? "" : `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>`}
     <div class="trip-cards">
-      ${trips.map((t) => `<button class="trip-card" data-action="open" data-id="${t.id}">
-          <div class="tc-img" ${coverOf(t) ? `style="background-image:url('${cssUrl(coverOf(t))}')"` : ""}></div>
-          <div class="tc-body">
-          <div class="tc-title">${esc(t.name)}</div>
-          <div class="muted">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${(t.days || []).length} days</div>
-          <div class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) + (t.updatedByName ? " by " + esc(firstName(t.updatedByName)) : "") : ""}</div>
-          </div>
-        </button>`).join("")}
+      ${trips.map(homeMod.card).join("")}
     </div>
   </section>`;
 }
@@ -1618,6 +1612,18 @@ async function releaseDays(dayIds) {
   return back.length;
 }
 const dayRange = (a, b) => (a === b ? `Day ${a}` : `Days ${a}-${b}`);
+// Every day emptied at once: stops go back to Ideas (rest blocks are removed), with Undo and an Activity entry.
+async function clearAllDays() {
+  const ids = new Set(S.trip.days.map((d) => d.id));
+  const stops = S.items.filter((it) => ids.has(it.dayId));
+  const real = stops.filter((it) => !it.rest).length;
+  if (!stops.length) return toast("Your days are already empty.");
+  if (!confirm(`Clear all ${ids.size} days? The ${real} stop${real === 1 ? "" : "s"} go back to Ideas. You can undo it.`)) return;
+  $modal.close();
+  const res = await ctx.recordAi({ source: "You", request: "Clear all days", summary: `Cleared all days; ${real} stops back to Ideas` }, async () => ({ count: await releaseDays([...ids]) }));
+  await log(`cleared all days (${real} stop${real === 1 ? "" : "s"} back to Ideas)`);
+  ctx.toastUndo(`Cleared all days. ${res?.count ?? real} stops are back in Ideas.`);
+}
 function editTrip() {
   const t = S.trip;
   const wasOwner = t.owner === S.me.email;
@@ -1663,17 +1669,7 @@ function editTrip() {
   const asked = { name: fv("name"), destination: fv("destination"), startDate: fv("startDate"), budget: fv("budget"), currency: fv("currency") };
   const askedDays = Math.max(1, Math.min(60, +fv("numDays") || t.days.length));
   // Every day emptied at once: stops go back to Ideas (rest blocks are removed), with Undo and an Activity entry.
-  $form.querySelector("[data-action=clearDays]")?.addEventListener("click", async () => {
-    const ids = new Set(S.trip.days.map((d) => d.id));
-    const stops = S.items.filter((it) => ids.has(it.dayId));
-    const real = stops.filter((it) => !it.rest).length;
-    if (!stops.length) return toast("Your days are already empty.");
-    if (!confirm(`Clear all ${ids.size} days? The ${real} stop${real === 1 ? "" : "s"} go back to Ideas. You can undo it.`)) return;
-    $modal.close();
-    const res = await ctx.recordAi({ source: "You", request: "Clear all days", summary: `Cleared all days; ${real} stops back to Ideas` }, async () => ({ count: await releaseDays([...ids]) }));
-    await log(`cleared all days (${real} stop${real === 1 ? "" : "s"} back to Ideas)`);
-    ctx.toastUndo(`Cleared all days. ${res?.count ?? real} stops are back in Ideas.`);
-  });
+  $form.querySelector("[data-action=clearDays]")?.addEventListener("click", clearAllDays);
   $form.querySelector("[data-action=deleteTrip]")?.addEventListener("click", async () => {
     if (!wasOwner) return;
     if (!confirm("Delete this trip for everyone? This can't be undone.")) return;
@@ -2520,6 +2516,7 @@ const ctx = {
   render, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
   untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
   CATEGORIES, MODES, CURRENCIES,
+  openTrip, invite, clearAllDays, coversOf, coverOf, coverSrc, cssUrl, $form, $modal,
   today, directionsUrl,
   // Gemini and Claude belong to AI users only; their key and Claude link live in the private doc, never on the trip.
   aiKey: () => (S.aiUser ? S.priv?.ai?.key || "" : ""),
@@ -2548,7 +2545,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, searchMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
