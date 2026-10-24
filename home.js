@@ -21,6 +21,22 @@ const CSS = `
 .hm-list button.danger { color: var(--bad); }
 .hm-list .hm-ic { width: 26px; text-align: center; font-size: 20px; flex: none; }
 .hm-sub { margin: 0 0 6px; }
+.home-group { margin: 18px 0 0; }
+.home-group > h3 { margin: 0 0 8px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+details.home-group > summary { cursor: pointer; list-style: none; margin: 0 0 8px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+details.home-group > summary::-webkit-details-marker { display: none; }
+details.home-group > summary::after { content: " ▾"; }
+details.home-group[open] > summary::after { content: " ▴"; }
+.trip-cards.compact .trip-card { background: var(--panel); color: var(--ink); display: grid; grid-template-columns: 96px 1fr; align-items: stretch; }
+.trip-cards.compact .tc-img { height: auto; min-height: 84px; }
+.trip-cards.compact .tc-body { padding: 10px 56px 10px 14px; display: grid; gap: 2px; align-content: center; }
+.trip-cards.compact .tc-title { font-size: 17px; }
+.tc-status { font-size: 13px; font-weight: 700; color: var(--accent); }
+.tc-status.past { color: var(--muted); }
+.tc-foot { display: flex; align-items: center; gap: 6px; }
+.tc-foot .avs .av { width: 20px; height: 20px; font-size: 10px; background: var(--accent-soft); color: var(--accent); border-color: var(--panel); }
+.home-hint { margin: 16px 0 0; text-align: center; }
+.home-hint button { margin-left: 6px; }
 `;
 
 const mine = () => ctx.S.me?.email;
@@ -35,6 +51,30 @@ export function list(trips) {
     .sort((a, b) => pinned(b) - pinned(a) || (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
+const DAY = 86400000;
+const startOf = (t) => (t.startDate ? new Date(t.startDate + "T00:00:00") : null);
+const todayStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+const nDays = (t) => (t.days || []).length;
+const endOf = (t) => { const s = startOf(t); return s ? new Date(s.getTime() + (Math.max(nDays(t), 1) - 1) * DAY) : null; };
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+// "coming" (not ended, soonest first; today's trips included), "planning" (no dates), "past" (ended).
+export function groupOf(t) {
+  const e = endOf(t);
+  if (!e) return "planning";
+  return e < todayStart() ? "past" : "coming";
+}
+
+export function status(t) {
+  const s = startOf(t), e = endOf(t), now = todayStart();
+  if (!s) return "No dates yet";
+  const toStart = Math.round((s - now) / DAY);
+  if (toStart > 0) return toStart === 1 ? "Starts tomorrow" : `In ${plural(toStart, "day")}`;
+  if (e >= now) return `Day ${Math.round((now - s) / DAY) + 1} of ${nDays(t)} today`;
+  const ago = Math.round((now - e) / DAY);
+  return ago < 14 ? `Ended ${ago <= 1 ? "yesterday" : plural(ago, "day") + " ago"}` : ago < 60 ? `Ended ${plural(Math.round(ago / 7), "week")} ago` : `Ended ${plural(Math.round(ago / 30), "month")} ago`;
+}
+
 export function card(t) {
   const { esc, fmtDay, ago, firstName, coverOf, cssUrl } = ctx;
   const cover = coverOf(t);
@@ -43,13 +83,31 @@ export function card(t) {
       <div class="tc-img" ${cover ? `style="background-image:url('${cssUrl(cover)}')"` : ""}></div>
       <div class="tc-body">
         <div class="tc-title">${esc(t.name)}${pinned(t) ? `<span class="tc-pin" title="Pinned" aria-label="Pinned">📌</span>` : ""}</div>
-        <div class="muted">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${(t.days || []).length} days</div>
-        <div class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) + (t.updatedByName ? " by " + esc(firstName(t.updatedByName)) : "") : ""}</div>
+        <div class="tc-status ${groupOf(t) === "past" ? "past" : ""}">${esc(status(t))}</div>
+        <div class="muted small">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${plural(nDays(t), "day")}</div>
+        <div class="tc-foot"><span class="avs">${(t.members || []).slice(0, 4).map((m) => `<span class="av" title="${esc(t.memberNames?.[m] || m)}">${esc(firstName(t.memberNames?.[m] || m).slice(0, 1).toUpperCase())}</span>`).join("")}</span><span class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) : ""}</span></div>
       </div>
     </button>
     <button type="button" class="tc-more" data-action="tripMenu" data-id="${esc(t.id)}" aria-haspopup="dialog" aria-label="More options for ${esc(t.name)}" title="More options">⋯</button>
   </div>`;
 }
+
+// The whole list: pinned first, then Coming up (soonest first), Planning, and Past (folded, newest first).
+export function view(trips) {
+  const all = list(trips);
+  const pins = all.filter(pinned);
+  const rest = all.filter((t) => !pinned(t));
+  const by = (g) => rest.filter((t) => groupOf(t) === g);
+  const cards = (a) => `<div class="trip-cards compact">${a.map(card).join("")}</div>`;
+  const sec = (title, a) => (a.length ? `<section class="home-group" data-group="${title}"><h3>${title}</h3>${cards(a)}</section>` : "");
+  const past = by("past").sort((a, b) => endOf(b) - endOf(a));
+  const coming = by("coming").sort((a, b) => startOf(a) - startOf(b));
+  const hint = all.length && !hintSeen() ? `<p class="muted small home-hint" data-home-hint>Tip: press and hold a trip for more options <button type="button" class="link" data-action="hideHomeHint">Got it</button></p>` : "";
+  return sec("Pinned", pins) + sec("Coming up", coming) + sec("Planning", by("planning"))
+    + (past.length ? `<details class="home-group" data-group="Past"><summary>Past (${past.length})</summary>${cards(past)}</details>` : "") + hint;
+}
+
+const hintSeen = () => { try { return localStorage.getItem("tp-homeHint") === "1"; } catch { return false; } };
 
 const tripById = (id) => ctx.S.trips.find((t) => t.id === id);
 const writeLog = (id, text) => ctx.S.store.log(id, { at: Date.now(), by: ctx.S.me.email, byName: ctx.S.me.name, text });
@@ -248,6 +306,10 @@ export function init(c) {
   ctx = c;
   document.head.append(Object.assign(document.createElement("style"), { id: "css-home", textContent: CSS }));
   ctx.action("tripMenu", (b) => openMenu(b.dataset.id));
+  ctx.action("hideHomeHint", () => {
+    try { localStorage.setItem("tp-homeHint", "1"); } catch {}
+    document.querySelector("[data-home-hint]")?.remove();
+  });
 
   // Long press: hold a card for half a second (a small buzz), unless the finger moves, which is scrolling.
   let hold = null;
