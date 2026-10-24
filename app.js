@@ -218,7 +218,7 @@ function stopTrip() {
   S.presence = [];
   if (prev) emit("close", prev);
 }
-function openTrip(id) {
+function openTrip(id, opts = {}) {
   stopTrip();
   S.tripId = id;
   S.scrollToday = true;
@@ -226,7 +226,8 @@ function openTrip(id) {
   S.addOpen = false;
   S.stripDay = 0;
   localSet("trip", id);
-  if (location.hash !== "#trip=" + id) history.replaceState(null, "", "#trip=" + id);
+  S.tab = tabMemory()[id] || S.tab;
+  enterTripEntry(id, opts);
   let prevItems = new Map();
   S.unsubs.push(
     S.store.watchTrip(id, (t) => {
@@ -276,13 +277,73 @@ function openTrip(id) {
   S.hb = setInterval(beat, 20000);
   emit("open", id);
 }
-function goHome() {
+// Back button: one history entry for "inside a trip" and one for each open layer (dialog, Add sheet, More menu), so Back peels them off in order.
+// `ignoreBack` counts popstate events we caused ourselves (history.go) so they are not mistaken for the Back button.
+const NAV = { tripEntry: false, layers: 0, ignoreBack: 0, dirty: false };
+function unwind(n) {
+  if (n <= 0) return;
+  NAV.ignoreBack++;
+  history.go(-n);
+}
+function enterTripEntry(id, { hashEntry } = {}) {
+  if (NAV.tripEntry || hashEntry) { // already inside a trip (or the browser just made this entry): only the link changes
+    if (location.hash !== "#trip=" + id) history.replaceState(null, "", "#trip=" + id);
+    NAV.tripEntry = true;
+    return;
+  }
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search); // opened from a link: Your trips sits under it
+  if (NAV.layers > 0) { // opened from a dialog that is still closing (the New trip form): its entry becomes the trip's
+    history.replaceState({ tp: "trip" }, "", "#trip=" + id);
+    NAV.layers--;
+  } else history.pushState({ tp: "trip" }, "", "#trip=" + id);
+  NAV.tripEntry = true;
+}
+const layersOpen = () => ($modal.open ? 1 : 0) + (S.addOpen ? 1 : 0) + (S.moreOpen ? 1 : 0);
+let syncTimer = 0;
+function syncLayers() { // runs once things settle: closing a sheet and opening a dialog in the same tap must not pop and push
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(applyLayers, 0);
+}
+function applyLayers() {
+  if (NAV.ignoreBack > 0) { NAV.dirty = true; return; } // wait for our own history.go to land
+  const open = layersOpen();
+  while (NAV.layers < open) { history.pushState({ tp: "layer" }, ""); NAV.layers++; }
+  if (NAV.layers > open) { unwind(NAV.layers - open); NAV.layers = open; }
+}
+function goHome({ fromBack } = {}) {
+  S.addOpen = false;
+  S.moreOpen = false;
+  if ($modal.open) $modal.close();
+  if (!fromBack) unwind(NAV.layers + (NAV.tripEntry ? 1 : 0));
+  NAV.layers = 0;
+  NAV.tripEntry = false;
   stopTrip();
   S.tripId = null;
   localSet("trip", "");
   history.replaceState(null, "", location.pathname + location.search);
   render();
 }
+window.addEventListener("popstate", () => {
+  if (NAV.ignoreBack > 0) {
+    NAV.ignoreBack--;
+    // the trip may have been switched while a dialog was open: the entry we landed on still names the old one
+    if (S.tripId && NAV.tripEntry && location.hash !== "#trip=" + S.tripId) history.replaceState(history.state, "", "#trip=" + S.tripId);
+    if (!NAV.ignoreBack && NAV.dirty) { NAV.dirty = false; applyLayers(); }
+    return;
+  }
+  if (NAV.layers > 0) { // Back closes whatever is on top first
+    NAV.layers--;
+    if ($modal.open) $modal.close();
+    else if (S.addOpen) S.addOpen = false;
+    else S.moreOpen = false;
+    return render();
+  }
+  if (S.tripId && NAV.tripEntry && !/[#&]trip=/.test(location.hash)) goHome({ fromBack: true });
+});
+$modal.addEventListener("close", syncLayers);
+// Each trip remembers its tab for the rest of the session.
+function tabMemory() { try { return JSON.parse(sessionStorage.getItem("tp-tabs") || "{}"); } catch { return {}; } }
+function rememberTab(id, tab) { try { sessionStorage.setItem("tp-tabs", JSON.stringify({ ...tabMemory(), [id]: tab })); } catch {} }
 
 /* ------------------------------------------------------------------ render */
 // Re-rendering replaces the DOM; keep whatever the person is typing (and the cursor) intact.
@@ -305,6 +366,7 @@ function render() {
   renderSync();
   initStrip();
   scrollToToday();
+  syncLayers();
   emit("render");
 }
 // Plan opens on today's day during the trip (once per opened trip).
@@ -1555,6 +1617,7 @@ function openModal(html, onSubmit) {
     }
   };
   $modal.showModal();
+  syncLayers();
   $form.querySelector("input:not([type=radio]),select,textarea")?.focus();
 }
 const opt = (obj, sel) => Object.entries(obj).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("");
@@ -2174,7 +2237,7 @@ window.addEventListener("hashchange", () => {
   if (/[#&]join=([\w-]{8,})/.test(location.hash)) { takeJoin(); handleJoin(); return; }
   const linked = (location.hash.match(/[#&]trip=([\w-]+)/) || [])[1];
   if (!linked || !S.me || linked === S.tripId) return;
-  if (S.trips.some((t) => t.id === linked)) openTrip(linked);
+  if (S.trips.some((t) => t.id === linked)) openTrip(linked, { hashEntry: true });
   else notInvited(linked, S.me.email);
 });
 const pendingJoin = () => { try { return sessionStorage.getItem("tp-join") || ""; } catch { return ""; } };
@@ -2276,6 +2339,7 @@ document.addEventListener("click", async (e) => {
   if (S.addOpen && b.closest(".add-sheet")) { // a tile was used: close the sheet without a re-render
     S.addOpen = false;
     $app.querySelector(".add-wrap")?.classList.remove("open");
+    syncLayers();
   }
   try {
     switch (a) {
@@ -2357,6 +2421,7 @@ document.addEventListener("click", async (e) => {
         S.tab = b.dataset.tab;
         S.moreOpen = false;
         localSet("tab", S.tab);
+        if (S.tripId) rememberTab(S.tripId, S.tab);
         return render();
       case "moreToggle":
         S.moreOpen = !S.moreOpen;
