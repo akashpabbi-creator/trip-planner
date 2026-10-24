@@ -486,9 +486,7 @@ function viewHome() {
   return `<section class="home">
     <div class="home-head"><h2>Your trips</h2><button class="primary" data-action="newTrip">+ New trip</button></div>
     ${trips.length ? "" : `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>`}
-    <div class="trip-cards">
-      ${trips.map(homeMod.card).join("")}
-    </div>
+    ${homeMod.view(S.trips)}
   </section>`;
 }
 
