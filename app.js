@@ -7,6 +7,7 @@ import { topPicks, reviewPlan, testKey, extractLink, placeNotes, bookTodo, check
 import * as mapMod from "./map.js";
 import * as alongMod from "./along.js";
 import * as socialMod from "./social.js";
+import * as searchMod from "./search.js";
 import * as captureMod from "./capture.js";
 import * as kitMod from "./kit.js";
 import * as changesMod from "./changes.js";
@@ -20,6 +21,7 @@ import * as undoMod from "./undo.js";
 import * as psocialMod from "./proposal-social.js";
 import * as shareMod from "./share.js";
 import * as driveMod from "./drive.js";
+import * as homeMod from "./home.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -224,7 +226,7 @@ function stopTrip() {
   S.presence = [];
   if (prev) emit("close", prev);
 }
-function openTrip(id) {
+function openTrip(id, opts = {}) {
   stopTrip();
   S.tripId = id;
   S.scrollToday = true;
@@ -233,7 +235,8 @@ function openTrip(id) {
   S.stripDay = 0;
   localSet("trip", id); // last trip opened: the default when something is shared into the app
   sessionSet("trip", id);
-  if (location.hash !== "#trip=" + id) history.replaceState(null, "", "#trip=" + id);
+  S.tab = tabMemory()[id] || S.tab;
+  enterTripEntry(id, opts);
   let prevItems = new Map();
   S.unsubs.push(
     S.store.watchTrip(id, (t) => {
@@ -283,13 +286,73 @@ function openTrip(id) {
   S.hb = setInterval(beat, 20000);
   emit("open", id);
 }
-function goHome() {
+// Back button: one history entry for "inside a trip" and one for each open layer (dialog, Add sheet, More menu), so Back peels them off in order.
+// `ignoreBack` counts popstate events we caused ourselves (history.go) so they are not mistaken for the Back button.
+const NAV = { tripEntry: false, layers: 0, ignoreBack: 0, dirty: false };
+function unwind(n) {
+  if (n <= 0) return;
+  NAV.ignoreBack++;
+  history.go(-n);
+}
+function enterTripEntry(id, { hashEntry } = {}) {
+  if (NAV.tripEntry || hashEntry) { // already inside a trip (or the browser just made this entry): only the link changes
+    if (location.hash !== "#trip=" + id) history.replaceState(null, "", "#trip=" + id);
+    NAV.tripEntry = true;
+    return;
+  }
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search); // opened from a link: Your trips sits under it
+  if (NAV.layers > 0) { // opened from a dialog that is still closing (the New trip form): its entry becomes the trip's
+    history.replaceState({ tp: "trip" }, "", "#trip=" + id);
+    NAV.layers--;
+  } else history.pushState({ tp: "trip" }, "", "#trip=" + id);
+  NAV.tripEntry = true;
+}
+const layersOpen = () => ($modal.open ? 1 : 0) + (S.addOpen ? 1 : 0) + (S.moreOpen ? 1 : 0);
+let syncTimer = 0;
+function syncLayers() { // runs once things settle: closing a sheet and opening a dialog in the same tap must not pop and push
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(applyLayers, 0);
+}
+function applyLayers() {
+  if (NAV.ignoreBack > 0) { NAV.dirty = true; return; } // wait for our own history.go to land
+  const open = layersOpen();
+  while (NAV.layers < open) { history.pushState({ tp: "layer" }, ""); NAV.layers++; }
+  if (NAV.layers > open) { unwind(NAV.layers - open); NAV.layers = open; }
+}
+function goHome({ fromBack } = {}) {
+  S.addOpen = false;
+  S.moreOpen = false;
+  if ($modal.open) $modal.close();
+  if (!fromBack) unwind(NAV.layers + (NAV.tripEntry ? 1 : 0));
+  NAV.layers = 0;
+  NAV.tripEntry = false;
   stopTrip();
   S.tripId = null;
   sessionSet("trip", "");
   history.replaceState(null, "", location.pathname + location.search);
   render();
 }
+window.addEventListener("popstate", () => {
+  if (NAV.ignoreBack > 0) {
+    NAV.ignoreBack--;
+    // the trip may have been switched while a dialog was open: the entry we landed on still names the old one
+    if (S.tripId && NAV.tripEntry && location.hash !== "#trip=" + S.tripId) history.replaceState(history.state, "", "#trip=" + S.tripId);
+    if (!NAV.ignoreBack && NAV.dirty) { NAV.dirty = false; applyLayers(); }
+    return;
+  }
+  if (NAV.layers > 0) { // Back closes whatever is on top first
+    NAV.layers--;
+    if ($modal.open) $modal.close();
+    else if (S.addOpen) S.addOpen = false;
+    else S.moreOpen = false;
+    return render();
+  }
+  if (S.tripId && NAV.tripEntry && !/[#&]trip=/.test(location.hash)) goHome({ fromBack: true });
+});
+$modal.addEventListener("close", syncLayers);
+// Each trip remembers its tab for the rest of the session.
+function tabMemory() { try { return JSON.parse(sessionStorage.getItem("tp-tabs") || "{}"); } catch { return {}; } }
+function rememberTab(id, tab) { try { sessionStorage.setItem("tp-tabs", JSON.stringify({ ...tabMemory(), [id]: tab })); } catch {} }
 
 /* ------------------------------------------------------------------ render */
 // Re-rendering replaces the DOM; keep whatever the person is typing (and the cursor) intact.
@@ -312,6 +375,7 @@ function render() {
   renderSync();
   initStrip();
   scrollToToday();
+  syncLayers();
   emit("render");
 }
 // Plan opens on today's day during the trip (once per opened trip).
@@ -426,20 +490,11 @@ function viewSignIn() {
 }
 
 function viewHome() {
-  const trips = [...S.trips].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const trips = homeMod.list(S.trips);
   return `<section class="home">
     <div class="home-head"><h2>Your trips</h2><button class="primary" data-action="newTrip">+ New trip</button></div>
     ${trips.length ? "" : `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>`}
-    <div class="trip-cards">
-      ${trips.map((t) => `<button class="trip-card" data-action="open" data-id="${t.id}">
-          <div class="tc-img" ${coverOf(t) ? `style="background-image:url('${cssUrl(coverOf(t))}')"` : ""}></div>
-          <div class="tc-body">
-          <div class="tc-title">${esc(t.name)}</div>
-          <div class="muted">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${(t.days || []).length} days</div>
-          <div class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) + (t.updatedByName ? " by " + esc(firstName(t.updatedByName)) : "") : ""}</div>
-          </div>
-        </button>`).join("")}
-    </div>
+    ${homeMod.view(S.trips)}
   </section>`;
 }
 
@@ -474,6 +529,7 @@ function viewTrip() {
         <div class="hero-top">
           <button class="chip ghost" data-action="home">‹ Trips</button>
           <div class="hero-acts">
+            ${slot("heroActs")}
             <button class="chip ghost" data-action="invite"><span class="avs">${avatars}</span><span>Invite</span></button>
             <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip">⚙️</button>
           </div>
@@ -746,7 +802,7 @@ function viewIdeas() {
     return `<span class="stat"><b>${esc(who(m))}</b>: ${sched.length} of ${all.length} picks planned</span>`;
   });
   const bar = socialMod.ideasBar(list, members, CATEGORIES);
-  const shown = socialMod.arrangeIdeas(list, members);
+  const shown = socialMod.arrangeIdeas(list, members, CATEGORIES);
   return `<div class="stats">${stats.join("")}</div>${bar}
     ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.${/iP(hone|ad|od)/.test(navigator.userAgent) ? " On iPhone, copy it and paste it above." : ""}</p>`}`;
 }
@@ -1561,6 +1617,7 @@ function openModal(html, onSubmit) {
     }
   };
   $modal.showModal();
+  syncLayers();
   $form.querySelector("input:not([type=radio]),select,textarea")?.focus();
 }
 const opt = (obj, sel) => Object.entries(obj).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("");
@@ -1624,6 +1681,18 @@ async function releaseDays(dayIds) {
   return back.length;
 }
 const dayRange = (a, b) => (a === b ? `Day ${a}` : `Days ${a}-${b}`);
+// Every day emptied at once: stops go back to Ideas (rest blocks are removed), with Undo and an Activity entry.
+async function clearAllDays() {
+  const ids = new Set(S.trip.days.map((d) => d.id));
+  const stops = S.items.filter((it) => ids.has(it.dayId));
+  const real = stops.filter((it) => !it.rest).length;
+  if (!stops.length) return toast("Your days are already empty.");
+  if (!confirm(`Clear all ${ids.size} days? The ${real} stop${real === 1 ? "" : "s"} go back to Ideas. You can undo it.`)) return;
+  $modal.close();
+  const res = await ctx.recordAi({ source: "You", request: "Clear all days", summary: `Cleared all days; ${real} stops back to Ideas` }, async () => ({ count: await releaseDays([...ids]) }));
+  await log(`cleared all days (${real} stop${real === 1 ? "" : "s"} back to Ideas)`);
+  ctx.toastUndo(`Cleared all days. ${res?.count ?? real} stops are back in Ideas.`);
+}
 function editTrip() {
   const t = S.trip;
   const wasOwner = t.owner === S.me.email;
@@ -1669,17 +1738,7 @@ function editTrip() {
   const asked = { name: fv("name"), destination: fv("destination"), startDate: fv("startDate"), budget: fv("budget"), currency: fv("currency") };
   const askedDays = Math.max(1, Math.min(60, +fv("numDays") || t.days.length));
   // Every day emptied at once: stops go back to Ideas (rest blocks are removed), with Undo and an Activity entry.
-  $form.querySelector("[data-action=clearDays]")?.addEventListener("click", async () => {
-    const ids = new Set(S.trip.days.map((d) => d.id));
-    const stops = S.items.filter((it) => ids.has(it.dayId));
-    const real = stops.filter((it) => !it.rest).length;
-    if (!stops.length) return toast("Your days are already empty.");
-    if (!confirm(`Clear all ${ids.size} days? The ${real} stop${real === 1 ? "" : "s"} go back to Ideas. You can undo it.`)) return;
-    $modal.close();
-    const res = await ctx.recordAi({ source: "You", request: "Clear all days", summary: `Cleared all days; ${real} stops back to Ideas` }, async () => ({ count: await releaseDays([...ids]) }));
-    await log(`cleared all days (${real} stop${real === 1 ? "" : "s"} back to Ideas)`);
-    ctx.toastUndo(`Cleared all days. ${res?.count ?? real} stops are back in Ideas.`);
-  });
+  $form.querySelector("[data-action=clearDays]")?.addEventListener("click", clearAllDays);
   $form.querySelector("[data-action=deleteTrip]")?.addEventListener("click", async () => {
     if (!wasOwner) return;
     if (!confirm("Delete this trip for everyone? This can't be undone.")) return;
@@ -2180,7 +2239,7 @@ window.addEventListener("hashchange", () => {
   if (/[#&]join=([\w-]{8,})/.test(location.hash)) { takeJoin(); handleJoin(); return; }
   const linked = (location.hash.match(/[#&]trip=([\w-]+)/) || [])[1];
   if (!linked || !S.me || linked === S.tripId) return;
-  if (S.trips.some((t) => t.id === linked)) openTrip(linked);
+  if (S.trips.some((t) => t.id === linked)) openTrip(linked, { hashEntry: true });
   else notInvited(linked, S.me.email);
 });
 const pendingJoin = () => { try { return sessionStorage.getItem("tp-join") || ""; } catch { return ""; } };
@@ -2283,6 +2342,7 @@ document.addEventListener("click", async (e) => {
   if (S.addOpen && b.closest(".add-sheet")) { // a tile was used: close the sheet without a re-render
     S.addOpen = false;
     $app.querySelector(".add-wrap")?.classList.remove("open");
+    syncLayers();
   }
   try {
     switch (a) {
@@ -2364,6 +2424,7 @@ document.addEventListener("click", async (e) => {
         S.tab = b.dataset.tab;
         S.moreOpen = false;
         localSet("tab", S.tab);
+        if (S.tripId) rememberTab(S.tripId, S.tab);
         return render();
       case "moreToggle":
         S.moreOpen = !S.moreOpen;
@@ -2527,6 +2588,7 @@ const ctx = {
   render, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
   untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
   CATEGORIES, MODES, CURRENCIES,
+  openTrip, invite, clearAllDays, coversOf, coverOf, coverSrc, cssUrl, $form, $modal,
   today, directionsUrl,
   // Gemini and Claude belong to AI users only; their key and Claude link live in the private doc, never on the trip.
   aiKey: () => (S.aiUser ? S.priv?.ai?.key || "" : ""),
@@ -2555,7 +2617,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
