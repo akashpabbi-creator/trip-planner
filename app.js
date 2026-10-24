@@ -7,6 +7,7 @@ import { topPicks, reviewPlan, testKey, extractLink, placeNotes, bookTodo, check
 import * as mapMod from "./map.js";
 import * as alongMod from "./along.js";
 import * as socialMod from "./social.js";
+import * as searchMod from "./search.js";
 import * as captureMod from "./capture.js";
 import * as kitMod from "./kit.js";
 import * as changesMod from "./changes.js";
@@ -460,6 +461,7 @@ function viewTrip() {
         <div class="hero-top">
           <button class="chip ghost" data-action="home">‹ Trips</button>
           <div class="hero-acts">
+            ${slot("heroActs")}
             <button class="chip ghost" data-action="invite"><span class="avs">${avatars}</span><span>Invite</span></button>
             <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip">⚙️</button>
           </div>
@@ -732,7 +734,7 @@ function viewIdeas() {
     return `<span class="stat"><b>${esc(who(m))}</b>: ${sched.length} of ${all.length} picks planned</span>`;
   });
   const bar = socialMod.ideasBar(list, members, CATEGORIES);
-  const shown = socialMod.arrangeIdeas(list, members);
+  const shown = socialMod.arrangeIdeas(list, members, CATEGORIES);
   return `<div class="stats">${stats.join("")}</div>${bar}
     ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.${/iP(hone|ad|od)/.test(navigator.userAgent) ? " On iPhone, copy it and paste it above." : ""}</p>`}`;
 }
@@ -2543,7 +2545,7 @@ ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 
 ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, homeMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 

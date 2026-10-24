@@ -1,10 +1,11 @@
 // Reactions, votes and comments: a quiet row on every card, plus the helpers the planners use (loved / vetoed names).
 // Votes: item.votes = { [email]: "love" | "like" | "no" }. Comments: item.comments = [{ id, by, byName, at, text }].
+import { itemMatches } from "./search.js";
 let C = null; // ctx, set by init
 
 const VOTES = [["love", "❤️", "Love it"], ["like", "👍", "Like it"], ["no", "👎", "Not for us"]];
 const open = new Set(); // item ids whose comment thread is expanded
-const view = { cat: "all", sort: "love" }; // Ideas tab filter and sort
+const view = { cat: "all", sort: "love", q: "" }; // Ideas tab filter and sort
 
 /* ----------------------------------------------------------- pure helpers (also used by app.js, ai.js) */
 const norm = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -93,20 +94,30 @@ async function delComment(id, cid) {
 }
 
 /* -------------------------------------------------------------- Ideas tab */
-// Filter chips (All, Both love, each category present) and a sort; hidden until there are a few ideas.
+// A search box and sort, then pinned filter chips (All, Both love, each category present) with counts. Shown from the first idea.
+// The counts follow the search box, so "pizza" + Food reads as the Food count for "pizza".
+let lastTrip = null;
+const catLabel = (cats, i) => cats[i.category || "other"]?.label || "";
+const queried = (list, cats) => list.filter((i) => itemMatches(i, view.q, catLabel(cats, i)));
 export function ideasBar(list, members, cats) {
+  if (lastTrip !== C.S.tripId) { lastTrip = C.S.tripId; view.q = ""; view.cat = "all"; }
   const present = Object.keys(cats).filter((k) => list.some((i) => (i.category || "other") === k));
   const both = list.filter((i) => bothLove(i, members)).length;
   if (view.cat !== "all" && !(view.cat === "love" ? both : present.includes(view.cat))) view.cat = "all"; // that filter has nothing left
-  if (list.length < 3) return "";
-  const chip = (k, label) => `<button type="button" class="chip ${view.cat === k ? "on" : ""}" data-action="ideaFilter" data-id="${k}">${label}</button>`;
-  return `<div class="chips idea-chips">${chip("all", "All")}${both ? chip("love", `❤️ Both love (${both})`) : ""}${present.map((k) => chip(k, `${cats[k].icon} ${C.esc(cats[k].label)}`)).join("")}
-    <select class="idea-sort" data-sort aria-label="Sort ideas"><option value="love" ${view.sort === "love" ? "selected" : ""}>Both love first</option><option value="new" ${view.sort === "new" ? "selected" : ""}>Newest first</option></select></div>`;
+  if (!list.length) return "";
+  const hit = queried(list, cats);
+  const n = (k) => hit.filter((i) => (k === "love" ? bothLove(i, members) : (i.category || "other") === k)).length;
+  const chip = (k, label, count) => `<button type="button" class="chip ${view.cat === k ? "on" : ""} ${count ? "" : "zero"}" data-action="ideaFilter" data-id="${k}">${label} <span class="chip-n">${count}</span></button>`;
+  return `<div class="idea-bar">
+    <div class="idea-find"><input type="search" id="ideaQ" data-ideaq value="${C.esc(view.q)}" placeholder="Search ideas" autocomplete="off" enterkeyhint="search" aria-label="Search ideas">
+      <select class="idea-sort" data-sort aria-label="Sort ideas"><option value="love" ${view.sort === "love" ? "selected" : ""}>Both love first</option><option value="new" ${view.sort === "new" ? "selected" : ""}>Newest first</option></select></div>
+    <div class="chips idea-chips">${chip("all", "All", hit.length)}${both ? chip("love", "❤️ Both love", n("love")) : ""}${present.map((k) => chip(k, `${cats[k].icon} ${C.esc(cats[k].label)}`, n(k))).join("")}</div>
+  </div>`;
 }
 // Both-loved first, vetoed last, then newest. "Newest" keeps pure date order.
-export function arrangeIdeas(list, members) {
+export function arrangeIdeas(list, members, cats = {}) {
   const cat = view.cat;
-  const shown = list.filter((i) => cat === "all" || (cat === "love" ? bothLove(i, members) : (i.category || "other") === cat));
+  const shown = queried(list, cats).filter((i) => cat === "all" || (cat === "love" ? bothLove(i, members) : (i.category || "other") === cat));
   const newest = (a, b) => (b.addedAt || 0) - (a.addedAt || 0);
   if (view.sort === "new") return shown.sort(newest);
   const rank = (i) => (bothLove(i, members) ? 0 : isVetoed(i) ? 2 : 1);
@@ -128,10 +139,16 @@ const CSS = `
 .rx-del { border: 0; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .rx-add { display: flex; gap: 6px; }
 .rx-add input { flex: 1; min-width: 0; padding: 6px 10px; font-size: 14px; }
-.idea-chips { align-items: center; margin: 4px 0 12px; }
-.idea-chips .chip { background: var(--panel); border: 1px solid var(--line); color: var(--ink); font-size: 13px; padding: 4px 10px; cursor: pointer; }
+.idea-bar { position: sticky; top: var(--tb, 52px); z-index: 12; background: var(--bg); margin: 0 -4px 10px; padding: 6px 4px 8px; border-bottom: 1px solid var(--line); }
+.idea-find { display: flex; gap: 8px; align-items: center; }
+.idea-find input { flex: 1; min-width: 0; font-size: 16px; padding: 8px 14px; border-radius: 99px; }
+.idea-chips { align-items: center; margin: 8px 0 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.idea-chips::-webkit-scrollbar { display: none; }
+.idea-chips .chip { flex: none; white-space: nowrap; background: var(--panel); border: 1px solid var(--line); color: var(--ink); font-size: 13px; padding: 4px 10px; cursor: pointer; }
 .idea-chips .chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.idea-sort { width: auto; margin-left: auto; font-size: 13px; padding: 4px 8px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+.idea-chips .chip.zero:not(.on) { opacity: 0.5; }
+.chip-n { font-weight: 700; margin-left: 2px; opacity: 0.8; }
+.idea-sort { width: auto; font-size: 13px; padding: 6px 8px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
 `;
 
 export function init(ctx) {
@@ -147,6 +164,10 @@ export function init(ctx) {
   ctx.action("cmtAdd", (btn, id) => addComment(id));
   ctx.action("cmtDel", (btn, id) => delComment(id, btn.dataset.cid));
   ctx.action("ideaFilter", (btn, id) => { view.cat = id; ctx.render(); });
+  ctx.resetIdeaView = () => { view.cat = "all"; view.q = ""; };
+  document.addEventListener("input", (e) => {
+    if (e.target.matches?.("input[data-ideaq]")) { view.q = e.target.value; ctx.render(); }
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.dataset?.cmt) { e.preventDefault(); addComment(e.target.dataset.cmt).catch((err) => ctx.toast("Couldn't post: " + err.message)); }
   });
