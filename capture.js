@@ -1,5 +1,6 @@
 // capture: screenshots to places (the 📷 button and the Android image share target).
 // Images are shrunk in the browser and sent to Gemini once; the original is kept only in the trip's Google Drive folder (drive.js), when it has one.
+import { seenNote } from "./dedupe.js";
 import { call, parseJson, cleanPlace, placeNotes, bookTodo, QuotaError, geminiWait } from "./ai.js";
 
 const MAX_IMAGES = 6;
@@ -79,10 +80,8 @@ export function init(ctx) {
       const b64 = [];
       for (const f of files) b64.push(await downscale(f));
       const found = await readImage(ctx.aiKey(), b64, t, ctx.profileText(ctx.profileOf(t)));
-      const have = new Set(S.items.map((i) => (i.title || "").trim().toLowerCase()));
-      const fresh = found.filter((p) => !have.has(String(p.name).trim().toLowerCase()));
       if (!found.length) return toast("I couldn't find any places in that screenshot. Try a clearer one.", 5000);
-      if (!fresh.length) return toast("Those places are already saved.");
+      const fresh = found; // places already saved get the new details added instead of a second card (addPlaces)
       const places = fresh.map((p) => ({
         title: String(p.name).slice(0, 120), category: ctx.CATEGORIES[p.category] ? p.category : "sight",
         location: [p.address, t.destination].filter(Boolean).join(", "), durationMin: Number(p.durationMin) || 90,
@@ -96,12 +95,15 @@ export function init(ctx) {
       ctx.render();
       const added = await ctx.addPlaces(places, { source: "screenshot" });
       await ctx.saveTips({ todos: fresh.map(bookTodo).filter(Boolean) });
-      await ctx.log(places.length > 1 ? `added ${places.length} places from a screenshot: ${places.map((p) => "“" + p.title + "”").join(", ")}` : `added “${places[0].title}” from a screenshot`);
+      const seen = seenNote(added), news = added.filter((x) => !x.merged);
+      await ctx.log(!news.length ? `read a screenshot of ${added.length > 1 ? added.length + " places" : "“" + added[0].title + "”"} already saved; added the new details`
+        : news.length > 1 ? `added ${news.length} places from a screenshot: ${news.map((p) => "“" + p.title + "”").join(", ")}` : `added “${news[0].title}” from a screenshot`);
       await ctx.touchTrip();
+      if (!news.length) { toast(seen, 5000); return; }
       const days = added.filter((x) => x.where?.dayIndex != null);
-      toast(days.length
+      toast((days.length
         ? `Added ${added.length > 1 ? added.length + " places" : "“" + added[0].title + "”"} from the screenshot (${[...new Set(days.map((x) => "Day " + (x.where.dayIndex + 1)))].sort().join(", ")})${days.length < added.length ? ". The rest are in Ideas" : ""}.`
-        : `Saved ${added.length > 1 ? added.length + " places" : "“" + added[0].title + "”"} to Ideas from the screenshot.`, 5000);
+        : `Saved ${news.length > 1 ? news.length + " places" : "“" + news[0].title + "”"} to Ideas from the screenshot.`) + (seen ? " " + seen : ""), 5000);
       if (days.length ? S.tab !== "ideas" && S.tab !== "plan" : S.tab !== "ideas") S.tab = days.length ? "plan" : "ideas";
     } catch (e) {
       console.warn("screenshot", e);

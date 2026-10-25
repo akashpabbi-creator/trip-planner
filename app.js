@@ -22,6 +22,7 @@ import * as psocialMod from "./proposal-social.js";
 import * as shareMod from "./share.js";
 import * as driveMod from "./drive.js";
 import * as homeMod from "./home.js";
+import { findDup, mergePatch, dupGroups, foldPatch, seenNote } from "./dedupe.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
 /* ---------------------------------------------------------------- constants */
@@ -802,8 +803,10 @@ function viewIdeas() {
     return `<span class="stat"><b>${esc(who(m))}</b>: ${sched.length} of ${all.length} picks planned</span>`;
   });
   const bar = socialMod.ideasBar(list, members, CATEGORIES);
+  const dups = dupGroups(S.items, (i) => S.trip.days.some((d) => d.id === i.dayId));
+  const dupBar = dups.length ? `<div class="dup-bar"><span>${dups.reduce((n, g) => n + g.drop.length, 0)} spot${dups.reduce((n, g) => n + g.drop.length, 0) === 1 ? " is" : "s are"} saved more than once.</span><button type="button" class="btn-s" data-action="mergeDups">Merge duplicates</button></div>` : "";
   const shown = socialMod.arrangeIdeas(list, members, CATEGORIES);
-  return `<div class="stats">${stats.join("")}</div>${bar}
+  return `<div class="stats">${stats.join("")}</div>${dupBar}${bar}
     ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.${/iP(hone|ad|od)/.test(navigator.userAgent) ? " On iPhone, copy it and paste it above." : ""}</p>`}`;
 }
 
@@ -1682,6 +1685,23 @@ async function releaseDays(dayIds) {
 }
 const dayRange = (a, b) => (a === b ? `Day ${a}` : `Days ${a}-${b}`);
 // Every day emptied at once: stops go back to Ideas (rest blocks are removed), with Undo and an Activity entry.
+// Folds copies of the same spot into one card (the one already on a day, else the fullest). Undo brings the copies back.
+async function mergeDuplicates() {
+  const groups = dupGroups(S.items, (i) => S.trip.days.some((d) => d.id === i.dayId));
+  const n = groups.reduce((c, g) => c + g.drop.length, 0);
+  if (!n) return toast("No duplicates found.");
+  const names = groups.map((g) => g.keep.title);
+  const res = await ctx.recordAi({ source: "You", request: "Merge duplicate spots", summary: `Merged ${n} duplicate${n > 1 ? "s" : ""}: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ", …" : ""}` }, async () => {
+    for (const g of groups) {
+      const patch = foldPatch(g.keep, g.drop);
+      if (Object.keys(patch).length) await S.store.updateItem(S.tripId, g.keep.id, { ...patch, ...stampMe() });
+      for (const d of g.drop) await S.store.deleteItem(S.tripId, d.id);
+    }
+    return { count: n };
+  });
+  await log(`merged ${n} duplicate spot${n > 1 ? "s" : ""}: ${names.slice(0, 5).map((x) => "“" + x + "”").join(", ")}${names.length > 5 ? ", …" : ""}`);
+  ctx.toastUndo(`Merged ${n} duplicate${n > 1 ? "s" : ""} into ${groups.length} card${groups.length > 1 ? "s" : ""}. Tips and links were kept.`);
+}
 async function clearAllDays() {
   const ids = new Set(S.trip.days.map((d) => d.id));
   const stops = S.items.filter((it) => ids.has(it.dayId));
@@ -2028,7 +2048,16 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
   const t = S.trip;
   const now = Date.now();
   const auto = autoPlace ?? !!profileOf(t).linksToDays;
-  const out = [];
+  const out = [], made = [];
+  // A place that is already saved (same name, or a pin on the same spot) gets the new details instead of a second card.
+  const fold = async (dup, data) => {
+    const patch = mergePatch(dup, data);
+    if (Object.keys(patch).length) {
+      await S.store.updateItem(S.tripId, dup.id, { ...patch, ...stampMe() });
+      Object.assign(dup, patch);
+    }
+    out.push({ id: dup.id, title: dup.title, where: null, merged: true, day: S.trip.days.findIndex((d) => d.id === dup.dayId) + 1 });
+  };
   for (const p of places) {
     const data = {
       title: p.title || "Saved link", description: p.description || "", image: p.image || "", siteName: p.siteName || "",
@@ -2040,11 +2069,16 @@ async function addPlaces(places, { url = "", source = "", autoPlace } = {}) {
       ...(Array.isArray(p.driveFiles) && p.driveFiles.length ? { driveFiles: p.driveFiles } : {}),
       fromLink: true, addedBy: S.me.email, addedByName: S.me.name, addedAt: now, ...stampMe(),
     };
+    let dup = findDup([...S.items, ...made], data); // by name first: no map lookup needed for a repeat
+    if (dup) { await fold(dup, data); continue; }
     if (!has(data) && !p.noGeo) {
       const g = await geocode(`${data.location || data.title}${data.location.includes(t.destination) ? "" : ", " + t.destination}`).catch(() => null);
       if (g) Object.assign(data, { lat: g.lat, lng: g.lng });
+      dup = findDup([...S.items, ...made], data); // and again with the pin
+      if (dup) { await fold(dup, data); continue; }
     }
     const id = await S.store.addItem(S.tripId, data);
+    made.push({ ...data, id });
     const where = auto && !p.unread ? await placeIdea({ ...data, id }) : null;
     out.push({ id, title: data.title, where });
   }
@@ -2122,22 +2156,24 @@ async function addLink(raw) {
     S.busy = places.length > 1 ? `Adding ${places.length} places to the plan…` : "Adding it to the plan…";
     render();
     const added = await addPlaces(places, { url });
+    const seen = seenNote(added), fresh = added.filter((x) => !x.merged);
     const kit = await saveTips({ todos: places.map((p) => p.todo).filter(Boolean), tips, label: m.title && !BLOCKED.test(m.title) ? `“${m.title.slice(0, 60)}”` : `this ${sourceOf(url) === "instagram" ? "Instagram" : "saved"} post` });
     const placedOn = added.map((x) => [x.title, x.where]);
     const firstId = added[0]?.id;
-    await log(places.length > 1 ? `saved a link with ${places.length} places: ${places.map((p) => "“" + p.title + "”").join(", ")}` : `saved a link: “${places[0].title}”`);
+    await log(!fresh.length ? `shared a link with ${added.length > 1 ? added.length + " places" : "“" + added[0].title + "”"} that ${added.length > 1 ? "were" : "was"} already saved; added the new details`
+      : fresh.length > 1 ? `saved a link with ${fresh.length} places: ${fresh.map((p) => "“" + p.title + "”").join(", ")}` : `saved a link: “${fresh[0].title}”`);
     await touchTrip();
     const input = document.getElementById("linkInput");
     if (input) input.value = "";
     const days = placedOn.filter(([, w]) => w?.dayIndex != null);
-    const msg = days.length
+    const msg = !fresh.length ? "" : days.length
       ? days.length === 1 && placedOn.length === 1
         ? `Added “${days[0][0]}” to Day ${days[0][1].dayIndex + 1}${days[0][1].why ? ` ${days[0][1].why}` : ""}.`
         : `Added ${days.length === placedOn.length ? (days.length === 2 ? "both" : "all " + days.length) : days.length + " of " + placedOn.length} places to the plan (${[...new Set(days.map(([, w]) => "Day " + (w.dayIndex + 1)))].sort().join(", ")})${days.length < placedOn.length ? ". The rest are in Ideas" : ""}.`
       : placedOn.some(([, w]) => w?.far) ? `Saved to Ideas. It looks far from ${t.destination}.` : placedOn.length > 1 ? `Saved ${placedOn.length} places to Ideas.` : m.ok && !places[0]?.unread ? "Saved to Ideas." : `Saved to Ideas. ${m.ok ? "I couldn't find the places in that page" : "That site blocked the link reader"}${ctx.aiKey() || !S.aiUser ? "" : ", but connecting Gemini on Discover lets it read pages like this"}.`;
-    toast(msg + (kit.todos ? ` Added ${kit.todos > 1 ? kit.todos + " booking to-dos" : "a booking to-do"} to the Kit.` : "") + (kit.note ? " Tips are in the Kit notes." : "") + (viaAi ? " Read by Gemini." : ""), 6000);
+    toast([msg, seen].filter(Boolean).join(" ") + (kit.todos ? ` Added ${kit.todos > 1 ? kit.todos + " booking to-dos" : "a booking to-do"} to the Kit.` : "") + (kit.note ? " Tips are in the Kit notes." : "") + (viaAi ? " Read by Gemini." : ""), 6000);
     if (days.length ? S.tab !== "ideas" && S.tab !== "plan" : S.tab !== "ideas") S.tab = days.length ? "plan" : "ideas";
-    if (places.length === 1 && (!m.ok || !places[0].location) && !viaAi && !days.length && !alsoText) editItem(firstId);
+    if (places.length === 1 && fresh.length && (!m.ok || !places[0].location) && !viaAi && !days.length && !alsoText) editItem(firstId);
   } finally {
     S.busy = false;
     render();
@@ -2475,6 +2511,7 @@ document.addEventListener("click", async (e) => {
         await S.store.txTrip(S.tripId, (cur) => ({ extras: (cur.extras || []).filter((x) => x.id !== id), ...stampMe() }));
         return log(`removed a cost: ${ex?.label}`);
       }
+      case "mergeDups": return mergeDuplicates();
       case "print": return window.print();
       case "analyse": return runAnalyse();
       case "home": return goHome();

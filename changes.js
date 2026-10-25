@@ -203,6 +203,12 @@ export async function applyOp(op, { source = "" } = {}) {
         title: p.name, location: p.location, category: cat, durationMin: p.durationMin, cost: p.cost, notes: p.why, url: p.url || "", ...(g ? { lat: g.lat, lng: g.lng } : { noGeo: true }),
         ...(cat === "food" && p.veg ? { veg: p.veg, vegNote: p.vegNote || "", vegSource: (source || "app").toLowerCase() } : {}),
       }], { source: source || "change", autoPlace: false });
+      if (added.merged && !(op.toDay && g && !added.day)) {
+        // Already saved: its new details were added to the existing card, nothing else moves.
+        const where = added.day ? `already on Day ${added.day}` : "already in Ideas";
+        await ctx.log(`applied ${by}: ${q(p.name)} was ${where}; added the new details`);
+        return { ok: true, note: `${q(p.name)} was ${where}, so I added the new details to it.` };
+      }
       if (op.toDay && g) {
         const id = dayId(op.toDay), time = hhmm(op.time);
         await new Promise((r) => setTimeout(r, 150));

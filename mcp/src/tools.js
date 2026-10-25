@@ -2,6 +2,7 @@
 // Job 1: read tools. Job 2: capture tools (Ideas only, plus Kit to-dos and trip notes) and undo.
 import { matchTrip, tripSummary, tripView, dayView, stop, ideasOf, onDay, memberNameOf } from "./view.js";
 import { newId, record, stamp, undo } from "./undo.js";
+import { findDup, mergePatch } from "./dedupe.js";
 
 export const TRIP = { type: "string", description: "Trip name, destination, start date (YYYY-MM-DD) or id. Optional when there is only one trip." };
 export const readOnly = { readOnlyHint: true, destructiveHint: false, openWorldHint: false };
@@ -136,21 +137,31 @@ export const TOOLS = [
 const WRITE_TOOLS = [
   {
     name: "save_ideas",
-    description: "Save places or things the user shared (a screenshot, an Instagram or Maps link, a reel, a chat, a list of tips) to the trip's IDEAS. Ideas are never put on a day; the user moves them there. Read the shared material yourself, pull out each real place with its details, and pass them here (up to 20 at once). Check search_items first if the place may already be saved; duplicates by name are skipped. Put each actionable tip in `tips`.",
+    description: "Save places or things the user shared (a screenshot, an Instagram or Maps link, a reel, a chat, a list of tips) to the trip's IDEAS. Ideas are never put on a day; the user moves them there. Read the shared material yourself, pull out each real place with its details, and pass them here (up to 20 at once). Check search_items first if the place may already be saved; a place that is already saved (same name, ignoring accents and case, or a pin on the same spot) is not added twice: its new tips, links and details are merged into the existing card. Put each actionable tip in `tips`.",
     inputSchema: { type: "object", properties: { trip: TRIP, ideas: { type: "array", minItems: 1, maxItems: 20, items: { type: "object", properties: IDEA_PROPS, required: ["title"] } } }, required: ["ideas"] },
     async run(a, c) {
       const trip = matchTrip(await c.fs.tripsFor(c.email), a.trip);
       const list = Array.isArray(a.ideas) ? a.ideas.slice(0, 20) : [];
       if (!list.length) throw new Error("Pass at least one idea.");
       const have = await c.fs.items(trip.id);
-      const results = [], made = [], ops = [], todos = [];
+      const results = [], made = [], merged = [], ops = [], todos = [];
       for (const p of list) {
         let d;
         try { d = ideaDoc(p, c); } catch (e) { results.push({ title: str(p?.title, 80), status: "skipped", why: e.message }); continue; }
-        const dup = [...have, ...made].find((x) => sameTitle(x.title, d.data.title));
+        const dup = findDup([...have, ...made], d.data);
         if (dup) {
           const day = onDay(trip, dup);
-          results.push({ title: d.data.title, status: "already saved", where: day >= 0 ? `day ${day + 1}` : "ideas" });
+          const patch = mergePatch(dup, d.data);
+          const keys = Object.keys(patch);
+          if (keys.length) {
+            const before = Object.fromEntries(keys.map((k) => [k, dup[k] ?? null]));
+            await c.fs.patch(`trips/${trip.id}/items/${dup.id}`, { ...patch, ...stamp(c) });
+            ops.push({ op: "patchItem", id: dup.id, before, after: patch });
+            merged.push({ id: dup.id, title: dup.title });
+            Object.assign(dup, patch);
+          }
+          results.push({ title: d.data.title, status: keys.length ? "already saved, merged the new details" : "already saved", saved_as: dup.title, where: day >= 0 ? `day ${day + 1}` : "ideas", ...(keys.length ? { added: keys } : {}) });
+          if (d.tips.some((t) => BOOK.test(t)) || BOOK.test(d.data.notes)) todos.push(`Book ${dup.title}`);
           continue;
         }
         const id = newId();
@@ -179,9 +190,11 @@ const WRITE_TOOLS = [
         kit = ids.length;
         if (kit) ops.push({ op: "removeListed", field: "checklist", ids });
       }
-      if (made.length) {
-        const text = made.length === 1 ? `added “${made[0].title}” to ideas` : `added ${made.length} ideas (${made.slice(0, 3).map((m) => "“" + m.title + "”").join(", ")}${made.length > 3 ? ", …" : ""})`;
-        const entry = await record(c, trip.id, text + (kit ? ` and ${kit} booking to-do${kit > 1 ? "s" : ""}` : ""), ops);
+      if (made.length || merged.length || kit) {
+        const mtext = merged.length ? `added new details to ${merged.slice(0, 3).map((m) => "“" + m.title + "”").join(", ")}${merged.length > 3 ? ", …" : ""} (already saved)` : "";
+        const text = !made.length ? mtext : (made.length === 1 ? `added “${made[0].title}” to ideas` : `added ${made.length} ideas (${made.slice(0, 3).map((m) => "“" + m.title + "”").join(", ")}${made.length > 3 ? ", …" : ""})`) + (mtext ? " and " + mtext : "");
+        const todoText = kit ? `${kit} booking to-do${kit > 1 ? "s" : ""}` : "";
+        const entry = await record(c, trip.id, [text, todoText].filter(Boolean).join(" and "), ops);
         await c.fs.patch(`trips/${trip.id}`, stamp(c));
         return { trip: trip.name, saved: made.length, kitTodos: kit, results, undoWith: { tool: "undo_change", entry } };
       }
