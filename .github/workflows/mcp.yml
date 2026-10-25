@@ -2,9 +2,9 @@ name: Trips connector
 on:
   push:
     branches: [main]
-    paths: ["mcp/**", "connect.html", "mcp-config.js", "firestore.rules", "tests/mcp-*.mjs", ".github/workflows/mcp.yml"]
+    paths: ["mcp/**", "dedupe.js", "connect.html", "mcp-config.js", "firestore.rules", "tests/mcp-*.mjs", ".github/workflows/mcp.yml"]
   pull_request:
-    paths: ["mcp/**", "connect.html", "mcp-config.js", "firestore.rules", "tests/mcp-*.mjs", ".github/workflows/mcp.yml"]
+    paths: ["mcp/**", "dedupe.js", "connect.html", "mcp-config.js", "firestore.rules", "tests/mcp-*.mjs", ".github/workflows/mcp.yml"]
   workflow_dispatch:
 
 jobs:

@@ -95,8 +95,11 @@ try {
   answer = ANSWER2;
   await d.fill("#linkInput", "https://www.instagram.com/p/BBB222/");
   await d.press("#linkInput", "Enter");
-  await d.waitForFunction(() => window.__tripCtx.S.items.filter((i) => i.fromLink).length === 5, null, { timeout: 15000 });
+  await d.waitForFunction(() => /already in Ideas/.test(document.getElementById("toast").textContent), null, { timeout: 15000 });
   await d.waitForFunction(() => !window.__tripCtx.S.busy);
+  const dupe = await d.evaluate(() => { const S = window.__tripCtx.S; return { n: S.items.filter((i) => i.fromLink).length, tv: S.items.filter((i) => i.title === "Trattoria Verde").map((i) => i.notes) }; });
+  ok(dupe.n === 4 && dupe.tv.length === 1, "the same restaurant in a second post is not added again");
+  ok(/Reserve by WhatsApp/.test(dupe.tv[0]) && /Book 3 days in advance/.test(dupe.tv[0]), "its new tip is merged into the saved card: " + dupe.tv[0]);
   const s2 = await d.evaluate(() => { const S = window.__tripCtx.S; return { todos: S.trip.checklist.filter((x) => /Trattoria/.test(x.text)).length, notes: S.trip.tripNotes.length, placed: S.items.filter((i) => i.fromLink && i.dayId).length }; });
   ok(s2.todos === 1, "second save of the same restaurant: still one to-do");
   ok(s2.notes === 2, `a different tips list adds its own note (${s2.notes}), the same one would not`);

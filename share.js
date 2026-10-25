@@ -2,6 +2,7 @@
 // A Gemini answer is mostly a list ("* **Name:** why"); it is split here without any key, shown for a quick check, and saved to Ideas.
 // Nothing lands on a day. People with Gemini or Claude can still send the whole text to be read instead.
 import { sameName } from "./social.js";
+import { seenNote } from "./dedupe.js";
 
 const MAX_IDEAS = 20;
 const NOT_A_PLACE = /^(day\s*\d|morning|afternoon|evening|night|breakfast|lunch|dinner|tips?|note|notes|sources?|summary|overview|getting around|where to stay|budget|pro tip|bonus)\b/i;
@@ -74,17 +75,16 @@ export function init(ctx) {
   }
 
   async function save(entries) {
-    const have = S.items.map((i) => i.title);
-    const fresh = entries.filter((e) => !have.some((h) => sameName(h, e.name)));
-    if (!fresh.length) return toast("Those are already saved.");
+    const fresh = entries; // a place already saved gets the new details instead of a second card (addPlaces)
     const places = fresh.map((e) => ({ title: e.name.slice(0, 120), category: guessCategory(e.name), description: e.why, notes: "" }));
     S.busy = `Adding ${places.length} place${places.length > 1 ? "s" : ""} to Ideas…`;
     ctx.render();
     try {
-      await ctx.addPlaces(places, { source: "shared text", autoPlace: false });
-      await ctx.log(`saved ${places.length} idea${places.length > 1 ? "s" : ""} from shared text: ${places.map((p) => "“" + p.title + "”").join(", ")}`);
+      const added = await ctx.addPlaces(places, { source: "shared text", autoPlace: false });
+      const news = added.filter((x) => !x.merged);
+      await ctx.log(news.length ? `saved ${news.length} idea${news.length > 1 ? "s" : ""} from shared text: ${news.map((p) => "“" + p.title + "”").join(", ")}` : "shared text with places that were already saved; added the new details");
       await ctx.touchTrip();
-      toast(`Saved ${places.length} idea${places.length > 1 ? "s" : ""} to Ideas.${fresh.length < entries.length ? " The rest were already there." : ""}`, 5000);
+      toast((news.length ? `Saved ${news.length} idea${news.length > 1 ? "s" : ""} to Ideas. ` : "") + seenNote(added), 5000);
       S.tab = "ideas";
     } catch (e) {
       console.warn("shared text", e);
