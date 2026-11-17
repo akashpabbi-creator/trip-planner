@@ -24,6 +24,14 @@ const errors = [];
 const ctxB = await b.newContext({ viewport: { width: 390, height: 800 } });
 const p = await ctxB.newPage();
 p.on("pageerror", (e) => errors.push(e.message));
+// Record every history call and popstate with a timestamp, so a CI failure shows the order of events.
+await p.addInitScript(() => {
+  window.__nav = [];
+  const t0 = performance.now(), log = (k, ...a) => window.__nav.push(`${Math.round(performance.now() - t0)}ms ${k} ${a.join(" ")} hash=${location.hash} len=${history.length}`);
+  for (const k of ["pushState", "replaceState", "go", "back"]) { const f = history[k].bind(history); history[k] = (...a) => { log(k, typeof a[0] === "object" ? JSON.stringify(a[0]) : a[0], a[2] || ""); return f(...a); }; }
+  addEventListener("popstate", () => log("popstate"));
+  addEventListener("hashchange", () => log("hashchange"));
+});
 await p.route(/^https?:\/\/(?!127\.0\.0\.1)/, (r) => r.fulfill({ status: 200, contentType: "text/plain", body: "" }));
 await p.goto(URL0);
 await p.fill("#demoName", "Akash");
@@ -127,6 +135,7 @@ try {
   ok(!(await inTrip()), "Back from a trip goes to Your trips");
 } catch (e) {
   fails++;
+  console.log("  NAV LOG:\n    " + (await p.evaluate(() => window.__nav.join("\n    ")).catch(() => "")));
   console.log("  FAIL exception", e.stack, await p.evaluate(() => JSON.stringify({ hash: location.hash, tab: window.__tripCtx?.S.tab, trip: !!window.__tripCtx?.S.trip, txt: document.querySelector("#app")?.innerText.slice(0, 100) })).catch(() => ""));
 }
 ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));

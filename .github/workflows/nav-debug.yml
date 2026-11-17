@@ -1,0 +1,17 @@
+name: nav-debug
+on:
+  push:
+    branches: [nav-debug-tmp]
+jobs:
+  nav:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          sudo mkdir -p /opt/node-tools && sudo chown "$USER" /opt/node-tools
+          npm i --prefix /opt/node-tools playwright@1
+          npx --prefix /opt/node-tools playwright install --with-deps chromium
+      - run: for i in 1 2 3 4 5 6; do echo "=== run $i"; node tests/navigation.mjs 2>&1 | grep -v "^  ok" ; done
