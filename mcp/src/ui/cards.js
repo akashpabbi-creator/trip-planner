@@ -8,15 +8,19 @@
 //   3. A tool without an entry here is untouched: same text answer, no card. The text `content` is never changed.
 import { deepLink } from "./links.js";
 import status from "./status-card.js";
+import day from "./day-card.js";
+import { DAY_TOOL_CARDS, DAY_APP_TOOLS } from "./day-data.js";
 
 export const VIEWS = {
   "ui://trips/status": status,
+  "ui://trips/day": day,
 };
 
 export const TOOL_CARDS = {
   whoami: { uri: "ui://trips/status", structure: (r, _a, _c, env) => ({ ...r, appUrl: deepLink(env, {}) }) },
+  ...DAY_TOOL_CARDS,
 };
 
 // App-only helper tools (_meta.ui.visibility ["app"]): callable from a card, hidden from the model by hosts that honour it.
 // A helper is { name, description, inputSchema, run(args, c) } like any tool; card jobs add theirs here.
-export const APP_TOOLS = [];
+export const APP_TOOLS = [...DAY_APP_TOOLS];

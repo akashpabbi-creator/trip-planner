@@ -404,6 +404,51 @@ console.log("(z) card plumbing (MCP Apps)");
   ok(!("structuredContent" in lt) && Array.isArray(JSON.parse(lt.content[0].text)), "tools without a card return text only");
 }
 
+console.log("(y) day card");
+{
+  await seed("trips", "T5", { name: "Kochi", destination: "Kochi, India", startDate: "2027-02-01", currency: "INR", days: [{ id: "k1", title: "Fort Kochi", base: "Fort Kochi", notes: "" }, { id: "k2", title: "", base: "", notes: "" }, { id: "k3", title: "", base: "", notes: "" }],
+    owner: "alice@example.com", members: ["alice@example.com"], memberNames: { "alice@example.com": "Alice" }, extras: [], checklist: [], tripNotes: [] });
+  const K = "Kochi";
+  await tool(T, "plan_day", { trip: K, day: 1, stops: [
+    { title: "Chinese fishing nets", category: "sight", location: "Fort Kochi", time: "09:00", lat: 9.9658, lng: 76.2421 },
+    { title: "Kashi Art Cafe", category: "food", location: "Burgher Street", veg: "yes" },
+    { title: "Dutch Palace", category: "sight" }, { title: "Spice market", category: "shopping" },
+  ] });
+  const call = async (name, args) => (await mcp(T, "tools/call", { name, arguments: args })).j?.result;
+  const tl = (await mcp(T, "tools/list")).j?.result?.tools || [];
+  for (const n of ["get_day", "plan_day", "move_item"]) ok(tl.find((t) => t.name === n)?._meta?.ui?.resourceUri === "ui://trips/day", n + " is linked to the day card");
+  ok(tl.find((t) => t.name === "day_card_move")?._meta?.ui?.visibility?.join() === "app" && tl.find((t) => t.name === "day_card")?._meta?.ui?.visibility?.join() === "app", "the card's helper tools are app-only");
+  ok((await mcp(T, "resources/list")).j.result.resources.some((r) => r.uri === "ui://trips/day"), "resources/list names the day card");
+  const html = (await mcp(T, "resources/read", { uri: "ui://trips/day" })).j?.result?.contents?.[0]?.text || "";
+  ok(html.includes("data-do=") && html.includes("day_card_move") && html.includes('<symbol id="landmark"'), "resources/read returns the day card");
+  if (process.env.CARD_DUMP_DIR) writeFileSync(join(process.env.CARD_DUMP_DIR, "day.html"), html);
+
+  const gd = await call("get_day", { trip: K, day: 1 });
+  const sc = gd.structuredContent;
+  ok(sc?.mode === "day" && sc.tripId === "T5" && sc.day === 1 && sc.nDays === 3 && sc.title === "Fort Kochi" && sc.schedule.length === 4 && sc.days.length === 3 && sc.days[0].stops === 4, "get_day: structuredContent holds the day, its stops and the day chips");
+  ok(sc.schedule[0].directions.includes("destination=9.9658%2C76.2421") && /destination=Spice/.test(sc.schedule[3].directions), "each stop has a Directions link (coordinates when pinned, else its name)");
+  ok(sc.appUrl.endsWith("#trip=T5&tab=plan&day=1"), "Open in app goes to that trip, the Plan tab and the day");
+  ok(sc.warnings.some((w) => /rest block/i.test(w)) && !sc.warnings.some((w) => /vegetarian/.test(w)), "the card shows rest and pace notes (veg is a badge on the stop)");
+  ok(JSON.stringify(JSON.parse(gd.content[0].text).schedule.map((x) => x.title)) === JSON.stringify(sc.schedule.map((x) => x.title)) && !("structuredContent" in JSON.parse(gd.content[0].text)), "get_day text is unchanged");
+  const gi = await call("get_day", { trip: K, day: "ideas" });
+  ok(gi.structuredContent?.mode === "ideas" && JSON.parse(gi.content[0].text).ideas, "get_day ideas still answers text and gives a small ideas card");
+
+  const mvc = await call("day_card_move", { trip: K, item: "Dutch Palace", day: 2, view: 1, all: true });
+  const m = mvc.structuredContent;
+  ok(m?.day === 1 && m.schedule.length === 3 && m.all.length === 3 && m.all[1].schedule[0].title === "Dutch Palace" && /Moved “Dutch Palace” to day 2/.test(m.receipt) && m.undoWith?.entry, "day_card_move moves the stop, returns the viewed day, all days and an Undo");
+  ok((await call("get_day", { trip: K, day: 2 })).structuredContent.schedule[0].title === "Dutch Palace", "the move landed in the plan");
+  const undone = await call("undo_change", { trip: K, entry: m.undoWith.entry });
+  ok(!undone.isError && (await call("day_card", { trip: K, day: 1 })).structuredContent.schedule.length === 4, "Undo from the card reverses the move");
+  const rm = await call("day_card_move", { trip: K, item: "Spice market", day: "ideas", view: 1 });
+  ok(rm.structuredContent.schedule.length === 3 && rm.structuredContent.ideasCount >= 1 && /to Ideas/.test(rm.structuredContent.receipt), "Remove to Ideas sends the stop to Ideas, never deletes it");
+  const pdc = (await call("plan_day", { trip: K, day: 3, stops: [{ title: "Marine Drive walk", category: "nature" }] })).structuredContent;
+  ok(pdc?.day === 3 && /Planned day 3/.test(pdc.receipt) && pdc.undoWith?.entry, "plan_day returns the day card with a receipt and Undo");
+  const mic = (await call("move_item", { trip: K, item: "Marine Drive walk", day: "ideas" })).structuredContent;
+  ok(mic?.mode === "receipt" && /Ideas/.test(mic.receipt) && mic.undoWith?.entry, "move_item to Ideas returns a receipt with Undo");
+  const bad = await call("day_card", { trip: K, day: 9 });
+  ok(bad.structuredContent?.day === 1, "a day out of range falls back to day 1 instead of failing the card");
+}
+
 stop();
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
 process.exit(fails ? 1 : 0);
