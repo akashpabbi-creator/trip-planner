@@ -43,7 +43,7 @@ async function makeTrip(p) {
   await p.waitForSelector(".tab-body");
 }
 const text = (p) => p.evaluate(() => document.body.innerText);
-const open = (p) => p.click(".thead [data-action=ask]").then(() => p.waitForSelector(".ask-screen"));
+const open = (p) => p.click(".thead [data-action=ask]").then(() => p.waitForSelector(".ask-screen")).then(() => p.waitForFunction(() => history.state?.tp === "layer"));
 const gone = (p) => p.waitForFunction(() => !document.querySelector(".ask-screen") && document.querySelector(".tab-body"), null, { timeout: 4000 });
 
 try {
