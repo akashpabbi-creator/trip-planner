@@ -123,6 +123,18 @@ export const TOOLS = [
     },
   },
   {
+    name: "list_ideas",
+    description: "Show the Ideas list: saved places not yet on a day, newest first, optionally limited to a category or words. Same list as get_day with day 0. In Claude it appears as a row of cards with an Add to day button.",
+    inputSchema: { type: "object", properties: { trip: TRIP, category: { type: "string", description: "sight, activity, food, stay, shopping, nature, transport or other." }, query: { type: "string", description: "Words to look for in the title, location or notes." } } },
+    async run(a, c) {
+      const trip = matchTrip(await c.fs.tripsFor(c.email), a.trip);
+      const nameOf = memberNameOf(trip);
+      const q = String(a.query || "").toLowerCase().split(/\s+/).filter(Boolean);
+      const hits = ideasOf(trip, await c.fs.items(trip.id)).filter((it) => (!a.category || it.category === a.category) && q.every((w) => [it.title, it.location, it.notes, it.description].join(" ").toLowerCase().includes(w)));
+      return { ideas: hits.slice(0, 100).map((it) => stop(trip, it, nameOf)) };
+    },
+  },
+  {
     name: "recent_activity",
     description: "The trip's activity log, newest first: who added, moved or changed what, including changes made through this connector. Entries with undoable true can be reversed with undo_change.",
     inputSchema: { type: "object", properties: { trip: TRIP, limit: { type: "integer", description: "How many entries (default 20, max 100)." } } },

@@ -54,10 +54,11 @@ try {
   });
 
   console.log("the box");
-  ok(await p.isVisible("#changeInput") && /Ask for a change/.test(await p.getAttribute("#changeInput", "placeholder")), "one quiet line on the Plan tab");
-  ok(!(await p.isVisible("[data-action=chgClaude]")), "buttons stay hidden until you focus it");
-  await p.click("#changeInput");
-  ok(await p.isVisible("[data-action=chgClaude]") && !(await p.$("[data-action=chgGemini]")), "focus shows Ask Claude; no Ask Gemini without a key");
+  ok(!(await p.$("#changeInput")), "the Plan tab no longer carries the box");
+  await p.click(".thead [data-action=ask]");
+  await p.waitForSelector(".ask-screen #changeInput");
+  ok(await p.isVisible("#changeInput") && /Ask for a change/.test(await p.getAttribute("#changeInput", "placeholder")), "the Ask screen has the change line");
+  ok(await p.isVisible("[data-action=chgClaude]") && !(await p.$("[data-action=chgGemini]")), "Ask Claude is there; no Ask Gemini without a key");
   await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: { key: "K", model: "m" } }));
   await p.waitForTimeout(300);
   await p.fill("#changeInput", "make Day 1 slower");

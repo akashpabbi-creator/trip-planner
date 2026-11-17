@@ -11,9 +11,15 @@ import status from "./status-card.js";
 import overview from "./overview-card.js";
 import receiptCard from "./receipt-card.js";
 import { receipt, checkPlan, tripCard, tripList, RECEIPT_TOOLS } from "./receipts.js";
+import day from "./day-card.js";
+import { DAY_TOOL_CARDS, DAY_APP_TOOLS } from "./day-data.js";
+import ideas from "./ideas-card.js";
+import { structureIdeas, IDEAS_APP_TOOLS } from "./ideas.js";
 
 export const VIEWS = {
   "ui://trips/status": status,
+  "ui://trips/day": day,
+  "ui://trips/ideas": ideas,
   "ui://trips/overview": overview,
   "ui://trips/receipt": receiptCard,
 };
@@ -25,8 +31,10 @@ export const TOOL_CARDS = {
   get_trip: { uri: "ui://trips/overview", structure: tripCard },
   check_plan: { uri: "ui://trips/receipt", structure: checkPlan },
   ...Object.fromEntries(RECEIPT_TOOLS.map((t) => [t, { uri: "ui://trips/receipt", structure: receipt(t) }])),
+  ...DAY_TOOL_CARDS,
+  ...Object.fromEntries(["list_ideas", "search_items", "save_ideas", "ideas_add_to_day", "ideas_refresh"].map((n) => [n, { uri: "ui://trips/ideas", structure: structureIdeas[n] }])), // Ideas carousel (ideas.js)
 };
 
 // App-only helper tools (_meta.ui.visibility ["app"]): callable from a card, hidden from the model by hosts that honour it.
 // A helper is { name, description, inputSchema, run(args, c) } like any tool; card jobs add theirs here.
-export const APP_TOOLS = [];
+export const APP_TOOLS = [...DAY_APP_TOOLS, ...IDEAS_APP_TOOLS];

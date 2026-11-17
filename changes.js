@@ -255,7 +255,7 @@ export async function applyChanges({ source, request = "", summary = "", ops, id
       if (r.ok && !r.dup) {
         const p = op.place || {};
         if ((op.type === "add" && p.category === "food" && p.veg !== "yes") || (op.type === "veg" && op.veg === "no"))
-          warnings.push(`${q(op.type === "add" ? p.name : nameFor(op.itemId))} has no vegetarian options confirmed (it's flagged in Smart).`);
+          warnings.push(`${q(op.type === "add" ? p.name : nameFor(op.itemId))} has no vegetarian options confirmed (it's flagged in Ask).`);
         if ((op.type === "move" || op.type === "add") && op.toDay) days.add(op.toDay);
       }
       if (k < usable.length - 1) await sleep(150); // let the stop list catch up before the next change reads it
@@ -578,12 +578,14 @@ export function init(c) {
   ctx.setChangeDraft = (text) => {
     if (!ctx.S.aiUser) return; // no ask box without Gemini or Claude
     draft = text;
-    ctx.render();
+    if (!ctx.S.askOpen) ctx.openAsk?.();
+    else ctx.render();
     const el = document.getElementById("changeInput");
     el?.focus();
     el?.setSelectionRange?.(text.length, text.length);
   };
-  ctx.slot("planTop", () => banner() + box());
+  ctx.slot("planTop", banner);
+  ctx.changeBox = box; // the "Ask for a change" line lives on the Ask screen (ask.js)
   ctx.action("chgGemini", askGemini);
   ctx.action("chgClaude", askClaude);
   ctx.action("chgOpen", () => openChanges());

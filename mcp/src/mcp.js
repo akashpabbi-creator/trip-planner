@@ -31,8 +31,7 @@ async function withCard(name, args, result, c, env) {
   const out = text(result);
   if (!card || result === null || typeof result !== "object") return out;
   const plain = Array.isArray(result) ? { items: result } : result;
-  // The change is already made by now, so a card that can't be built must never turn into an error: fall back to text only.
-  try { out.structuredContent = card.structure ? await card.structure(plain, args, c, env) : plain; } catch (e) { console.error("card", name, e?.message || e); }
+  try { out.structuredContent = card.structure ? await card.structure(plain, args, c, env) : plain; } catch (e) { console.error("card data failed", name, e?.message || e); }
   return out;
 }
 

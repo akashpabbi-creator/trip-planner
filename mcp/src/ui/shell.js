@@ -11,8 +11,8 @@ export const APP_PATH = "/ui/app.js";
 export const APP_BUNDLE = appBundle;
 export const RESOURCE_MIME = "text/html;profile=mcp-app";
 export const FONTS_CSS = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap";
-// Where cards may load things from: only the Worker (the client) and Google Fonts; no network calls of their own (buttons go through the host).
-export const csp = (origin) => ({ resourceDomains: [origin, "https://fonts.googleapis.com", "https://fonts.gstatic.com"], connectDomains: [] });
+// Where cards may load things from: only the Worker (the client), Google Fonts and Wikimedia photos (idea cards); no network calls of their own (buttons go through the host).
+export const csp = (origin) => ({ resourceDomains: [origin, "https://fonts.googleapis.com", "https://fonts.gstatic.com", "https://upload.wikimedia.org"], connectDomains: [] });
 
 const stripSpriteHeader = (s) => s.replace(/<!--[\s\S]*?-->/g, "").replace("<svg ", '<svg class="t-sprite" aria-hidden="true" focusable="false" ');
 
