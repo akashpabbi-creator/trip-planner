@@ -381,7 +381,7 @@ console.log("(z) card plumbing (MCP Apps)");
   const tl = (await mcp(T, "tools/list")).j?.result?.tools || [];
   const wh = tl.find((t) => t.name === "whoami");
   ok(wh?._meta?.ui?.resourceUri === "ui://trips/status", "tools/list links whoami to its card");
-  ok(!tl.find((t) => t.name === "list_trips")?._meta, "tools without a card carry no _meta");
+  ok(!tl.find((t) => t.name === "recent_activity")?._meta, "tools without a card carry no _meta");
   ok(tl.filter((t) => t._meta?.ui?.visibility).every((t) => t._meta.ui.visibility.join() === "app"), "app-only helpers are marked visibility app");
   const rl = (await mcp(T, "resources/list")).j?.result?.resources || [];
   ok(rl.some((r) => r.uri === "ui://trips/status" && r.mimeType === "text/html;profile=mcp-app"), "resources/list names the card with the MCP Apps mime type");
@@ -400,8 +400,50 @@ console.log("(z) card plumbing (MCP Apps)");
   ok(sc?.email === "alice@example.com" && sc.trips >= 1 && sc.appUrl === ORIGIN + "/trip-planner/", "a card tool returns structuredContent with an Open in app link");
   const { appUrl, ...rest } = sc || {};
   ok(JSON.stringify(JSON.parse(raw.content[0].text)) === JSON.stringify(rest), "the text answer is exactly what it was (Gemini and text clients unchanged)");
-  const lt = (await mcp(T, "tools/call", { name: "list_trips", arguments: {} })).j?.result;
+  const lt = (await mcp(T, "tools/call", { name: "recent_activity", arguments: { trip: "Hampi" } })).j?.result;
   ok(!("structuredContent" in lt) && Array.isArray(JSON.parse(lt.content[0].text)), "tools without a card return text only");
+}
+
+console.log("(z2) trip overview and change receipt cards");
+{
+  const raw = async (name, args) => (await mcp(T, "tools/call", { name, arguments: args })).j?.result;
+  const tl = (await mcp(T, "tools/list")).j?.result?.tools || [];
+  ok(["list_trips", "get_trip"].every((n) => tl.find((t) => t.name === n)?._meta?.ui?.resourceUri === "ui://trips/overview"), "list_trips and get_trip link to the overview card");
+  ok(["update_item", "remove_item", "add_booking", "add_todo", "set_trip_note", "update_trip"].every((n) => tl.find((t) => t.name === n)?._meta?.ui?.resourceUri === "ui://trips/receipt") && tl.find((t) => t.name === "check_plan")?._meta?.ui?.resourceUri === "ui://trips/receipt", "change tools and check_plan link to the receipt card");
+  for (const u of ["ui://trips/overview", "ui://trips/receipt"]) ok(!!(await mcp(T, "resources/read", { uri: u })).j?.result?.contents?.[0]?.text.includes("Trips.view("), "resources/read serves " + u);
+  const trip = await raw("get_trip", { trip: H });
+  const tsc = trip.structuredContent;
+  ok(tsc.kind === "trip" && tsc.tripId && Array.isArray(tsc.days) && tsc.appUrl.includes("trip=" + tsc.tripId + "&tab=plan"), "get_trip returns the overview data with an Open in app link to Plan");
+  const { kind, tripId, appUrl, ...restT } = tsc;
+  ok(JSON.stringify(JSON.parse(trip.content[0].text)) === JSON.stringify(restT), "get_trip text is unchanged");
+  const lst = await raw("list_trips", {});
+  ok(lst.structuredContent.kind === "list" && lst.structuredContent.trips.length >= 1 && lst.structuredContent.trips.every((t) => t.appUrl.includes("trip=" + t.id)), "list_trips returns one deep link per trip");
+  ok(Array.isArray(JSON.parse(lst.content[0].text)), "list_trips text is still the plain list");
+  const ed = await raw("update_item", { trip: H, item: "Mango Tree", changes: { notes: "ask for no onion, card test" } });
+  const rc = ed.structuredContent;
+  ok(rc.kind === "receipt" && rc.changed === true && /^Edited “Mango Tree”/.test(rc.title) && rc.tripId && rc.undoWith?.entry, "a change returns a receipt with the activity sentence and its undo entry: " + rc?.title);
+  ok(JSON.parse(ed.content[0].text).undoWith?.entry === rc.undoWith.entry && !("kind" in JSON.parse(ed.content[0].text)), "the change's text answer is unchanged");
+  const und = await raw("undo_change", { trip: rc.tripId, entry: rc.undoWith.entry });
+  ok(!und.isError, "Undo from the card (trip id + entry) reverses it");
+  const nop = await raw("update_item", { trip: H, item: "Mango Tree", changes: {} });
+  ok(nop.structuredContent?.kind === "receipt" && nop.structuredContent.changed === false, "a no-op returns a receipt marked unchanged");
+  const bad = await raw("update_item", { trip: H, item: "No such place", changes: { notes: "x" } });
+  ok(bad.isError && !bad.structuredContent, "a failed change stays a plain error");
+  const cpr = await raw("check_plan", { trip: H });
+  const cps = cpr.structuredContent;
+  ok(cps.kind === "check" && cps.warnings.every((w) => typeof w.text === "string") && cps.warnings.some((w) => w.day && w.appUrl.includes("day=" + w.day)), "check_plan warnings carry a Show day link");
+  ok(JSON.parse(cpr.content[0].text).warnings.every((w) => typeof w === "string"), "check_plan text still lists plain warnings");
+  if (process.env.CARD_DUMP_DIR) {
+    const rd = async (u) => (await mcp(T, "resources/read", { uri: u })).j.result.contents[0].text;
+    writeFileSync(join(process.env.CARD_DUMP_DIR, "overview.html"), await rd("ui://trips/overview"));
+    writeFileSync(join(process.env.CARD_DUMP_DIR, "receipt.html"), await rd("ui://trips/receipt"));
+    writeFileSync(join(process.env.CARD_DUMP_DIR, "overview.json"), JSON.stringify(tsc));
+    writeFileSync(join(process.env.CARD_DUMP_DIR, "check.json"), JSON.stringify(cps));
+    const e2 = await raw("move_item", { trip: H, item: "Mango Tree", day: 2 });
+    writeFileSync(join(process.env.CARD_DUMP_DIR, "moved.json"), JSON.stringify(e2.structuredContent || JSON.parse(e2.content[0].text)));
+    const ed2 = await raw("update_item", { trip: H, item: "Mango Tree", changes: { veg: "no" } });
+    writeFileSync(join(process.env.CARD_DUMP_DIR, "receipt.json"), JSON.stringify(ed2.structuredContent));
+  }
 }
 
 stop();

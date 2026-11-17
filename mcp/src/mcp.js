@@ -26,12 +26,13 @@ const text = (v) => ({ content: [{ type: "text", text: typeof v === "string" ? v
 
 // Card-linked tools also return structuredContent (what the card draws). The text content is exactly what it always was,
 // so Gemini and any text-only client see no difference.
-function withCard(name, args, result, c, env) {
+async function withCard(name, args, result, c, env) {
   const card = TOOL_CARDS[name];
   const out = text(result);
   if (!card || result === null || typeof result !== "object") return out;
   const plain = Array.isArray(result) ? { items: result } : result;
-  out.structuredContent = card.structure ? card.structure(plain, args, c, env) : plain;
+  // The change is already made by now, so a card that can't be built must never turn into an error: fall back to text only.
+  try { out.structuredContent = card.structure ? await card.structure(plain, args, c, env) : plain; } catch (e) { console.error("card", name, e?.message || e); }
   return out;
 }
 
@@ -41,7 +42,7 @@ async function callTool(params, env, props) {
   try {
     const s = await session(env, props.refreshToken, props.client);
     const args = params.arguments || {};
-    return withCard(tool.name, args, await tool.run(args, s), s, env);
+    return await withCard(tool.name, args, await tool.run(args, s), s, env);
   } catch (e) {
     if (e instanceof SignInExpired) return { ...text("The sign-in for this connector has expired. Remove the Trips connector and add it again to sign in."), isError: true };
     if (e instanceof NotAiUser) return { ...text("This account isn't enabled for Claude and Gemini in the trip planner."), isError: true };
