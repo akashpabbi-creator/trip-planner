@@ -24,6 +24,7 @@ import * as shareMod from "./share.js";
 import * as driveMod from "./drive.js";
 import * as hubMod from "./trip-hub.js";
 import * as planMod from "./plan.js";
+import * as stopsMod from "./stops.js";
 import * as homeMod from "./home.js";
 import { findDup, mergePatch, dupGroups, foldPatch, seenNote } from "./dedupe.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
@@ -252,6 +253,7 @@ function openTrip(id, opts = {}) {
   S.scrollToday = true;
   S.moreOpen = false;
   S.addOpen = false;
+  S.sheet = null;
   S.stripDay = 0;
   localSet("trip", id); // last trip opened: the default when something is shared into the app
   sessionSet("trip", id);
@@ -329,7 +331,7 @@ function enterTripEntry(id, { hashEntry } = {}) {
   } else history.pushState({ tp: "trip" }, "", "#trip=" + id);
   NAV.tripEntry = true;
 }
-const layersOpen = () => ($modal.open ? 1 : 0) + (S.addOpen ? 1 : 0) + (S.moreOpen ? 1 : 0);
+const layersOpen = () => ($modal.open ? 1 : 0) + (S.sheet ? 1 : 0) + (S.addOpen ? 1 : 0) + (S.moreOpen ? 1 : 0);
 let syncTimer = 0;
 function syncLayers() { // runs once things settle: closing a sheet and opening a dialog in the same tap must not pop and push
   clearTimeout(syncTimer);
@@ -343,6 +345,7 @@ function applyLayers() {
 }
 function goHome({ fromBack } = {}) {
   S.addOpen = false;
+  S.sheet = null;
   S.moreOpen = false;
   if ($modal.open) $modal.close();
   if (!fromBack) unwind(NAV.layers + (NAV.tripEntry ? 1 : 0));
@@ -365,6 +368,7 @@ window.addEventListener("popstate", () => {
   if (NAV.layers > 0) { // Back closes whatever is on top first
     NAV.layers--;
     if ($modal.open) $modal.close();
+    else if (S.sheet) S.sheet = null;
     else if (S.addOpen) S.addOpen = false;
     else S.moreOpen = false;
     return render();
@@ -382,6 +386,7 @@ function render() {
   const a = document.activeElement;
   const keep = a && a.id && $app.contains(a) ? { id: a.id, v: a.value, s: a.selectionStart, e: a.selectionEnd } : null;
   const scroll = window.scrollY;
+  const sheetScroll = $app.querySelector(".ss-body")?.scrollTop || 0;
   $app.innerHTML = (S.me ? iosTip() : "") + (!S.me ? viewSignIn() : S.tripId && S.trip ? viewTrip() : S.tripId ? `<div class="loading">Opening trip…</div>` : viewHome());
   if (keep) {
     const el = document.getElementById(keep.id);
@@ -392,6 +397,7 @@ function render() {
     }
   }
   window.scrollTo(0, scroll);
+  if (sheetScroll) { const sb = $app.querySelector(".ss-body"); if (sb) sb.scrollTop = sheetScroll; }
   document.body.classList.toggle("in-trip", !!(S.me && S.tripId && S.trip));
   renderUser();
   renderPresence();
@@ -566,6 +572,7 @@ function viewTrip() {
     ${viewNav(tabs, cur, counts)}
     <div class="tab-body">${hubChild ? `<button class="hub-back" data-action="tab" data-tab="trip">${ic("arrow-left")} Trip<span>${esc(cur.label)}</span></button>` : ""}${body}</div>
     ${aside}
+    ${stopsMod.html(stopsH())}
     <p class="foot muted small">${t.updatedAt ? `Last change ${ago(t.updatedAt)} by ${esc(who(t.updatedBy))}` : ""}</p>
   </section>`;
 }
@@ -573,6 +580,7 @@ function viewTrip() {
 // Plan: a sticky row of day chips (plan.js) picks which day shows; "All" shows a one-row-per-day overview.
 const planH = () => ({ S, esc, ic, dayDate, fmtDay, today, schedule, dayItems, dayCost, money, checks, dayWeather });
 const dayStrip = () => planMod.stripHtml(planH());
+const stopsH = () => ({ S, esc, ic, card, slot, schedule, dayItems, fromMin, dur, money, km, MODES, directionsUrl });
 function layoutVars() {
   const r = document.documentElement.style;
   r.setProperty("--tb", (document.querySelector(".thead")?.offsetHeight || document.querySelector(".topbar")?.offsetHeight || 52) + "px");
@@ -662,6 +670,26 @@ function card(it, opts = {}) {
   const img = safeUrl(it.image);
   const src = sourceOf(it.url || "");
   const badge = { instagram: "Instagram", facebook: "Facebook", maps: "Maps", youtube: "YouTube", tiktok: "TikTok" }[src] || "";
+  if (opts.inDay && !opts.full) { // on the Plan: a quiet row; the stop sheet (stops.js) holds every action
+    const nCmt = (it.comments || []).length;
+    return `<article class="card stop-row ${S.flash.has(it.id) ? "flash" : ""} ${it.mustDo ? "must" : ""} ${it.rest ? "rest" : ""}" data-id="${it.id}" data-action="openStop" role="button" tabindex="0" aria-label="Open ${esc(it.title || "stop")}">
+      <div class="c-body">
+        <div class="c-top">
+          <span class="c-title">${esc(it.title || "Untitled")}</span>
+          ${it.mustDo ? `<span class="tag must-tag">Must-do</span>` : ""}
+          ${it.rating ? `<span class="tag star"><svg class=i aria-hidden=true><use href=icons.svg#star /></svg> ${esc(it.rating)}</span>` : ""}
+        </div>
+        <div class="c-meta">
+          <span>${cat.icon} ${cat.label}</span>
+          ${it.durationMin ? `<span>${dur(+it.durationMin)}</span>` : ""}
+          ${Number(it.cost) ? `<span>${money(it.cost)}</span>` : ""}
+          ${it.category === "food" ? vegTag(it.veg, it.vegNote, true) : ""}
+          ${nCmt ? `<span class="sr-mark"><svg class=i aria-hidden=true><use href=icons.svg#comment /></svg>${nCmt}</span>` : ""}
+        </div>
+      </div>
+      <span class="sr-go" aria-hidden="true">${ic("arrow-right")}</span>
+    </article>`;
+  }
   return `<article class="card ${S.flash.has(it.id) ? "flash" : ""} ${it.mustDo ? "must" : ""} ${it.rest ? "rest" : ""}" data-id="${it.id}">
     <div class="c-body">
       <div class="c-top">
@@ -701,13 +729,10 @@ function card(it, opts = {}) {
 function legView(prev, it, dayIdx) {
   const t = it.travel || {};
   const m = MODES[t.mode];
-  const from = prev.location || prev.title, to = it.location || it.title;
-  const gm = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(from)}&destination=${encodeURIComponent(to)}${m?.gm ? "&travelmode=" + m.gm : ""}`;
   return `<div class="leg ${m ? "" : "empty"}">
-    <button class="leg-btn" data-action="editLeg" data-id="${it.id}">
+    <button class="leg-btn" data-action="openLeg" data-id="${it.id}" aria-label="Getting there: ${m ? esc(m.label) : "not set"}">
       ${m ? `${m.icon} ${m.label}${t.minutes ? ` · ${dur(+t.minutes)}` : ""}${Number(t.cost) ? ` · ${money(t.cost)}` : ""}${t.notes ? ` · ${esc(t.notes)}` : ""}${t.auto ? ` <span class="muted">· estimated</span>` : ""}` : `<svg class=i aria-hidden=true><use href=icons.svg#plus /></svg> How do we get here?`}
     </button>
-    <a class="leg-map" href="${gm}" target="_blank" rel="noopener" title="Directions in Google Maps">Directions ↗</a>
   </div>`;
 }
 
@@ -764,7 +789,7 @@ function viewPlan() {
           </div>
           <div class="day-side">${slot("dayHead", d, i)}</div>
         </header>
-        ${sch.length ? `<div class="tl">${sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><span>From yesterday: ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</span></div>` : "") + `<div class="stop"><span class="tm ${s.auto ? "auto" : ""}" title="${s.auto ? "Estimated from the stops before it" : "Fixed time"}">${fromMin(s.start)}</span>${card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto, rail: true })}</div>`).join("")}</div>` : `<div class="empty small day-empty"><p>Nothing planned yet. Add something from Ideas, or let the app suggest a plan.</p>${canFill ? `<div class="fill-btns">${fillBtns}</div>` : ""}</div>`}
+        ${sch.length ? `<div class="tl">${sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><button class="leg-btn" data-action="openLeg" data-id="${s.it.id}">From yesterday: ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</button></div>` : slot("leg", s.it) ? `<div class="leg"><button class="leg-btn" data-action="openLeg" data-id="${s.it.id}">${ic("compass")} Getting here</button></div>` : "") + `<div class="stop"><span class="tm ${s.auto ? "auto" : ""}" title="${s.auto ? "Estimated from the stops before it" : "Fixed time"}">${fromMin(s.start)}</span>${card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto, rail: true })}</div>`).join("")}</div>` : `<div class="empty small day-empty"><p>Nothing planned yet. Add something from Ideas, or let the app suggest a plan.</p>${canFill ? `<div class="fill-btns">${fillBtns}</div>` : ""}</div>`}
         <div class="day-foot"><button class="link" data-action="pickForDay" data-id="${d.id}">+ Add from ideas</button><button class="link" data-action="newItem" data-day="${d.id}">+ New stop</button>${slot("dayFoot", d, i)}</div>
       </section>`;
     })())).join("")}
@@ -1883,9 +1908,11 @@ function editItem(id) {
   $form.querySelector("[data-del]")?.addEventListener("click", async () => {
     if (!confirm(`Delete “${it.title}”?`)) return;
     $modal.close();
+    const doc = JSON.parse(JSON.stringify(it));
     await S.store.deleteItem(S.tripId, id);
     await log(`deleted “${it.title}”`);
     await touchTrip();
+    stopsMod.undoBar(`Deleted “${it.title}”`, stopsMod.restoreDeleted(doc));
   });
 }
 function editLeg(id) {
@@ -2016,12 +2043,17 @@ async function move(id, dir) {
     const order = dir < 0 ? (target.length ? target[target.length - 1].order + 1 : 1) : (target.length ? target[0].order - 1 : 1);
     await S.store.updateItem(S.tripId, id, { dayId: nd.id, order, userEdited: true, ...stampMe() });
     focusDay(nd.id);
-    await log(`moved “${it.title}” to ${dayLabel(nd.id)}`);
-    return touchTrip();
+    const what = `moved “${it.title}” to ${dayLabel(nd.id)}`;
+    await log(what);
+    await touchTrip();
+    stopsMod.undoBar(`Moved “${it.title}” to ${dayLabel(nd.id)}`, stopsMod.restoreOrder([[id, { dayId: it.dayId, order: it.order }]], what));
+    return;
   }
   await S.store.batchUpdateItems(S.tripId, [[id, { order: other.order, ...stampMe() }], [other.id, { order: it.order }]]);
-  await log(`moved “${it.title}” ${dir < 0 ? "before" : "after"} “${other.title}” on ${dayLabel(it.dayId)}`);
+  const what = `moved “${it.title}” ${dir < 0 ? "before" : "after"} “${other.title}” on ${dayLabel(it.dayId)}`;
+  await log(what);
   await touchTrip();
+  stopsMod.undoBar(`Moved “${it.title}” ${dir < 0 ? "earlier" : "later"}`, stopsMod.restoreOrder([[id, { order: it.order }], [other.id, { order: other.order }]], what));
 }
 
 /* --------------------------------------------------------------- add links */
@@ -2659,7 +2691,7 @@ ctx.tab({ id: "trip", icon: "<svg class=i aria-hidden=true><use href=icons.svg#t
 }) });
 ctx.tab({ id: "changes", icon: "<svg class=i aria-hidden=true><use href=icons.svg#clock /></svg>", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, planMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, planMod, stopsMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 

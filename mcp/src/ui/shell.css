@@ -1,0 +1,48 @@
+/* Shared card shell. Colours come from the app's tokens.css (--t-*), laid over Claude's own variables (--color-*) when the host
+   sends them, so a card sits right in Claude light and dark and still looks like the app. No emoji: icons come from icons.svg. */
+*,*::before,*::after{box-sizing:border-box}
+html{color-scheme:light dark}
+html[data-theme="light"]{color-scheme:light}
+html[data-theme="dark"]{color-scheme:dark}
+body{margin:0;background:transparent;color:var(--color-text-primary,var(--t-ink));font:var(--t-fs-4)/1.45 var(--font-sans,var(--t-font-body));-webkit-text-size-adjust:100%}
+#root{padding:max(8px,var(--safe-t,0px)) max(8px,var(--safe-r,0px)) max(8px,var(--safe-b,0px)) max(8px,var(--safe-l,0px))}
+h1,h2,h3{font-family:var(--t-font-head);margin:0;line-height:1.2}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--t-primary);outline-offset:2px}
+.i{width:20px;height:20px;flex:none;vertical-align:-4px}
+.t-sprite{position:absolute;width:0;height:0;overflow:hidden}
+
+.t-card{background:var(--color-background-primary,var(--t-surface));border:1px solid var(--color-border-secondary,var(--t-line));border-radius:var(--t-r-card);padding:14px}
+.t-muted{color:var(--color-text-secondary,var(--t-muted));font-size:var(--t-fs-3)}
+.t-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.t-head h2{font-size:var(--t-fs-5);flex:1;min-width:0}
+.t-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid var(--color-border-tertiary,var(--t-line))}
+.t-row:first-child{border-top:0}
+
+.t-btn{min-height:var(--t-touch);min-width:var(--t-touch);padding:0 14px;border-radius:var(--t-r-chip);border:1px solid var(--color-border-secondary,var(--t-line));background:var(--color-background-secondary,var(--t-surface-2));cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:var(--t-fs-3)}
+.t-btn.primary{background:var(--t-primary);color:var(--t-primary-ink);border-color:var(--t-primary)}
+.t-btn.soft{background:var(--t-primary-soft);color:var(--t-primary-soft-ink);border-color:transparent}
+.t-btn[disabled]{opacity:.55;cursor:default}
+.t-chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:thin}
+.t-chip{flex:none;min-height:var(--t-touch);min-width:var(--t-touch);padding:0 14px;border-radius:var(--t-r-chip);border:1px solid var(--color-border-secondary,var(--t-line));background:transparent;cursor:pointer;font-weight:600;font-size:var(--t-fs-3)}
+.t-chip[aria-pressed="true"]{background:var(--t-primary);color:var(--t-primary-ink);border-color:var(--t-primary)}
+.t-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--t-r-tag);font-size:var(--t-fs-2);font-weight:600;background:var(--t-primary-soft);color:var(--t-primary-soft-ink)}
+.t-badge.check{background:var(--t-check-bg);color:var(--t-check);border:1px solid var(--t-check-line)}
+.t-badge.good{background:var(--t-good-bg);color:var(--t-good)}
+
+/* warnings and "things to check" are orange, as in the app */
+.t-warn{display:flex;gap:8px;padding:8px 10px;border-radius:var(--t-r-chip);background:var(--t-check-bg);color:var(--t-check);border:1px solid var(--t-check-line);font-size:var(--t-fs-3);margin-top:8px}
+.t-error{border-color:var(--t-bad);color:var(--t-bad);background:var(--t-bad-bg)}
+
+/* undo bar and footer */
+.t-undo{display:flex;align-items:center;gap:10px;margin-top:10px;padding:8px 10px;border-radius:var(--t-r-chip);background:var(--color-background-secondary,var(--t-surface-2));font-size:var(--t-fs-3)}
+.t-undo span{flex:1;min-width:0}
+.t-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.t-link{color:var(--t-primary);background:none;border:0;cursor:pointer;font-weight:600;min-height:var(--t-touch);padding:0 6px;display:inline-flex;align-items:center;gap:6px}
+
+/* skeleton while the tool is still running */
+.t-skel{display:grid;gap:10px}
+.t-skel i{display:block;height:16px;border-radius:8px;background:linear-gradient(90deg,var(--t-line),var(--t-surface-2),var(--t-line));background-size:200% 100%;animation:t-shimmer 1.2s linear infinite}
+.t-skel i:nth-child(1){width:55%;height:20px}.t-skel i:nth-child(3){width:80%}
+@keyframes t-shimmer{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.t-skel i{animation:none}}
