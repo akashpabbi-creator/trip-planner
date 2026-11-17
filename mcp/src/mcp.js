@@ -2,8 +2,15 @@
 import { TOOLS as BASE } from "./tools.js";
 import { CONTROL } from "./control.js";
 import { session, SignInExpired, NotAiUser } from "./session.js";
+import { VIEWS, TOOL_CARDS, APP_TOOLS } from "./ui/cards.js";
+import { cardHtml, csp, RESOURCE_MIME } from "./ui/shell.js";
 
-const TOOLS = [...BASE, ...CONTROL];
+// Tools that show a card carry _meta.ui.resourceUri; app-only helpers are marked so hosts hide them from the model.
+const cardMeta = (t) => (TOOL_CARDS[t.name] ? { ui: { resourceUri: TOOL_CARDS[t.name].uri } } : undefined);
+const TOOLS = [
+  ...[...BASE, ...CONTROL].map((t) => (cardMeta(t) ? { ...t, _meta: { ...t._meta, ...cardMeta(t) } } : t)),
+  ...APP_TOOLS.map((t) => ({ annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }, ...t, description: "Card button action, not for direct use. " + t.description, _meta: { ui: { visibility: ["app"] } } })),
+];
 const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
 const VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS = [
@@ -17,12 +24,24 @@ const rpc = (id, result) => ({ jsonrpc: "2.0", id, result });
 const rpcErr = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
 const text = (v) => ({ content: [{ type: "text", text: typeof v === "string" ? v : JSON.stringify(v, null, 1) }] });
 
+// Card-linked tools also return structuredContent (what the card draws). The text content is exactly what it always was,
+// so Gemini and any text-only client see no difference.
+function withCard(name, args, result, c, env) {
+  const card = TOOL_CARDS[name];
+  const out = text(result);
+  if (!card || result === null || typeof result !== "object") return out;
+  const plain = Array.isArray(result) ? { items: result } : result;
+  out.structuredContent = card.structure ? card.structure(plain, args, c, env) : plain;
+  return out;
+}
+
 async function callTool(params, env, props) {
   const tool = byName[params?.name];
   if (!tool) return { ...text(`Unknown tool "${params?.name}".`), isError: true };
   try {
     const s = await session(env, props.refreshToken, props.client);
-    return text(await tool.run(params.arguments || {}, s));
+    const args = params.arguments || {};
+    return withCard(tool.name, args, await tool.run(args, s), s, env);
   } catch (e) {
     if (e instanceof SignInExpired) return { ...text("The sign-in for this connector has expired. Remove the Trips connector and add it again to sign in."), isError: true };
     if (e instanceof NotAiUser) return { ...text("This account isn't enabled for Claude and Gemini in the trip planner."), isError: true };
@@ -31,16 +50,25 @@ async function callTool(params, env, props) {
   }
 }
 
-async function handle(msg, env, props) {
+const viewList = () => Object.entries(VIEWS).map(([uri, v]) => ({ uri, name: v.title, title: v.title, mimeType: RESOURCE_MIME }));
+
+async function handle(msg, env, props, origin) {
   const { id, method, params } = msg || {};
   if (id === undefined) return null; // notification (e.g. notifications/initialized): nothing to answer
   switch (method) {
     case "initialize": {
       const v = VERSIONS.includes(params?.protocolVersion) ? params.protocolVersion : VERSIONS[0];
-      return rpc(id, { protocolVersion: v, capabilities: { tools: { listChanged: false } }, serverInfo: { name: "trips", title: "Trip planner", version: "1.0.0" }, instructions: INSTRUCTIONS });
+      return rpc(id, { protocolVersion: v, capabilities: { tools: { listChanged: false }, resources: { listChanged: false, subscribe: false } }, serverInfo: { name: "trips", title: "Trip planner", version: "1.0.0" }, instructions: INSTRUCTIONS });
     }
     case "ping": return rpc(id, {});
     case "tools/list": return rpc(id, { tools: TOOLS.map(({ run, ...t }) => t) });
+    case "resources/list": return rpc(id, { resources: viewList() });
+    case "resources/templates/list": return rpc(id, { resourceTemplates: [] });
+    case "resources/read": {
+      const view = VIEWS[params?.uri];
+      if (!view) return rpcErr(id, -32002, "Resource not found: " + params?.uri);
+      return rpc(id, { contents: [{ uri: params.uri, mimeType: RESOURCE_MIME, text: cardHtml(view, origin), _meta: { ui: { csp: csp(origin), prefersBorder: false } } }] });
+    }
     case "tools/call": return rpc(id, await callTool(params, env, props));
     default: return rpcErr(id, -32601, "Method not found: " + method);
   }
@@ -52,7 +80,7 @@ export async function handleMcp(request, env, props) {
   let body;
   try { body = await request.json(); } catch { return Response.json(rpcErr(null, -32700, "Parse error"), { status: 400 }); }
   const msgs = Array.isArray(body) ? body : [body];
-  const out = (await Promise.all(msgs.map((m) => handle(m, env, props)))).filter(Boolean);
+  const out = (await Promise.all(msgs.map((m) => handle(m, env, props, new URL(env.PUBLIC_URL || request.url).origin)))).filter(Boolean);
   if (!out.length) return new Response(null, { status: 202 });
   return Response.json(Array.isArray(body) ? out : out[0]);
 }

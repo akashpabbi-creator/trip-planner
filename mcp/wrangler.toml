@@ -13,3 +13,9 @@ FIREBASE_PROJECT = "our-trips-ab49a"
 FIREBASE_API_KEY = "AIzaSyDrEN_jDzHweWVPzBT8ZZVR1Jhey87ZnHE"
 ALLOWED_ORIGIN = "https://akashpabbi-creator.github.io"
 CONNECT_URL = "https://akashpabbi-creator.github.io/trip-planner/connect.html"
+
+# Card files are imported as text: the design tokens and icon sprite from the app (repo root), the card shell, and the pinned MCP Apps client.
+[[rules]]
+type = "Text"
+globs = ["**/*.css", "**/*.svg", "**/*.txt"]
+fallthrough = true

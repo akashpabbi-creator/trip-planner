@@ -5,6 +5,7 @@ import { OAuthProvider, AuthorizationError, CimdFetchError } from "@cloudflare/w
 import { handleMcp } from "./mcp.js";
 import { exchange, SignInExpired } from "./session.js";
 import { firestoreClient } from "./firestore.js";
+import { APP_PATH, APP_BUNDLE } from "./ui/shell.js";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const html = (body, status = 200, headers = new Headers()) => {
@@ -66,6 +67,10 @@ const defaultHandler = {
       }
       if (url.pathname === "/connect/complete") return await complete(request, env, oauth);
       if (url.pathname === "/connections" || url.pathname === "/disconnect") return await manage(request, env, oauth, url.pathname === "/disconnect");
+      // The pinned MCP Apps client that every card imports. Public (it is just code), cached, readable from the card's sandboxed frame.
+      if (url.pathname === APP_PATH && (request.method === "GET" || request.method === "HEAD")) {
+        return new Response(request.method === "HEAD" ? null : APP_BUNDLE, { headers: { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*" } });
+      }
       if (url.pathname === "/") return html(page("Trips connector", `<h1>Trips connector</h1><p>This is the MCP address for the trip planner. Add <code>${esc(url.origin)}/mcp</code> as a custom connector in Claude or Gemini.</p>`));
       return new Response("Not found", { status: 404 });
     } catch (e) {

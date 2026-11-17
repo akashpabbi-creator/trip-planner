@@ -1,0 +1,85 @@
+// Card runtime, inlined into every card after the MCP Apps client import (App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts).
+// A view script calls Trips.view({ render(data, t) { return htmlString; }, after(root, data, t) {} }); everything else is here.
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
+const root = document.getElementById("root");
+const app = new App({ name: "trips-card", version: "1.0.0" }, {}, { autoResize: true });
+let def = null, data = null, shown = false;
+
+const Trips = {
+  esc, app,
+  get data() { return data; },
+  icon: (name, cls = "") => '<svg class="i' + (cls ? " " + cls : "") + '" aria-hidden="true" focusable="false"><use href="#' + esc(name) + '"/></svg>',
+  view(d) { def = d; if (data) paint(); },
+  // Tool results come back as { content, structuredContent, isError }. Button taps call the same tools Claude does, as Akash.
+  async call(name, args = {}) {
+    const r = await app.callServerTool({ name, arguments: args });
+    if (r.isError) throw new Error((r.content || []).map((c) => c.text || "").join(" ") || "That didn't work.");
+    return r;
+  },
+  // Run a tool from a button, then redraw from its structured result (or from refresh() when it gives none).
+  async act(name, args, { refresh } = {}) {
+    try {
+      const r = await Trips.call(name, args);
+      if (r.structuredContent) Trips.set({ ...r.structuredContent });
+      else if (refresh) await refresh();
+      return r;
+    } catch (e) { Trips.error(e); return null; }
+  },
+  set(d) { data = d; shown = true; paint(); },
+  error(e) { const el = document.createElement("div"); el.className = "t-warn t-error"; el.setAttribute("role", "alert"); el.textContent = String(e?.message || e); root.prepend(el); setTimeout(() => el.remove(), 6000); },
+  openApp(url) { return app.openLink({ url }); },
+  async fullscreen() { try { return await app.requestDisplayMode({ mode: "fullscreen" }); } catch { return null; } },
+  // The Undo bar for any change receipt: data.undoWith = { tool: "undo_change", entry }, data.tripId or data.trip names the trip.
+  undoBar(d, label = "Change made.") {
+    if (!d?.undoWith?.entry) return "";
+    return '<div class="t-undo" data-undo="' + esc(d.undoWith.entry) + '"><span>' + esc(label) + '</span><button class="t-btn soft" type="button" data-act="undo">' + Trips.icon("refresh") + " Undo</button></div>";
+  },
+  // "Open in app" footer. link is a deep link built on the server (data.appUrl).
+  footer(d) {
+    return d?.appUrl ? '<div class="t-foot"><button class="t-link" type="button" data-open="' + esc(d.appUrl) + '">Open in app ' + Trips.icon("arrow-right") + "</button></div>" : "";
+  },
+  warnings(list) {
+    return (list || []).map((w) => '<div class="t-warn">' + Trips.icon("alert") + "<span>" + esc(typeof w === "string" ? w : w.text || w.message || JSON.stringify(w)) + "</span></div>").join("");
+  },
+  skeleton: '<div class="t-skel" aria-busy="true" aria-label="Loading"><i></i><i></i><i></i></div>',
+};
+window.Trips = Trips;
+
+function paint() {
+  if (!def) return;
+  root.innerHTML = def.render(data, Trips);
+  def.after?.(root, data, Trips);
+}
+
+// Shared taps: Undo and Open in app work in every card without per-view code.
+root.addEventListener("click", async (ev) => {
+  const b = ev.target.closest("[data-act],[data-open]");
+  if (!b || b.disabled) return;
+  if (b.dataset.open) { Trips.openApp(b.dataset.open); return; }
+  if (b.dataset.act === "undo") {
+    const bar = b.closest("[data-undo]");
+    b.disabled = true;
+    const r = await Trips.act("undo_change", { trip: data?.tripId || data?.trip, entry: bar?.dataset.undo });
+    if (r) { bar.querySelector("span").textContent = "Undone."; bar.querySelector("button").remove(); def?.onUndo?.(r.structuredContent || null, Trips); }
+    else b.disabled = false;
+  }
+});
+
+function theme(ctx) {
+  if (!ctx) return;
+  if (ctx.theme) applyDocumentTheme(ctx.theme);
+  if (ctx.styles?.variables) applyHostStyleVariables(ctx.styles.variables);
+  if (ctx.styles?.css?.fonts) applyHostFonts(ctx.styles.css.fonts);
+  const s = ctx.safeAreaInsets;
+  if (s) { const st = document.documentElement.style; st.setProperty("--safe-t", s.top + "px"); st.setProperty("--safe-r", s.right + "px"); st.setProperty("--safe-b", s.bottom + "px"); st.setProperty("--safe-l", s.left + "px"); }
+}
+
+root.innerHTML = Trips.skeleton;
+app.onhostcontextchanged = (ctx) => theme({ ...app.getHostContext(), ...ctx });
+app.ontoolresult = (r) => {
+  const d = r.structuredContent;
+  if (d) Trips.set(d);
+  else if (r.isError) { root.innerHTML = ""; Trips.error((r.content || []).map((c) => c.text || "").join(" ") || "That didn't work."); }
+};
+app.onerror = (e) => console.error(e);
+app.connect().then(() => theme(app.getHostContext()));

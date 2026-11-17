@@ -374,6 +374,36 @@ const all = await (await cx("/disconnect", { idToken: (await signIn("bob@example
 ok(all.revoked >= 1 && !Array.isArray((await tool(B2.token.access_token, "list_trips")).v), "disconnect with no id cuts everything for the account");
 ok((await tool(T, "list_trips")).v.length >= 1, "…and never touches another account");
 
+console.log("(z) card plumbing (MCP Apps)");
+{
+  const init2 = await mcp(T, "initialize", { protocolVersion: "2025-06-18", capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } }, clientInfo: { name: "t", version: "1" } });
+  ok(!!init2.j?.result?.capabilities?.resources && !!init2.j.result.capabilities.tools, "initialize advertises resources next to tools");
+  const tl = (await mcp(T, "tools/list")).j?.result?.tools || [];
+  const wh = tl.find((t) => t.name === "whoami");
+  ok(wh?._meta?.ui?.resourceUri === "ui://trips/status", "tools/list links whoami to its card");
+  ok(!tl.find((t) => t.name === "list_trips")?._meta, "tools without a card carry no _meta");
+  ok(tl.filter((t) => t._meta?.ui?.visibility).every((t) => t._meta.ui.visibility.join() === "app"), "app-only helpers are marked visibility app");
+  const rl = (await mcp(T, "resources/list")).j?.result?.resources || [];
+  ok(rl.some((r) => r.uri === "ui://trips/status" && r.mimeType === "text/html;profile=mcp-app"), "resources/list names the card with the MCP Apps mime type");
+  const rr = (await mcp(T, "resources/read", { uri: "ui://trips/status" })).j?.result?.contents?.[0];
+  ok(rr?.mimeType === "text/html;profile=mcp-app" && rr.uri === "ui://trips/status", "resources/read returns the card as MCP Apps HTML");
+  ok(rr?.text.includes("--t-primary") && rr.text.includes('<symbol id="trip"') && rr.text.includes(`from "${W}/ui/app.js"`), "the card inlines the app's tokens and icon sprite and imports the Worker's own client");
+  ok(!/https?:\/\/(?!fonts\.(googleapis|gstatic)\.com|127\.0\.0\.1:8799|www\.w3\.org)/.test(rr.text.replace(/<symbol[\s\S]*?<\/symbol>/g, "")), "the card names no third-party host besides Google Fonts");
+  ok(rr?._meta?.ui?.csp?.resourceDomains?.includes(W) && !rr._meta.ui.csp.connectDomains?.length, "the card's CSP allows the Worker for the client and no network calls");
+  ok((await mcp(T, "resources/read", { uri: "ui://trips/nope" })).j?.error?.code === -32002, "an unknown card is a clean error");
+  if (process.env.CARD_DUMP_DIR) writeFileSync(join(process.env.CARD_DUMP_DIR, "status.html"), rr.text);
+  const js = await fetch(W + "/ui/app.js");
+  const body = await js.text();
+  ok(js.status === 200 && /javascript/.test(js.headers.get("content-type")) && js.headers.get("access-control-allow-origin") === "*" && body.includes("ui/initialize"), "/ui/app.js serves the pinned MCP Apps client, readable from the card frame");
+  const raw = (await mcp(T, "tools/call", { name: "whoami", arguments: {} })).j?.result;
+  const sc = raw?.structuredContent;
+  ok(sc?.email === "alice@example.com" && sc.trips >= 1 && sc.appUrl === ORIGIN + "/trip-planner/", "a card tool returns structuredContent with an Open in app link");
+  const { appUrl, ...rest } = sc || {};
+  ok(JSON.stringify(JSON.parse(raw.content[0].text)) === JSON.stringify(rest), "the text answer is exactly what it was (Gemini and text clients unchanged)");
+  const lt = (await mcp(T, "tools/call", { name: "list_trips", arguments: {} })).j?.result;
+  ok(!("structuredContent" in lt) && Array.isArray(JSON.parse(lt.content[0].text)), "tools without a card return text only");
+}
+
 stop();
 console.log(fails ? `\n${fails} FAILED` : "\nall passed");
 process.exit(fails ? 1 : 0);
