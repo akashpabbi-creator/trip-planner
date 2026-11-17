@@ -48,9 +48,9 @@ try {
   await p.evaluate((id) => { location.hash = `#trip=${id}&tab=plan&day=3`; }, id);
   await p.waitForTimeout(600);
   s = await state();
-  const third = await p.evaluate(() => { const r = document.querySelectorAll(".day")[2]?.getBoundingClientRect(); return r ? { top: Math.round(r.top), vh: innerHeight } : null; });
+  const third = await p.evaluate(() => ({ on: [...document.querySelectorAll(".dchip")].findIndex((c) => c.classList.contains("on")), n: document.querySelectorAll(".day").length, head: document.querySelector(".day .day-n")?.textContent || "" }));
   ok(s.tab === "plan", "tab=plan opens Plan (" + s.tab + ")");
-  ok(third && third.top < third.vh && third.top > -400, "day=3 scrolls the third day into view (top " + third?.top + " of " + third?.vh + ")");
+  ok(third.n === 1 && /^Day 3\b/.test(third.head) && third.on === 3, "day=3 shows the third day on its own, with its chip on (" + JSON.stringify(third) + ")");
   ok(s.hash === "#trip=" + id, "address settles again");
 
   await p.evaluate((id) => { location.hash = `#trip=${id}&tab=kit`; }, id);

@@ -864,3 +864,37 @@ body.in-trip .topbar { display: none; }
 .hp-t { min-width: 0; }
 .hp-t b, .hp-t small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hub-people .avs { display: inline-flex; flex-wrap: nowrap; max-width: 100%; overflow: hidden; }
+
+/* Plan, one day at a time (plan.js) */
+.dchip { width: 60px; min-height: 64px; padding-bottom: 12px; }
+.dchip.all { width: 56px; background: var(--panel-2); box-shadow: none; border: 1px solid var(--line); }
+.dchip.all.on { background: var(--accent); border-color: var(--accent); }
+.dchip .sdot { position: absolute; left: 50%; bottom: 5px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; border: 1.5px solid var(--muted); box-sizing: border-box; background: transparent; }
+.dchip.st-planned .sdot { background: var(--good, #166534); border-color: var(--good, #166534); }
+.dchip.st-check .sdot { background: var(--t-check, #9a3412); border-color: var(--t-check, #9a3412); width: 8px; height: 8px; margin-left: -4px; bottom: 4px; }
+.dchip.on .sdot { border-color: var(--accent-ink); }
+.dchip.on.st-planned .sdot, .dchip.on.st-check .sdot { background: var(--accent-ink); border-color: var(--accent-ink); }
+.dchip.today::after { top: 5px; }
+.ov-list { display: grid; gap: 8px; margin: 4px 0 18px; }
+.ov-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 12px; border: 0; border-radius: 16px; background: var(--panel); box-shadow: var(--shadow); color: var(--ink); min-height: 64px; }
+.ov-row.today { outline: 2px solid var(--accent); }
+.ov-t { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ov-t b { font-size: 15px; overflow-wrap: anywhere; }
+.ov-t small { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-t .wx { border: 0; background: none; padding: 0; margin: 0; font-size: 12.5px; }
+.ov-row .sdot { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--muted); box-sizing: border-box; }
+.ov-row.st-planned .sdot { background: var(--good, #166534); border-color: var(--good, #166534); }
+.ov-row.st-check .sdot { background: var(--t-check, #9a3412); border-color: var(--t-check, #9a3412); }
+.ov-go { flex: none; color: var(--muted); }
+.ov-go .i { width: 18px; height: 18px; }
+.day-empty { margin: 4px 0 8px 0; padding: 18px 14px; border: 1px dashed var(--line); border-radius: 16px; text-align: center; }
+.day-empty p { margin: 0 0 10px; color: var(--muted); }
+.fill-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.day { margin-bottom: 14px; }
+/* quieter stop rows: lighter surface, smaller thumbnail, one-line description, smaller footer */
+.day .card { box-shadow: none; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+.day .card .thumb { width: 56px; height: 56px; border-radius: 10px; }
+.day .card .c-desc { -webkit-line-clamp: 1; }
+.day .card .c-links { padding-top: 6px; }
+.day .card .c-foot { font-size: 11.5px; }
+.day .card .c-by { font-size: 11.5px; }

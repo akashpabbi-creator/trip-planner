@@ -90,10 +90,11 @@ try {
   const tabs = await d.$$eval(".tabs-desk .t-l", (e) => e.map((x) => x.textContent.trim()));
   ok(tabs.slice(0, 3).join() === "Plan,Map,Ideas", "Map tab registered between Plan and Ideas: " + tabs.join());
   ok(calls.leaflet === 0, "Leaflet not loaded before the Map tab opens");
-  ok((await d.$$(".day-head [data-action=mapDay]")).length === 3, "a Map button in every day header");
+  ok((await d.$$(".day-head [data-action=mapDay]")).length === 1, "a Map button in the shown day's header");
 
   // Day header button opens the map on that day
-  await d.click(".day:nth-of-type(2) [data-action=mapDay]");
+  await d.click(".dchip[data-i='1']");
+  await d.click(".day [data-action=mapDay]");
   await d.waitForSelector(".mp-pin");
   await d.waitForTimeout(300);
   const chipTop = await d.$eval(".mp-chips", (e) => Math.round(e.getBoundingClientRect().top));
@@ -159,7 +160,8 @@ try {
   /* ---- stops along the drive */
   console.log("along the way");
   await d.click(".tabs-desk [data-tab=plan]");
-  const day1 = ".day:nth-of-type(1)";
+  await d.click(".dchip[data-i='0']");
+  const day1 = ".day";
   const cards = await d.$$eval(`${day1} .card`, (e) => e.map((x) => ({ t: x.querySelector(".c-title").textContent, al: !!x.querySelector(".al-link") })));
   ok(cards.map((c) => c.t + ":" + c.al).join() === "Colosseum:false,Trevi Fountain:false,Florence Duomo:true", "link only on the long leg (>25 km): " + JSON.stringify(cards));
   ok(/\d{3} km/.test(await d.textContent(`${day1} .al-link`)), "link shows the distance");
@@ -183,13 +185,14 @@ try {
   // OSRM down -> straight line (Duomo opens Day 3, coming from Rome on Day 2)
   osrmFails = true;
   await d.evaluate(async () => { const c = window.__tripCtx; const t = c.S.items.find((x) => x.title === "Florence Duomo"); await c.S.store.updateItem(c.S.tripId, t.id, { dayId: c.S.trip.days[2].id, order: 1 }); });
-  await d.waitForSelector(".day:nth-of-type(3) .al-link");
+  await d.click(".dchip[data-i='2']");
+  await d.waitForSelector(".day .al-link");
   // the Duomo panel was still open on Day 1: the first tap closes it, the second reopens it with a fresh (straight-line) lookup
-  await d.click(".day:nth-of-type(3) .al-link");
-  await d.click(".day:nth-of-type(3) .al-link");
-  await d.waitForSelector(".day:nth-of-type(3) .al-panel");
-  await d.waitForFunction(() => !/Looking/.test(document.querySelector(".day:nth-of-type(3) .al-panel").textContent));
-  ok((await d.textContent(".day:nth-of-type(3) .al-panel")).includes("straight line"), "OSRM failure falls back to a straight line and still lists places (cross-day leg)");
+  await d.click(".day .al-link");
+  await d.click(".day .al-link");
+  await d.waitForSelector(".day .al-panel");
+  await d.waitForFunction(() => !/Looking/.test(document.querySelector(".day .al-panel").textContent));
+  ok((await d.textContent(".day .al-panel")).includes("straight line"), "OSRM failure falls back to a straight line and still lists places (cross-day leg)");
 
   /* ---- phone */
   console.log("phone 390px");

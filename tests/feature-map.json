@@ -121,6 +121,7 @@
   "pcmtAdd",
   "pcmtDel",
   "pickForDay",
+  "planAll",
   "print",
   "pvote",
   "rebuildSample",
