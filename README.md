@@ -96,6 +96,13 @@ Each trip can have a Drive folder (Kit tab, top). AI users pick it once with Goo
 - **Connector.** `get_trip` returns `driveFolder` ({id, name, url}) so Claude files the Trip Sheet PDF there.
 - **Test:** `node tests/drive.mjs`.
 
+## Design system, deep links and checks
+
+- **Shared look:** `tokens.css` holds the colours (light and dark), radii, type sizes and fonts as `--t-*` CSS variables only, and `icons.svg` is the line-icon sprite (24 viewBox, stroke `currentColor` 1.8, round caps). Both are standalone files, so the connector cards in `mcp/` import them too. Use an icon with `<svg class="i" aria-hidden="true"><use href="icons.svg#pin"/></svg>` (or `ic("pin")` from `icons.js`). Fonts: Space Grotesk for headings, Inter for text. `styles.css` maps its older variable names onto the tokens. No emoji in the interface.
+- **Deep links:** `#trip=<tripId>&tab=<tabId>&day=<n>`. `tab` is a tab id (`plan`, `ideas`, `map`, `kit`, `discover`, `smart`, `budget`, `itinerary`, `changes`), `day` is 1-based and only used on `plan`. Unknown tabs and days outside the trip are ignored. Opened cold or in a running app, the trip lands there and the address settles to `#trip=<tripId>`. Example: `https://akashpabbi-creator.github.io/trip-planner/#trip=abc123&tab=plan&day=2`. Invite links stay `#join=<code>`.
+- **Checks on every pull request** (`.github/workflows/ui-tests.yml`): all UI tests (`node tests/run-ui.mjs 1/4`), `tests/feature-map.mjs` (every action in `tests/feature-map.json` must still be rendered and handled; retire one only by removing it there), `tests/sw-check.mjs` (every app file is in `SHELL`; `CACHE` must be bumped when app files change), and `tests/screens.mjs` (screenshots of every screen, phone and desktop, light and dark, uploaded as the `screens` artifact).
+- `tests/_clock.mjs` starts the test browser's clock at a fixed date for tests that build trips around 2026-11-10.
+
 ## Free services used
 
 Everything runs on free services with no keys: OpenStreetMap (map tiles and place search), OSRM (road routes for Stops along the way), Overpass (places near a route), Open-Meteo (weather), Wikipedia and Wikivoyage (destination and guide), Microlink (link previews), and Frankfurter with open.er-api.com as a fallback (exchange rates for the spending log). Leaflet (the map library) is loaded from unpkg. The only optional key is your own free Gemini key.
@@ -139,13 +146,14 @@ Leave `config.js` as is and open `index.html` through any local web server (`pyt
 ## Files
 
 - `index.html`, `styles.css`, `app.js`: the app
+- `tokens.css`, `icons.svg`, `icons.js`: shared colours, type, icons
 - `store.js`: Firebase and demo data layers
 - `unfurl.js`: link previews
 - `smart.js`: the Smart plan engine
 - `map.js`, `along.js`: the Map tab and Stops along the way
 - `social.js`: reactions, votes and comments
 - `undo.js`: records what an AI change touched and powers the Undo bar
-- `proposal-social.js`: 👍/👎 votes and a comment thread on proposed changes and drafted plans (advisory only)
+- `proposal-social.js`: thumbs up/down votes and a comment thread on proposed changes and drafted plans (advisory only)
 - `capture.js`: screenshots and shared images
 - `bookings.js`, `kit.js`: bookings, price checks, Today, checklist, spending log and exports
 - `changes.js`, `bridge.js`: Ask for a change and the Claude link

@@ -16,7 +16,8 @@ const srv = spawn("python3", ["-m", "http.server", String(PORT), "--bind", "127.
 await new Promise((r) => setTimeout(r, 800));
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+import { freezeClock } from "./_clock.mjs";
+const b = freezeClock(await chromium.launch());
 const errors = [];
 async function open(width, height, mobile) {
   const ctx = await b.newContext({ viewport: { width, height }, isMobile: mobile, hasTouch: mobile, colorScheme: "dark" });
@@ -98,7 +99,7 @@ try {
   ({ p, ctx } = await open(1440, 900, false));
   d = await p.evaluate(() => { const r = document.querySelector(".tabs-desk").getBoundingClientRect(); return { vis: r.width > 150 && r.width < 260 && r.left < 200, dir: getComputedStyle(document.querySelector(".tabs-desk")).flexDirection, labels: [...document.querySelectorAll(".tabs-desk .t-l")].map((e) => e.textContent) }; });
   ok(d.vis && d.dir === "column", "sidebar nav is visible at 1440");
-  ok(d.labels[0] === "Plan" && d.labels.at(-1) === "Connect Claude", "sidebar keeps the tab order: " + d.labels.join(","));
+  ok(d.labels[0] === "Plan" && d.labels.at(-1) === "Connector", "sidebar keeps the tab order: " + d.labels.join(","));
   const pills = await p.$$eval(".as-grid button", (e) => e.map((x) => getComputedStyle(x, "::after").content));
   ok(pills.join(",").includes("Clipboard") && pills.join(",").includes("New stop"), "add bar pills are labelled: " + pills.join(","));
   await ctx.close();

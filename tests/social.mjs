@@ -154,7 +154,7 @@ try {
     return { names: pr.plan.filter((x) => x.listing).map((x) => x.listing.name), notes: pr.notes };
   });
   ok(res.names.includes("Pantheon") && !res.names.some((n) => /Tourist Trap/i.test(n)), "finishDraft: vetoed name dropped, others kept: " + res.names.join(", "));
-  ok(res.notes.some((n) => /Tourist Trap Pizza/.test(n) && /👎/.test(n)), "finishDraft: note explains: " + res.notes.join(" / "));
+  ok(res.notes.some((n) => /Tourist Trap Pizza/.test(n) && /thumbs-down/.test(n)), "finishDraft: note explains: " + res.notes.join(" / "));
   // the plan goes straight onto the days (no proposal to open), loved ideas get placed and the vetoed one does not
   await a.waitForTimeout(2500);
   const where = await a.evaluate(() => Object.fromEntries(window.__tripCtx.S.items.filter((i) => ["Colosseum", "Villa Borghese", "Tourist Trap Pizza"].includes(i.title)).map((i) => [i.title, !!i.dayId])));

@@ -1,3 +1,4 @@
+import { wxIcon } from "./icons.js";
 // kit: Exports (day route link, .ics, .kml), Today card, Packing + To-dos, Spending log.
 // Other modules add their sections to the Kit tab through the "kit" slot (shown first); "kitTop" sits above even those.
 let ctx, S;
@@ -41,7 +42,7 @@ export function init(c) {
   S = c.S;
   document.head.append(Object.assign(document.createElement("style"), { id: "css-kit", textContent: CSS }));
 
-  ctx.tab({ id: "kit", icon: "🎒", label: "Kit", order: 50, view: viewKit });
+  ctx.tab({ id: "kit", icon: "<svg class=i aria-hidden=true><use href=icons.svg#backpack /></svg>", label: "Kit", order: 50, view: viewKit });
   ctx.slot("planToday", todayCard);
   ctx.slot("dayHead", routeLink);
   ctx.slot("itinActions", exportButtons);
@@ -147,7 +148,7 @@ function todayCard() {
   const next = nextK >= 0 ? sch[nextK] : null;
   const then = nextK >= 0 ? sch[nextK + 1] : null;
   const w = t.weather?.days?.[i];
-  const wx = w && Number.isFinite(w.max) ? `<span class="small">${w.icon || ""} ${w.max}°/${w.min}°${w.rainPct >= 40 ? ` · ${w.rainPct}% rain` : ""}</span>` : "";
+  const wx = w && Number.isFinite(w.max) ? `<span class="small">${wxIcon(w.icon)} ${w.max}°/${w.min}°${w.rainPct >= 40 ? ` · ${w.rainPct}% rain` : ""}</span>` : "";
   const day8 = date ? ymd(date) : "";
   const books = (t.bookings || []).filter((b) => day8 && String(b.start || "").slice(0, 10) === day8);
   let leg = 0;
@@ -162,7 +163,7 @@ function todayCard() {
           <a class="btn-s dir-link" href="${ctx.directionsUrl(next.it)}" target="_blank" rel="noopener">Directions</a></div>`
       : `<div class="tc-line">${sch.length ? "That's everything planned for today." : "Nothing is planned for today yet."}</div>`}
     ${then ? `<div class="tc-line muted">Then: ${ctx.fromMin(then.start)} · ${E(then.it.title)}</div>` : ""}
-    ${books.map((b) => `<div class="tc-line">🎫 ${E(b.title)}${b.start.length > 10 ? ` · ${E(b.start.slice(11, 16))}` : ""}${b.ref ? ` · <b>${E(b.ref)}</b>` : ""}</div>`).join("")}
+    ${books.map((b) => `<div class="tc-line"><svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg> ${E(b.title)}${b.start.length > 10 ? ` · ${E(b.start.slice(11, 16))}` : ""}${b.ref ? ` · <b>${E(b.ref)}</b>` : ""}</div>`).join("")}
   </section>`;
 }
 
@@ -171,7 +172,7 @@ function viewKit() {
   return `<div class="kit">
     ${ctx.renderSlot("kitTop")}
     ${ctx.renderSlot("kit")}
-    <div class="k-suggest"><button class="btn-s" data-action="kSuggest">✨ Suggest items</button><span class="muted small">Packing and to-do ideas from the weather, your plan and where you're going.</span></div>
+    <div class="k-suggest"><button class="btn-s" data-action="kSuggest"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Suggest items</button><span class="muted small">Packing and to-do ideas from the weather, your plan and where you're going.</span></div>
     ${checklistSection("pack", "Packing", "Nothing to pack yet. Add things yourself, or tap Suggest items.", "Add something to pack")}
     ${checklistSection("todo", "To-dos", "No to-dos yet. Visas, tickets and things to book before you go can live here.", "Add a to-do")}
   </div>`;
@@ -181,11 +182,11 @@ function checklistSection(group, title, empty, ph) {
   const E = ctx.esc, items = list(group), done = items.filter((x) => x.done).length;
   const me = S.me.email;
   return `<section class="d-sec k-sec" id="kit-${group}">
-    <div class="d-head"><h3>${group === "pack" ? "🎒" : "✅"} ${title}</h3>${items.length ? `<span class="muted small">${done} of ${items.length} done</span>` : ""}</div>
+    <div class="d-head"><h3>${group === "pack" ? "<svg class=i aria-hidden=true><use href=icons.svg#backpack /></svg>" : "<svg class=i aria-hidden=true><use href=icons.svg#check-circle /></svg>"} ${title}</h3>${items.length ? `<span class="muted small">${done} of ${items.length} done</span>` : ""}</div>
     ${items.length ? `<ul class="k-list">${items.map((x) => `<li class="k-row ${x.done ? "done" : ""}" data-kid="${x.id}">
       <label><input type="checkbox" data-action="kTick" data-id="${x.id}" ${x.done ? "checked" : ""}><span class="k-t">${E(x.text)}</span></label>
       <span class="muted small k-meta">${[x.who ? "for " + E(ctx.who(x.who)) : "", x.done && x.doneBy ? "ticked by " + E(ctx.who(x.doneBy)) : ""].filter(Boolean).join(" · ")}</span>
-      ${!x.by || x.by === me || x.auto ? `<button class="k-x" data-action="kDel" data-id="${x.id}" title="Delete" aria-label="Delete ${E(x.text)}">✕</button>` : ""}
+      ${!x.by || x.by === me || x.auto ? `<button class="k-x" data-action="kDel" data-id="${x.id}" title="Delete" aria-label="Delete ${E(x.text)}"><svg class=i aria-hidden=true><use href=icons.svg#x /></svg></button>` : ""}
     </li>`).join("")}</ul>` : `<p class="empty small">${empty}</p>`}
     <div class="row k-add"><input id="kAdd-${group}" data-kd="1" placeholder="${ph}" autocomplete="off">
       ${group === "todo" ? `<select id="kWho" data-kd="1" aria-label="Who"><option value="">Anyone</option>${members().map((m) => `<option value="${E(m)}">${E(ctx.who(m))}</option>`).join("")}</select>` : ""}
@@ -385,23 +386,23 @@ function spendSection() {
   const rows = spends.map((s) => {
     const head = s.date !== last ? `<div class="k-day-h">${E(dayOf(s.date))}</div>` : "";
     last = s.date;
-    const ic = ctx.CATEGORIES[s.category]?.icon || "📌";
+    const ic = ctx.CATEGORIES[s.category]?.icon || "<svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg>";
     return `${head}<div class="k-row"><span>${ic}</span><span class="k-t">${E(s.label)} <span class="muted small">· ${E(ctx.who(s.paidBy))} paid</span></span>
       <span class="k-amt">${ctx.money(s.amount, s.currency)}${s.currency !== cur ? `<div class="muted small">${s.inTrip == null ? "rate pending" : "≈ " + ctx.money(s.inTrip, cur)}</div>` : ""}</span>
-      ${s.by === me ? `<button class="k-x" data-action="kSpendDel" data-id="${s.id}" title="Delete" aria-label="Delete ${E(s.label)}">✕</button>` : ""}</div>`;
+      ${s.by === me ? `<button class="k-x" data-action="kSpendDel" data-id="${s.id}" title="Delete" aria-label="Delete ${E(s.label)}"><svg class=i aria-hidden=true><use href=icons.svg#x /></svg></button>` : ""}</div>`;
   }).join("");
   const today = ctx.today(), defDate = ymd(today >= 0 ? ctx.dayDate(today) : new Date());
   const form = ui.spendForm ? `<div class="k-spend-form">
       <input id="kSpAmt" data-kd="1" type="number" inputmode="decimal" min="0" max="1000000000" step="any" placeholder="Amount">
       <select id="kSpCur" data-kd="1" aria-label="Currency">${[...new Set([lastCur || cur, cur, ...ctx.CURRENCIES])].map((c) => `<option ${c === (drafts.kSpCur || lastCur || cur) ? "selected" : ""}>${c}</option>`).join("")}</select>
       <input id="kSpLabel" data-kd="1" class="wide" placeholder="What was it? e.g. Dinner">
-      <select id="kSpCat" data-kd="1" aria-label="Category">${Object.entries(ctx.CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === (drafts.kSpCat || "food") ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("")}</select>
+      <select id="kSpCat" data-kd="1" aria-label="Category">${Object.entries(ctx.CATEGORIES).map(([k, v]) => `<option value="${k}" ${k === (drafts.kSpCat || "food") ? "selected" : ""}>${v.label}</option>`).join("")}</select>
       <select id="kSpBy" data-kd="1" aria-label="Paid by">${members().map((m) => `<option value="${E(m)}" ${m === (drafts.kSpBy || me) ? "selected" : ""}>${E(ctx.who(m))} paid</option>`).join("")}</select>
       <input id="kSpDate" data-kd="1" class="wide" type="date" value="${E(drafts.kSpDate || defDate)}" aria-label="Date">
       <button class="primary wide" data-action="kSpendAdd">Add spend</button></div>` : "";
   const owe = t.prefs?.split ? owes(spends, members()) : null;
   return `<section class="d-sec k-sec" id="kit-spend">
-    <div class="d-head"><h3>💳 Spent so far</h3><button class="btn-s" data-action="kSpendForm">${ui.spendForm ? "Close" : "+ Add a spend"}</button></div>
+    <div class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#card /></svg> Spent so far</h3><button class="btn-s" data-action="kSpendForm">${ui.spendForm ? "Close" : "+ Add a spend"}</button></div>
     ${spends.length ? `<div class="k-sum"><span><span class="muted small">Spent</span><br><b>${ctx.money(spent, cur)}</b></span><span><span class="muted small">Planned</span><br><b>${ctx.money(planned, cur)}</b></span>${budget ? `<span><span class="muted small">${spent > budget ? "Over budget by" : "Left of budget"}</span><br><b class="${spent > budget ? "bad" : "good"}">${ctx.money(Math.abs(budget - spent), cur)}</b></span>` : ""}</div>${pending ? `<p class="muted small">${pending} spend${pending > 1 ? "s" : ""} waiting for an exchange rate, not in the total yet.</p>` : ""}` : `<p class="empty small">Nothing logged yet. Add what you pay as you go, in any currency, and it's converted to ${E(cur)}.</p>`}
     ${form}${rows}
     <label class="row small" style="margin-top:10px"><input type="checkbox" data-action="kSplit" ${t.prefs?.split ? "checked" : ""}> Show who owes whom</label>
@@ -411,7 +412,7 @@ function spendSection() {
 
 /* ----------------------------------------------------------------- Exports */
 function exportButtons() {
-  return `<button data-action="kIcs">📅 Add to calendar</button><button data-action="kKml">🗺️ Google My Maps file</button>
+  return `<button data-action="kIcs"><svg class=i aria-hidden=true><use href=icons.svg#plan /></svg> Add to calendar</button><button data-action="kKml"><svg class=i aria-hidden=true><use href=icons.svg#map /></svg> Google My Maps file</button>
     <span class="muted small k-how">Calendar: open the .ics file to add every stop and booking. My Maps: create a new map at mymaps.google.com, choose Import and pick the .kml file.</span>`;
 }
 const pad = (n) => String(n).padStart(2, "0");

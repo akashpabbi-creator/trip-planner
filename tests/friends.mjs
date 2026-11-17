@@ -20,7 +20,8 @@ const URL0 = `http://127.0.0.1:${PORT}/`;
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+import { freezeClock } from "./_clock.mjs";
+const b = freezeClock(await chromium.launch());
 const errors = [];
 const AI_WORDS = /Gemini|Claude/i;
 async function route(p) {
@@ -104,7 +105,9 @@ try {
 
   // Phone: More sheet and add sheet
   const fp = await newPage(bcN, "Fran", "?noai", { width: 390, height: 800 });
-  await fp.waitForSelector(".tab-body"); // reopens the last trip
+  await fp.waitForSelector(".tab-body, .trip-card");
+  if (await fp.$(".trip-card")) await fp.click(".trip-card"); // a fresh start opens on Your trips
+  await fp.waitForSelector(".tab-body");
   await fp.click(".tabs-bar [data-action=moreToggle]");
   const more = await fp.textContent(".more-sheet");
   ok(!AI_WORDS.test(more) && /Discover/.test(more), "More sheet: no Connect Claude, no Gemini or Claude text");

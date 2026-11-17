@@ -4,9 +4,9 @@ import { call, parseJson, QuotaError, geminiWait } from "./ai.js";
 import { rateFor } from "./kit.js";
 
 export const KINDS = {
-  flight: { icon: "✈️", label: "Flight" }, hotel: { icon: "🏨", label: "Hotel" }, train: { icon: "🚆", label: "Train" },
-  bus: { icon: "🚌", label: "Bus" }, ferry: { icon: "⛴️", label: "Ferry" }, car: { icon: "🚗", label: "Car" },
-  tickets: { icon: "🎟️", label: "Tickets" }, other: { icon: "📌", label: "Other" },
+  flight: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#flight /></svg>", label: "Flight" }, hotel: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#hotel /></svg>", label: "Hotel" }, train: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#train /></svg>", label: "Train" },
+  bus: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#bus /></svg>", label: "Bus" }, ferry: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#ferry /></svg>", label: "Ferry" }, car: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#car /></svg>", label: "Car" },
+  tickets: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg>", label: "Tickets" }, other: { icon: "<svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg>", label: "Other" },
 };
 const CUR_SYM = { "₹": "INR", "rs": "INR", "inr": "INR", "$": "USD", "usd": "USD", "€": "EUR", "eur": "EUR", "£": "GBP", "gbp": "GBP", "aed": "AED", "sgd": "SGD", "thb": "THB", "jpy": "JPY", "¥": "JPY" };
 
@@ -290,11 +290,11 @@ export function init(ctx) {
     return `<article class="bk-card" data-id="${esc(b.id)}">
       <div class="bk-ic">${k.icon}</div>
       <div class="bk-title">${esc(b.title || k.label)}</div>
-      <button class="btn-s" data-action="bkEdit" data-id="${esc(b.id)}" aria-label="Edit booking">⋯</button>
+      <button class="btn-s" data-action="bkEdit" data-id="${esc(b.id)}" aria-label="Edit booking"><svg class=i aria-hidden=true><use href=icons.svg#more /></svg></button>
       <div class="bk-meta">
         ${when ? `<span>${esc(when)}</span>` : ""}${route ? `<span>${esc(route)}</span>` : ""}
         ${b.ref ? `<button class="bk-ref" data-action="bkCopy" data-id="${esc(b.id)}" title="Tap to copy">${esc(b.ref)}</button>` : ""}
-        ${b.address ? `<a href="${esc(mapLink(b.address))}" target="_blank" rel="noopener">📍 ${esc(b.address)}</a>` : ""}
+        ${b.address ? `<a href="${esc(mapLink(b.address))}" target="_blank" rel="noopener"><svg class=i aria-hidden=true><use href=icons.svg#pin /></svg> ${esc(b.address)}</a>` : ""}
         ${Number(b.cost) ? `<span>${esc(b.currency || cur())} ${Number(b.cost).toLocaleString()}</span>` : ""}
         ${conv === null ? `<span class="bk-warn">Not in the budget (different currency)</span>` : ""}
         ${b.notes ? `<span>${esc(b.notes)}</span>` : ""}
@@ -307,7 +307,7 @@ export function init(ctx) {
     const groups = {};
     bs.forEach((b) => (groups[dateOf(b)] ||= []).push(b));
     return `<section class="d-sec" id="bk-sec">
-      <div class="d-head"><h3>🎫 Bookings</h3>
+      <div class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg> Bookings</h3>
         <span class="bk-links"><button class="btn-s" data-action="bkEmail">Add from an email</button><button class="btn-s" data-action="bkNew">Add booking</button></span></div>
       ${bs.length
         ? Object.keys(groups).sort().map((d) => `<div class="bk-date">${esc(niceDate(d))}</div>${groups[d].map(bookingCard).join("")}`).join("")
@@ -322,18 +322,18 @@ export function init(ctx) {
     const dest = t.destination || "";
     const rows = runs.filter((r) => r.base);
     return `<details class="d-sec bk-chk" id="chk-sec" ${chkOpen ? "open" : ""}>
-      <summary class="d-head"><h3>🔎 Check prices</h3><span class="muted small">${chkOpen ? "" : "flight and hotel searches"}</span></summary>
+      <summary class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#search /></svg> Check prices</h3><span class="muted small">${chkOpen ? "" : "flight and hotel searches"}</span></summary>
       <div class="bk-chk-body">
         <label>Flying from (optional)
           <input id="homeCity" value="${esc(home)}" placeholder="Home city, e.g. Mumbai" autocomplete="off"></label>
         <div class="bk-links">
           ${dest
-            ? `<a class="btn-s" href="${esc(gFlights(home, dest, first?.cin, last?.cout ? ymdOf(new Date(new Date(last.cout + "T00:00:00").getTime() - 86400000)) : ""))}" target="_blank" rel="noopener">✈️ Flights to ${esc(dest)}</a>`
+            ? `<a class="btn-s" href="${esc(gFlights(home, dest, first?.cin, last?.cout ? ymdOf(new Date(new Date(last.cout + "T00:00:00").getTime() - 86400000)) : ""))}" target="_blank" rel="noopener"><svg class=i aria-hidden=true><use href=icons.svg#flight /></svg> Flights to ${esc(dest)}</a>`
             : `<span class="muted small">Add a destination to search flights.</span>`}
           ${dest && !home ? `<span class="muted small">Add your home city above to start from there.</span>` : ""}
         </div>
         ${(rows.length ? rows : [{ base: dest, cin: first?.cin, cout: last?.cout }]).filter((r) => r.base).map((r) => `<div class="bk-links">
-          <span class="small">🏨 ${esc(r.base)}${r.cin ? ` <span class="muted">${esc(niceDate(r.cin))} to ${esc(niceDate(r.cout))}</span>` : ""}</span>
+          <span class="small"><svg class=i aria-hidden=true><use href=icons.svg#hotel /></svg> ${esc(r.base)}${r.cin ? ` <span class="muted">${esc(niceDate(r.cin))} to ${esc(niceDate(r.cout))}</span>` : ""}</span>
           <a class="btn-s" href="${esc(gHotels(r.base, r.cin, r.cout))}" target="_blank" rel="noopener">Google Hotels</a>
           <a class="btn-s" href="${esc(bookingCom(r.base, r.cin, r.cout))}" target="_blank" rel="noopener">Booking.com</a></div>`).join("")}
         <p class="muted small">These open a search in a new tab. Nothing is booked or sent from here.</p>
@@ -362,12 +362,12 @@ export function init(ctx) {
     if (!d || !S.trip.bookings?.length) return "";
     const pills = list().flatMap((b) => {
       const k = KINDS[b.kind] || KINDS.other;
-      if (dateOf(b) === d) return [{ b, text: `${k.icon} ${timeOf(b.start) || b.title}` }];
-      if (b.kind === "hotel" && (b.end || "").slice(0, 10) === d) return [{ b, text: `${k.icon} check-out${timeOf(b.end) ? " " + timeOf(b.end) : ""}` }];
+      if (dateOf(b) === d) return [{ b, text: `${k.icon} ${esc(timeOf(b.start) || b.title)}` }];
+      if (b.kind === "hotel" && (b.end || "").slice(0, 10) === d) return [{ b, text: `${k.icon} check-out${timeOf(b.end) ? " " + esc(timeOf(b.end)) : ""}` }];
       return [];
     });
     if (!pills.length) return "";
-    const shown = pills.slice(0, 2).map((p) => `<span class="bk-pill" title="${esc(p.b.title + (p.b.ref ? " · " + p.b.ref : ""))}">${esc(p.text)}</span>`).join(" ");
+    const shown = pills.slice(0, 2).map((p) => `<span class="bk-pill" title="${esc(p.b.title + (p.b.ref ? " · " + p.b.ref : ""))}">${p.text}</span>`).join(" ");
     return `<span class="bk-strip">${shown}${pills.length > 2 ? ` <span class="bk-pill">+${pills.length - 2}</span>` : ""}</span>`;
   });
   ctx.slot("card", (it) => {
@@ -376,7 +376,7 @@ export function init(ctx) {
     const place = [it.title, r.base].filter(Boolean).join(" ");
     return `<div class="bk-prices"><a href="${esc(gHotels(place, r.cin, r.cout))}" target="_blank" rel="noopener">Prices</a></div>`;
   });
-  ctx.costs(() => list().map((b) => ({ label: `${(KINDS[b.kind] || KINDS.other).icon} ${b.title || KINDS[b.kind]?.label || "Booking"}`, amount: inTrip(b) || 0 })).filter((r) => r.amount));
+  ctx.costs(() => list().map((b) => ({ label: `${b.title || KINDS[b.kind]?.label || "Booking"}`, amount: inTrip(b) || 0 })).filter((r) => r.amount));
 
   /* ---- modal helper (works for the first and every later step) */
   let submitting = false;
@@ -406,7 +406,7 @@ export function init(ctx) {
     const k = (n) => esc(b[n] ?? "");
     return `<div class="bk-form"><h3>${b.id ? "Edit booking" : "Booking"}</h3>
       ${note ? `<p class="muted small">${note}</p>` : ""}
-      <label>Type<select name="kind">${Object.entries(KINDS).map(([v, o]) => `<option value="${v}" ${b.kind === v ? "selected" : ""}>${o.icon} ${o.label}</option>`).join("")}</select></label>
+      <label>Type<select name="kind">${Object.entries(KINDS).map(([v, o]) => `<option value="${v}" ${b.kind === v ? "selected" : ""}>${o.label}</option>`).join("")}</select></label>
       <label>Title<input name="title" required value="${k("title")}" placeholder="e.g. IndiGo 6E 2145, or the hotel name"></label>
       <label>Booking reference<input name="ref" value="${k("ref")}" placeholder="PNR or confirmation number" autocapitalize="characters"></label>
       <div class="grid2"><label>Starts<input name="start" type="datetime-local" value="${k("start")}"></label><label>Ends<input name="end" type="datetime-local" value="${k("end")}"></label></div>
@@ -456,7 +456,7 @@ export function init(ctx) {
     const idx = nightsOf(b);
     if (!idx.length || idx.every((i) => (S.trip.days[i].base || "").trim().toLowerCase() === townOf(b).toLowerCase())) return then?.();
     const first = idx[0] + 1, last = idx[idx.length - 1] + 1;
-    modal(`<h3>🏨 Set “staying in”?</h3>
+    modal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#hotel /></svg> Set “staying in”?</h3>
       <p>Mark ${esc(b.title)} on ${first === last ? `Day ${first}` : `Days ${first} to ${last}`} (${idx.length} night${idx.length > 1 ? "s" : ""}) so new places land on the right days.</p>
       <label>Staying in<input name="base" required value="${esc(townOf(b))}" placeholder="Town or area"></label>`,
       async (f) => {
@@ -495,7 +495,7 @@ export function init(ctx) {
   ctx.action("bkStay", (btn, id) => { const b = (S.trip.bookings || []).find((x) => x.id === id); if (b) offerStay(b); });
   ctx.action("bkEmail", () => {
     const gem = !!ctx.aiKey() && !geminiWait();
-    modal(`<h3>🎫 Add from an email</h3>
+    modal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg> Add from an email</h3>
       <p class="muted small">Paste the confirmation email (flight, hotel, train, tickets). ${gem ? "Gemini reads it" : "I read it myself"}, then you check the details before anything is saved.</p>
       <textarea name="text" rows="9" required placeholder="Paste the email text here"></textarea>`,
       async (f) => {

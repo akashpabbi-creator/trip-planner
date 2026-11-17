@@ -58,11 +58,11 @@ export function init(ctx) {
     if (!S.aiUser) return;
     const gem = !!ctx.aiKey();
     const mine = ++sheetNo;
-    ctx.$form.innerHTML = `<h3>📝 Find places in text</h3>
+    ctx.$form.innerHTML = `<h3><svg class=i aria-hidden=true><use href=icons.svg#note /></svg> Find places in text</h3>
       <label>Text<textarea id="pasteText" class="pst-text" placeholder="WhatsApp tips, a video transcript, a blog post or someone's itinerary">${esc(prefill)}</textarea></label>
       <p class="small pst-cut" id="pasteCut" hidden></p>
       <p class="muted small">The text goes to Gemini (or Claude) once and isn't saved. You review every place before anything is added.</p>
-      <p class="muted small" id="pasteBusy" ${working ? "" : "hidden"}>${working ? "⏳ Still reading your last text…" : ""}</p>
+      <p class="muted small" id="pasteBusy" ${working ? "" : "hidden"}>${working ? "Still reading your last text…" : ""}</p>
       <div class="pst-actions">
         ${gem && canGemini() ? `<button type="button" class="primary" data-action="pasteGemini" ${working ? "disabled" : ""}>Find with Gemini</button>` : ""}
         <button type="button" class="${gem && canGemini() ? "" : "primary"}" data-action="pasteClaude" ${working ? "disabled" : ""}>Ask Claude</button>
@@ -99,7 +99,7 @@ export function init(ctx) {
     const mine = sheetNo;
     const line = document.getElementById("pasteBusy");
     ctx.$form.querySelectorAll("button").forEach((b) => (b.disabled = true));
-    if (line) { line.hidden = false; line.textContent = "⏳ Gemini is reading it…"; }
+    if (line) { line.hidden = false; line.textContent = "Gemini is reading it…"; }
     try {
       const r = await placesFromText(ctx.aiKey(), text, ctx);
       if (!r.ops.length) {
@@ -134,7 +134,7 @@ export function init(ctx) {
     });
   }
 
-  ctx.slot("addBar", () => !S.aiUser ? "" : `<button class="icon" data-action="pasteOpen" title="Paste tips or a transcript" aria-label="Paste tips or a transcript" data-label="Paste tips or text" data-sub="A blog, a chat, a transcript">📝</button>`);
+  ctx.slot("addBar", () => !S.aiUser ? "" : `<button class="icon" data-action="pasteOpen" title="Paste tips or a transcript" aria-label="Paste tips or a transcript" data-label="Paste tips or text" data-sub="A blog, a chat, a transcript"><svg class=i aria-hidden=true><use href=icons.svg#note /></svg></button>`);
   ctx.openPaste = openPaste;
   ctx.action("pasteOpen", () => openPaste());
   ctx.action("pasteGemini", findWithGemini);

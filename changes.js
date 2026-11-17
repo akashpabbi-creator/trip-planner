@@ -436,7 +436,7 @@ export async function askClaudeFor(request, { text = "", lead = "", extra = "", 
   window.open("https://claude.ai/new", "_blank", "noopener");
   lastRequest = claudeRequest(request, { text, lead, extra });
   navigator.clipboard?.writeText(lastRequest).catch(() => {});
-  ctx.openModal(`<h3>🟠 Ask Claude</h3>
+  ctx.openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Ask Claude</h3>
     <p class="small">The request is copied (with your plan${text ? " and your text" : ""}). Paste it into a new chat in the Claude app, wait for the answer, tap <b>Copy</b> under it and paste it here.</p>
     <label>Claude's answer<textarea name="answer" rows="7" placeholder="Paste Claude's whole answer here" required></textarea></label>
     <p class="muted small">The changes are applied straight away and you can undo them. Tip: <button type="button" class="link" data-action="bridgeOpen">connect Claude</button> to skip the copying.</p>
@@ -457,7 +457,7 @@ function askClaude() {
 export function openChanges() {
   const { S, esc } = ctx, c = S.trip.changes;
   if (!c) return;
-  ctx.openModal(`<h3>💬 ${lbl(c) ? esc(lbl(c)) + "'s suggested" : "Suggested"} changes</h3>
+  ctx.openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#comment /></svg> ${lbl(c) ? esc(lbl(c)) + "'s suggested" : "Suggested"} changes</h3>
     <div id="chgHead"></div><div id="chgList"></div>
     <div id="chgAll" class="ps-all"></div>
     <div id="chgThread"></div>
@@ -478,7 +478,7 @@ function paintChanges() {
   document.getElementById("chgHead").innerHTML = `${c.request ? `<p class="small">${c.source === "Shuffle" ? "" : "You asked: "}<b>${esc(c.request)}</b></p>` : ""}${c.summary ? `<p>${esc(c.summary)}</p>` : ""}<p class="muted small">Suggested ${ctx.ago(c.at)}. Nothing changes until you tap Apply.</p>`;
   list.innerHTML = c.ops.map((op, i) => {
     const bad = done.has(i) || skip.has(i) ? "" : problem(op);
-    const state = done.has(i) ? `<span class="muted small">✓ Applied</span>` : skip.has(i) ? `<span class="muted small">Skipped</span>`
+    const state = done.has(i) ? `<span class="muted small"><svg class=i aria-hidden=true><use href=icons.svg#check /></svg> Applied</span>` : skip.has(i) ? `<span class="muted small">Skipped</span>`
       : bad ? `<span class="small chg-bad">Can't apply: ${esc(bad)}</span>`
       : `<span class="chg-act"><button type="button" class="btn-s primary" data-action="chgApply" data-id="${i}">Apply</button><button type="button" class="btn-s" data-action="chgSkip" data-id="${i}">Skip</button></span>`;
     return `<div class="chg-op ${bad ? "bad" : ""} ${done.has(i) || skip.has(i) ? "off" : ""}"><div class="chg-t">${esc(opText(op))}${op.why ? `<div class="muted small">${esc(op.why)}</div>` : ""}</div><span class="chg-side">${voteRow(c, String(i), "changes")}${state}</span></div>`;
@@ -553,7 +553,7 @@ function box() {
       <button type="button" class="btn-s ${gem ? "" : "primary"}" data-action="chgClaude" ${busy ? "disabled" : ""}>Ask Claude</button>
       ${ctx.bridgeAsk() ? `<span class="muted small">Waiting for Claude: “${esc(ctx.bridgeAsk().request)}”</span>` : ""}
     </div>
-    ${busy ? `<p class="muted small chg-note">⏳ ${esc(busy)}</p>` : ""}
+    ${busy ? `<p class="muted small chg-note">${esc(busy)}</p>` : ""}
   </div>`;
 }
 function banner() {
@@ -562,7 +562,7 @@ function banner() {
   const n = pending().length;
   if (!n) return "";
   const sum = summary(c, S.trip.members);
-  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic">💬</span><span class="ar-t">${esc(lbl(c) || ctx.firstName(c.byName) || "Someone")} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}${sum ? `<span class="ps-sum">${esc(sum)}</span>` : ""}</span><b>Review</b></button>`;
+  return `<button class="smart-banner ${ctx.S.trip.proposal ? "quiet" : ""}" data-action="chgOpen"><span class="ar-ic"><svg class=i aria-hidden=true><use href=icons.svg#comment /></svg></span><span class="ar-t">${esc(lbl(c) || ctx.firstName(c.byName) || "Someone")} suggests ${n} change${n > 1 ? "s" : ""}${c.request ? ` for “${esc(c.request.slice(0, 60))}”` : ""}${sum ? `<span class="ps-sum">${esc(sum)}</span>` : ""}</span><b>Review</b></button>`;
 }
 
 export function init(c) {

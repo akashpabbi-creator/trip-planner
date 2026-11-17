@@ -150,9 +150,9 @@ function bar() {
   const { S, esc } = ctx, u = S.trip?.undo;
   if (!u) return "";
   return `<div class="undo-bar" id="undoBar">
-    <div class="undo-top"><div class="undo-t">✨ <b>${esc(lbl(u))}</b> changed ${plural(u.count || 0, "thing")}${u.request ? ` for “${esc(u.request.slice(0, 60))}”` : ""}${u.summary ? `<div class="muted small">${esc(u.summary)}</div>` : ""}${u.noUndo ? `<div class="muted small">That was too big to undo in one tap.</div>` : ""}</div>
+    <div class="undo-top"><div class="undo-t"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> <b>${esc(lbl(u))}</b> changed ${plural(u.count || 0, "thing")}${u.request ? ` for “${esc(u.request.slice(0, 60))}”` : ""}${u.summary ? `<div class="muted small">${esc(u.summary)}</div>` : ""}${u.noUndo ? `<div class="muted small">That was too big to undo in one tap.</div>` : ""}</div>
     <span class="undo-act">${u.noUndo ? "" : `<button type="button" class="btn-s primary" data-action="aiUndo">Undo</button>`}<button type="button" class="btn-s" data-action="aiKeep">${u.noUndo ? "OK" : "Keep"}</button></span></div>
-    ${(u.warnings || []).map((w) => `<div class="undo-warn">⚠️ ${esc(w)}</div>`).join("")}
+    ${(u.warnings || []).map((w) => `<div class="undo-warn"><svg class=i aria-hidden=true><use href=icons.svg#alert /></svg> ${esc(w)}</div>`).join("")}
   </div>`;
 }
 

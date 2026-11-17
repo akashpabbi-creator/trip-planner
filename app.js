@@ -1,3 +1,4 @@
+import { ic, wxIcon } from "./icons.js";
 import { createStore } from "./store.js";
 import { unfurl, extractUrl, sourceOf, BLOCKED } from "./unfurl.js";
 import { analyse, locateAll, km, has, recommendMode, geocode } from "./smart.js";
@@ -27,26 +28,26 @@ import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, daySh
 
 /* ---------------------------------------------------------------- constants */
 const CATEGORIES = {
-  sight: { label: "Sightseeing", icon: "🏛️" },
-  activity: { label: "Activity", icon: "🎟️" },
-  food: { label: "Food & drink", icon: "🍜" },
-  stay: { label: "Stay", icon: "🛏️" },
-  shopping: { label: "Shopping", icon: "🛍️" },
-  nature: { label: "Nature", icon: "🌿" },
-  transport: { label: "Flights & tickets", icon: "🎫" },
-  other: { label: "Other", icon: "📌" },
+  sight: { label: "Sightseeing", icon: "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg>" },
+  activity: { label: "Activity", icon: "<svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg>" },
+  food: { label: "Food & drink", icon: "<svg class=i aria-hidden=true><use href=icons.svg#food /></svg>" },
+  stay: { label: "Stay", icon: "<svg class=i aria-hidden=true><use href=icons.svg#hotel /></svg>" },
+  shopping: { label: "Shopping", icon: "<svg class=i aria-hidden=true><use href=icons.svg#shop /></svg>" },
+  nature: { label: "Nature", icon: "<svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg>" },
+  transport: { label: "Flights & tickets", icon: "<svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg>" },
+  other: { label: "Other", icon: "<svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg>" },
 };
 const MODES = {
-  walk: { label: "Walk", icon: "🚶", gm: "walking" },
-  transit: { label: "Public transport", icon: "🚇", gm: "transit" },
-  bus: { label: "Bus", icon: "🚌", gm: "transit" },
-  train: { label: "Train", icon: "🚆", gm: "transit" },
-  car: { label: "Own car", icon: "🚗", gm: "driving" },
-  rental: { label: "Rental / hired car", icon: "🚙", gm: "driving" },
-  taxi: { label: "Taxi / ride-share", icon: "🚕", gm: "driving" },
-  bike: { label: "Bike / scooter", icon: "🚲", gm: "bicycling" },
-  ferry: { label: "Ferry / boat", icon: "⛴️", gm: "transit" },
-  flight: { label: "Flight", icon: "✈️", gm: "" },
+  walk: { label: "Walk", icon: "<svg class=i aria-hidden=true><use href=icons.svg#walk /></svg>", gm: "walking" },
+  transit: { label: "Public transport", icon: "<svg class=i aria-hidden=true><use href=icons.svg#train /></svg>", gm: "transit" },
+  bus: { label: "Bus", icon: "<svg class=i aria-hidden=true><use href=icons.svg#bus /></svg>", gm: "transit" },
+  train: { label: "Train", icon: "<svg class=i aria-hidden=true><use href=icons.svg#train /></svg>", gm: "transit" },
+  car: { label: "Own car", icon: "<svg class=i aria-hidden=true><use href=icons.svg#car /></svg>", gm: "driving" },
+  rental: { label: "Rental / hired car", icon: "<svg class=i aria-hidden=true><use href=icons.svg#car /></svg>", gm: "driving" },
+  taxi: { label: "Taxi / ride-share", icon: "<svg class=i aria-hidden=true><use href=icons.svg#car /></svg>", gm: "driving" },
+  bike: { label: "Bike / scooter", icon: "<svg class=i aria-hidden=true><use href=icons.svg#bike /></svg>", gm: "bicycling" },
+  ferry: { label: "Ferry / boat", icon: "<svg class=i aria-hidden=true><use href=icons.svg#ferry /></svg>", gm: "transit" },
+  flight: { label: "Flight", icon: "<svg class=i aria-hidden=true><use href=icons.svg#flight /></svg>", gm: "" },
 };
 const CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED", "SGD", "THB", "JPY", "AUD", "CAD", "CHF", "IDR", "LKR", "MYR", "VND"];
 
@@ -227,6 +228,22 @@ function stopTrip() {
   S.presence = [];
   if (prev) emit("close", prev);
 }
+// Deep links: #trip=<tripId>[&tab=<tabId>][&day=<n>] (day is 1-based). Opened from a link, the trip lands on that tab and day;
+// the address then settles back to plain #trip=<tripId>. Unknown tabs fall back to Plan, a day outside the trip is ignored.
+export function parseTripLink(hash) {
+  const get = (k) => (String(hash || "").match(new RegExp("[#&]" + k + "=([\\w-]+)")) || [])[1] || "";
+  const day = parseInt(get("day"), 10);
+  return { trip: get("trip"), tab: get("tab"), day: day >= 1 ? day : 0 };
+}
+function applyLink(id, link) {
+  if (!link) return;
+  if (link.tab && REG.tabs.some((x) => x.id === link.tab)) {
+    S.tab = link.tab;
+    rememberTab(id, S.tab);
+  }
+  S.linkDay = link.day && S.tab === "plan" ? link.day - 1 : null;
+  S.scrollToday = true;
+}
 function openTrip(id, opts = {}) {
   stopTrip();
   S.tripId = id;
@@ -237,6 +254,8 @@ function openTrip(id, opts = {}) {
   localSet("trip", id); // last trip opened: the default when something is shared into the app
   sessionSet("trip", id);
   S.tab = tabMemory()[id] || S.tab;
+  S.linkDay = null;
+  applyLink(id, opts.link);
   enterTripEntry(id, opts);
   let prevItems = new Map();
   S.unsubs.push(
@@ -383,7 +402,10 @@ function render() {
 function scrollToToday() {
   if (!S.scrollToday || !S.trip || S.tab !== "plan" || !S.items) return;
   S.scrollToday = false;
-  const i = today();
+  const linked = S.linkDay != null && S.linkDay < S.trip.days.length ? S.linkDay : null;
+  S.linkDay = null;
+  const i = linked ?? today();
+  if (linked != null) S.stripDay = linked;
   const el = i >= 0 ? $app.querySelector(`.day[data-day="${S.trip.days[i].id}"]`) : null;
   if (el) el.scrollIntoView({ block: "start" });
 }
@@ -422,7 +444,7 @@ function sidePanel(asst) {
   const list = ideas().slice(0, 5);
   return `<aside class="side">
     ${asst}
-    ${w.length ? `<section class="side-card"><h4>Weather</h4><div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${d.icon}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div></section>` : ""}
+    ${w.length ? `<section class="side-card"><h4>Weather</h4><div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${wxIcon(d.icon)}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div></section>` : ""}
     <section class="side-card"><h4>Ideas waiting${ideas().length ? ` <span class="muted">${ideas().length}</span>` : ""}</h4>
       ${list.length ? list.map((it) => `<div class="side-idea"><span class="si-t">${esc(it.title)}</span><button class="btn-s" data-action="schedule" data-id="${it.id}">Add to day</button></div>`).join("") : `<p class="muted small">No ideas waiting. Paste a link to save one.</p>`}
       <button class="link" data-action="tab" data-tab="ideas">See all ideas</button>
@@ -478,7 +500,7 @@ function renderPresence() {
 function viewSignIn() {
   const demo = S.store.mode === "demo";
   return `<section class="welcome">
-    <div class="w-art">🧭</div>
+    <div class="w-art"><svg class=i aria-hidden=true><use href=icons.svg#compass /></svg></div>
     <h1>Plan the trip together.</h1>
     <p>Save places from Instagram, Facebook or any website, drop them onto days, and see each other's changes as they happen.</p>
     ${pendingJoin() ? `<p class="join-note"><b>You've been invited to a trip.</b> ${demo ? "Start" : "Sign in"} to join it.</p>` : ""}
@@ -532,17 +554,17 @@ function viewTrip() {
           <div class="hero-acts">
             ${slot("heroActs")}
             <button class="chip ghost" data-action="invite"><span class="avs">${avatars}</span><span>Invite</span></button>
-            <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip">⚙️</button>
+            <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip"><svg class=i aria-hidden=true><use href=icons.svg#settings /></svg></button>
           </div>
         </div>
-        <button class="chip ghost round cover-btn" data-action="coverPick" title="Choose a cover" aria-label="Choose a cover">🖼️</button>
+        <button class="chip ghost round cover-btn" data-action="coverPick" title="Choose a cover" aria-label="Choose a cover"><svg class=i aria-hidden=true><use href=icons.svg#image /></svg></button>
         <div class="hero-main">
           <div class="eyebrow">${esc(eyebrow)}</div>
           <h1>${esc(t.name)}</h1>
           <div class="hero-meta">
             ${t.startDate ? `<span class="pill" ${t.weather?.tz ? `title="${esc(t.weather.tz.replace(/_/g, " "))} time"` : ""}>${shortDay(dayDate(0))} – ${shortDay(end)}</span>` : `<button class="pill pill-btn" data-action="editTrip">Set dates</button>`}
             <span class="pill">${t.days.length} day${t.days.length === 1 ? "" : "s"}</span>
-            ${temps ? `<span class="pill" title="${t.weather.kind === "forecast" ? "Forecast" : "Same dates last year"}">${w[0]?.icon || "🌡️"} ${temps}</span>` : ""}
+            ${temps ? `<span class="pill" title="${t.weather.kind === "forecast" ? "Forecast" : "Same dates last year"}">${wxIcon(w[0]?.icon) || ic("sun-cloud")} ${temps}</span>` : ""}
           </div>
           <div class="hero-budget ${budget && c.total > budget ? "over" : ""}">
             <b>${money(c.total)}</b>
@@ -613,14 +635,7 @@ function initStrip() {
 }
 window.addEventListener("resize", () => layoutVars());
 
-const svgI = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
-const NAV_SVG = {
-  plan: svgI('<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
-  map: svgI('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/>'),
-  ideas: svgI('<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>'),
-  kit: svgI('<path d="M6 8a6 6 0 0 1 12 0v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/><path d="M9 6V4h6v2M9 14h6"/>'),
-  more: svgI('<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>'),
-};
+const NAV_SVG = { plan: ic("plan"), map: ic("map"), ideas: ic("ideas"), kit: ic("backpack"), more: ic("more") };
 // Desktop: every tab inline. Phones: a bottom bar (tabs that aren't "more") plus a More sheet for the rest.
 function viewNav(tabs, cur, counts) {
   const btn = (x) => {
@@ -630,14 +645,14 @@ function viewNav(tabs, cur, counts) {
   const rest = tabs.filter((x) => x.more);
   const moreN = rest.filter((x) => x.warn).reduce((s, x) => s + counts.get(x.id), 0);
   const moreOn = S.moreOpen || rest.some((x) => x.id === cur?.id);
-  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}${S.aiUser ? `<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button><button class="tab-connect" data-action="connectorOpen"><span class="t-ic">🔌</span><span class="t-l">Connector</span></button>` : ""}</nav>
+  return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}${S.aiUser ? `<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="t-l">Connect Claude</span></button><button class="tab-connect" data-action="connectorOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#plug /></svg></span><span class="t-l">Connector</span></button>` : ""}</nav>
     <nav class="tabs tabs-bar">${tabs.filter((x) => !x.more).map(btn).join("")}
       <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">${NAV_SVG.more}</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
     </nav>
     ${S.moreOpen ? `<div class="more-back" data-action="moreClose"></div>
     <div class="more-sheet" role="menu">
       ${rest.map((x) => { const n = counts.get(x.id); return `<button class="${cur?.id === x.id ? "on" : ""}" role="menuitem" data-action="tab" data-tab="${x.id}"><span class="t-ic">${x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`; }).join("")}
-      ${S.aiUser ? `<button role="menuitem" data-action="bridgeOpen"><span class="t-ic">🟠</span><span class="t-l">Connect Claude</span></button><button role="menuitem" data-action="connectorOpen"><span class="t-ic">🔌</span><span class="t-l">Connector</span></button>` : ""}
+      ${S.aiUser ? `<button role="menuitem" data-action="bridgeOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="t-l">Connect Claude</span></button><button role="menuitem" data-action="connectorOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#plug /></svg></span><span class="t-l">Connector</span></button>` : ""}
     </div>` : ""}`;
 }
 function runView(tab) {
@@ -651,7 +666,7 @@ function viewAddLink() {
     .replace(/data-label="([^"]*)"/g, (m, l) => `data-label="${l}" data-short="${SHORT[l] || l}"`);
   return `<div class="add-wrap ${S.addOpen ? "open" : ""}">
     <div class="add-link">
-      <span class="al-ic">🔗</span>
+      <span class="al-ic"><svg class=i aria-hidden=true><use href=icons.svg#link /></svg></span>
       <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link, or add a place" aria-label="Paste a link" ${S.busy ? "disabled" : ""}>
       <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
     </div>
@@ -662,12 +677,12 @@ function viewAddLink() {
       <h3>Add to the trip</h3>
       <p class="muted small">${S.aiUser ? "Links, screenshots and tips" : "Links and places"} all land in Ideas. Move them to a day when you are ready.</p>
       <div class="as-grid">
-        <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-short="Clipboard" data-sub="Use the copied link">📋</button>
-        <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-short="New stop" data-sub="Add a place by name">📍</button>
+        <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-short="Clipboard" data-sub="Use the copied link"><svg class=i aria-hidden=true><use href=icons.svg#clipboard /></svg></button>
+        <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-short="New stop" data-sub="Add a place by name"><svg class=i aria-hidden=true><use href=icons.svg#pin /></svg></button>
         ${extra}
       </div>
     </div>
-  </div>${typeof S.busy === "string" ? `<p class="muted small busy-line">⏳ ${esc(S.busy)}</p>` : ""}`;
+  </div>${typeof S.busy === "string" ? `<p class="muted small busy-line">${esc(S.busy)}</p>` : ""}`;
 }
 
 // One-tap Google Maps directions to a stop: its coordinates when known, else its place name near the destination.
@@ -693,19 +708,19 @@ function card(it, opts = {}) {
         ${opts.time && !opts.rail ? `<span class="time ${opts.auto ? "auto" : ""}" title="${opts.auto ? "Estimated from the stops before it" : "Fixed time"}">${opts.time}</span>` : ""}
         <span class="c-title">${esc(it.title || "Untitled")}</span>
         ${it.mustDo ? `<span class="tag must-tag">Must-do</span>` : ""}
-        ${it.rating ? `<span class="tag star">★ ${esc(it.rating)}${it.reviews ? ` <span class="muted">(${Number(it.reviews).toLocaleString()})</span>` : ""}</span>` : ""}
+        ${it.rating ? `<span class="tag star"><svg class=i aria-hidden=true><use href=icons.svg#star /></svg> ${esc(it.rating)}${it.reviews ? ` <span class="muted">(${Number(it.reviews).toLocaleString()})</span>` : ""}</span>` : ""}
       </div>
       <div class="c-meta">
         <span>${cat.icon} ${cat.label}</span>
         ${it.durationMin ? `<span>${dur(+it.durationMin)}</span>` : ""}
         ${Number(it.cost) ? `<span>${money(it.cost)}</span>` : ""}
-        ${it.location ? `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it.location)}" target="_blank" rel="noopener">📍 ${esc(it.location)}</a>` : ""}
+        ${it.location ? `<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it.location)}" target="_blank" rel="noopener"><svg class=i aria-hidden=true><use href=icons.svg#pin /></svg> ${esc(it.location)}</a>` : ""}
         ${badge ? `<span class="tag">${badge}</span>` : ""}
         ${it.category === "food" ? vegTag(it.veg, it.vegNote, true) : ""}
       </div>
       ${it.description ? `<p class="c-desc">${esc(it.description.slice(0, 220))}${it.description.length > 220 ? "…" : ""}</p>` : ""}
-      ${it.notes ? `<p class="c-notes">📝 ${esc(it.notes)}</p>` : ""}
-      ${it.category === "food" && it.vegNote ? `<p class="c-notes">🥗 ${esc(it.vegNote)}</p>` : ""}
+      ${it.notes ? `<p class="c-notes"><svg class=i aria-hidden=true><use href=icons.svg#note /></svg> ${esc(it.notes)}</p>` : ""}
+      ${it.category === "food" && it.vegNote ? `<p class="c-notes"><svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg> ${esc(it.vegNote)}</p>` : ""}
     </div>
     ${img ? `<img class="thumb" src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;thumb ph&quot;>${cat.icon}</div>'">` : `<div class="thumb ph">${cat.icon}</div>`}
     <div class="c-links">
@@ -714,7 +729,7 @@ function card(it, opts = {}) {
         ${safeUrl(it.url) ? `<a class="btn-s c-out" href="${esc(it.url)}" target="_blank" rel="noopener" title="Open the original link">Link ↗</a>` : ""}
         <span class="c-actions">
           ${opts.inDay ? `<button class="btn-s ic-b" data-action="up" data-id="${it.id}" title="Move earlier" aria-label="Move earlier">↑</button><button class="btn-s ic-b" data-action="down" data-id="${it.id}" title="Move later" aria-label="Move later">↓</button>` : `<button class="btn-s primary" data-action="schedule" data-id="${it.id}">Add to day</button>`}
-          <button class="btn-s ic-b" data-action="editItem" data-id="${it.id}" title="Edit" aria-label="Edit">✎</button>
+          <button class="btn-s ic-b" data-action="editItem" data-id="${it.id}" title="Edit" aria-label="Edit"><svg class=i aria-hidden=true><use href=icons.svg#edit /></svg></button>
         </span>
       </div>
       <div class="c-foot">
@@ -730,7 +745,7 @@ function legView(prev, it, dayIdx) {
   const gm = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(from)}&destination=${encodeURIComponent(to)}${m?.gm ? "&travelmode=" + m.gm : ""}`;
   return `<div class="leg ${m ? "" : "empty"}">
     <button class="leg-btn" data-action="editLeg" data-id="${it.id}">
-      ${m ? `${m.icon} ${m.label}${t.minutes ? ` · ${dur(+t.minutes)}` : ""}${Number(t.cost) ? ` · ${money(t.cost)}` : ""}${t.notes ? ` · ${esc(t.notes)}` : ""}${t.auto ? ` <span class="muted">· estimated</span>` : ""}` : `➕ How do we get here?`}
+      ${m ? `${m.icon} ${m.label}${t.minutes ? ` · ${dur(+t.minutes)}` : ""}${Number(t.cost) ? ` · ${money(t.cost)}` : ""}${t.notes ? ` · ${esc(t.notes)}` : ""}${t.auto ? ` <span class="muted">· estimated</span>` : ""}` : `<svg class=i aria-hidden=true><use href=icons.svg#plus /></svg> How do we get here?`}
     </button>
     <a class="leg-map" href="${gm}" target="_blank" rel="noopener" title="Directions in Google Maps">Directions ↗</a>
   </div>`;
@@ -744,21 +759,21 @@ function viewPlan() {
   // A calm stack: Today first, then at most one prominent banner, the ask box, and quiet extras last.
   const chgN = ctx.pendingChanges?.() || 0;
   const lead = t.proposal ? "plan" : chgN ? "changes" : nSmart ? "smart" : "";
-  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="tab" data-tab="smart"><span class="ar-ic">✨</span><span class="ar-t">${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan</span><b>Review</b></button>` : "";
+  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="tab" data-tab="smart"><span class="ar-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="ar-t">${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan</span><b>Review</b></button>` : "";
   const checkBox = !ch.length ? "" : ch.length === 1
     ? `<div class="check ${ch[0].level}">${esc(ch[0].text)}</div>`
-    : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}"><span class="ar-ic w">⚠️</span><span class="ar-t">${ch.length} things to check</span><b>See</b></summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
+    : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}"><span class="ar-ic w"><svg class=i aria-hidden=true><use href=icons.svg#alert /></svg></span><span class="ar-t">${ch.length} things to check</span><b>See</b></summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
   const ico = (e, w) => `<span class="ar-ic ${w || ""}">${e}</span>`;
   const asstHtml = `<div class="asst">
-    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("🤖")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days${psocialMod.summary(t.proposal, t.members) ? `<span class="ps-sum">${esc(psocialMod.summary(t.proposal, t.members))}</span>` : ""}</span><b>Review</b></button>` : ""}
+    ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("<svg class=i aria-hidden=true><use href=icons.svg#robot /></svg>")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days${psocialMod.summary(t.proposal, t.members) ? `<span class="ps-sum">${esc(psocialMod.summary(t.proposal, t.members))}</span>` : ""}</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
-    ${S.planning && !t.proposal ? `<p class="muted small busy-line">⏳ ${esc(S.planning)}</p>` : ""}
+    ${S.planning && !t.proposal ? `<p class="muted small busy-line">${esc(S.planning)}</p>` : ""}
     ${checkBox}
     ${!t.proposal && !S.planning && t.days.some((d) => !dayItems(d.id).length) ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>
-      <button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days</button>
-      ${ctx.aiKey() ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}>🤖 Plan with Gemini</button>` : ""}
-      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan">🟠 Plan with Claude</button>` : ""}</div>` : ""}
+      <button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Fill empty days</button>
+      ${ctx.aiKey() ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}><svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> Plan with Gemini</button>` : ""}
+      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Plan with Claude</button>` : ""}</div>` : ""}
     ${lead !== "smart" ? smart : ""}
     </div>`;
   S.asstHtml = asstHtml;
@@ -779,7 +794,7 @@ function viewPlan() {
               <div class="day-n">Day ${i + 1}${heading ? ` · ${esc(heading)}` : ""}${i === todayI ? ` <span class="tag today-tag">Today</span>` : ""}</div>
               <div class="day-sub">${sub}${dayWeather(i)}</div>
             </div>
-            <button class="day-more" data-action="editDay" data-id="${d.id}" title="Edit this day" aria-label="Edit this day">⋯</button>
+            <button class="day-more" data-action="editDay" data-id="${d.id}" title="Edit this day" aria-label="Edit this day"><svg class=i aria-hidden=true><use href=icons.svg#more /></svg></button>
           </div>
           <div class="day-side">${slot("dayHead", d, i)}</div>
         </header>
@@ -816,7 +831,7 @@ function viewBudget() {
   const budget = Number(t.budget) || 0;
   const rows = Object.entries(CATEGORIES)
     .map(([k, v]) => [v.icon + " " + v.label, c.byCat[k] || 0])
-    .concat([["🚕 Getting around (legs between stops)", c.transport], ["➕ Other costs", c.extras]], c.extraRows.map((r) => [esc(r.label), Number(r.amount)]))
+    .concat([["<svg class=i aria-hidden=true><use href=icons.svg#car /></svg> Getting around (legs between stops)", c.transport], ["<svg class=i aria-hidden=true><use href=icons.svg#plus /></svg> Other costs", c.extras]], c.extraRows.map((r) => [esc(r.label), Number(r.amount)]))
     .filter(([, v]) => v);
   const perPerson = t.members.length ? c.total / t.members.length : c.total;
   return `<div class="budget">
@@ -831,7 +846,7 @@ function viewBudget() {
     <h3>By day</h3>
     <table class="b-table">${t.days.map((d, i) => `<tr><td>Day ${i + 1}${d.title ? " · " + esc(d.title) : ""}</td><td>${money(dayCost(d.id))}</td><td></td></tr>`).join("")}</table>
     <h3>Other costs <span class="muted small">(flights home, visas, insurance…)</span></h3>
-    <table class="b-table">${(t.extras || []).map((e) => `<tr><td>${esc(e.label)} <span class="muted small">· ${esc(who(e.by))}</span></td><td>${money(e.cost)}</td><td><button class="btn-s" data-action="delExtra" data-id="${e.id}">✕</button></td></tr>`).join("")}</table>
+    <table class="b-table">${(t.extras || []).map((e) => `<tr><td>${esc(e.label)} <span class="muted small">· ${esc(who(e.by))}</span></td><td>${money(e.cost)}</td><td><button class="btn-s" data-action="delExtra" data-id="${e.id}"><svg class=i aria-hidden=true><use href=icons.svg#x /></svg></button></td></tr>`).join("")}</table>
     <div class="row"><input id="extraLabel" placeholder="e.g. Return flights"><input id="extraCost" type="number" inputmode="decimal" placeholder="Cost" min="0" max="1000000000"><button data-action="addExtra">Add</button></div>
     ${slot("budget")}
   </div>`;
@@ -877,7 +892,7 @@ function viewItinerary() {
   const c = costs();
   const bk = itinBookings();
   return `<div class="itin">
-    <div class="itin-actions"><button data-action="print">🖨️ Print / save as PDF</button><button data-action="copyItin">Copy as text</button>${slot("itinActions")}</div>
+    <div class="itin-actions"><button data-action="print"><svg class=i aria-hidden=true><use href=icons.svg#printer /></svg> Print / save as PDF</button><button data-action="copyItin">Copy as text</button>${slot("itinActions")}</div>
     <div class="itin-doc" id="itinDoc">
       <h1>${esc(t.name)}</h1>
       <p class="muted">${esc(t.destination || "")}${t.startDate ? ` · ${fmtDay(dayDate(0))} – ${fmtDay(dayDate(t.days.length - 1))}` : ""} · ${t.days.length} days · ${t.members.map((m) => esc(nameOf(m))).join(" & ")}</p>
@@ -907,7 +922,7 @@ function dayWeather(i) {
   const w = S.trip.weather?.days?.[i];
   if (!w || !Number.isFinite(w.max)) return "";
   const rain = w.rainPct != null ? (w.rainPct >= 40 ? ` · ${w.rainPct}% rain` : "") : w.rain >= 2 ? " · rainy" : "";
-  return ` <span class="wx" title="${S.trip.weather.kind === "forecast" ? "Forecast" : "Same date last year"}">${w.icon} ${w.max}°/${w.min}°${rain}</span>`;
+  return ` <span class="wx" title="${S.trip.weather.kind === "forecast" ? "Forecast" : "Same date last year"}">${wxIcon(w.icon)} ${w.max}°/${w.min}°${rain}</span>`;
 }
 async function ensureDestination(force = false) {
   const t = S.trip;
@@ -1071,7 +1086,7 @@ function claudePlan(manual) {
   const url = "https://claude.ai/new" + (prompt.length < 7000 ? "?q=" + encodeURIComponent(prompt) : "");
   window.open(url, "_blank", "noopener");
   navigator.clipboard?.writeText(prompt).catch(() => {});
-  openModal(`<h3>🟠 Plan with Claude</h3>
+  openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Plan with Claude</h3>
     <p class="small">Claude opened in a new tab with the request ready${prompt.length < 7000 ? "" : " (it's also copied: paste it in)"}. Send it, wait for the answer, then tap <b>Copy</b> under Claude's reply and paste it here.</p>
     <label>Claude's answer<textarea name="answer" rows="8" placeholder="Paste Claude's whole answer here" required></textarea></label>
     <p class="muted small">The app checks it against your rules (pace, rest, vegetarian options, no transport stops) and puts it on your days straight away. You can undo it from the Plan tab.</p>
@@ -1093,7 +1108,7 @@ async function finishDraft(tripId, draft, source) {
     const veto = socialMod.dropVetoed(draft, S.items); // places either of you voted 👎 never reach the plan
     draft = veto.draft;
     const checked = checkDraft(draft, t, p, dates, t.guide?.listings || []);
-    if (veto.dropped.length) checked.notes.unshift(`Left out ${veto.dropped.map((n) => "“" + n + "”").join(", ")}: you voted 👎 on ${veto.dropped.length > 1 ? "them" : "it"}.`);
+    if (veto.dropped.length) checked.notes.unshift(`Left out ${veto.dropped.map((n) => "“" + n + "”").join(", ")}: you voted thumbs-down on ${veto.dropped.length > 1 ? "them" : "it"}.`);
     // Only places that can be found on the map make it into the plan.
     const todo = checked.plan.filter((x) => x.listing && !inTrip(x.listing.name) && !Number.isFinite(x.listing.lat));
     let k = 0;
@@ -1129,19 +1144,19 @@ function openProposal() {
   if (!pr) return;
   const done = new Set(pr.done || []);
   const day = (i) => pr.plan.filter((x) => x.dayIndex === i).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
-  const row = (x) => x.kind === "rest" ? `<li class="muted"><b>${esc(x.time || "")}</b> ☕ Rest &amp; recharge${x.note ? ` <span class="small">· ${esc(x.note)}</span>` : ""}</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
+  const row = (x) => x.kind === "rest" ? `<li class="muted"><b>${esc(x.time || "")}</b> <svg class=i aria-hidden=true><use href=icons.svg#coffee /></svg> Rest &amp; recharge${x.note ? ` <span class="small">· ${esc(x.note)}</span>` : ""}</li>` : `<li>${x.time ? `<b>${esc(x.time)}</b> ` : ""}${CATEGORIES[x.listing.category]?.icon || ""} ${esc(x.listing.name)}${x.note ? ` <span class="muted small">· ${esc(x.note)}</span>` : ""}${x.listing.content ? `<div class="muted small">${esc(x.listing.content)}</div>` : ""}</li>`;
   const ideas = pr.plan.filter((x) => x.dayIndex == null);
-  openModal(`<h3>🤖 ${S.aiUser ? esc(pr.source || "Gemini") + "'s plan" : "Drafted plan"} for ${esc(t.destination)}</h3>
+  openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> ${S.aiUser ? esc(pr.source || "Gemini") + "'s plan" : "Drafted plan"} for ${esc(t.destination)}</h3>
     <p class="muted small">Drafted${S.aiUser ? " by " + esc(pr.source || "Gemini") : ""} ${ago(pr.at)} and checked against your preferences. Using a day replaces that day's untouched sample stops; your own stops stay.</p>
     ${pr.summary ? `<p>${esc(pr.summary)}</p>` : ""}
     ${pr.notes?.length ? `<div class="checks">${pr.notes.map((n) => `<div class="check info">${esc(n)}</div>`).join("")}</div>` : ""}
     <div class="proposal">${t.days.map((d, i) => `<section class="day"><header class="day-head"><div><div class="day-n">Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}</div>${pr.bases?.find((b) => b.dayIndex === i) ? `<div class="day-title muted">staying in ${esc(pr.bases.find((b) => b.dayIndex === i).base)}</div>` : ""}</div>
-      <span class="pday-side">${psocialMod.voteRow(pr, "d" + i, "proposal")}${done.has(i) ? `<span class="muted small">✓ In your plan</span>` : `<button type="button" class="btn-s" data-action="acceptDay" data-day="${i}">Use this day</button>`}</span></header>
+      <span class="pday-side">${psocialMod.voteRow(pr, "d" + i, "proposal")}${done.has(i) ? `<span class="muted small"><svg class=i aria-hidden=true><use href=icons.svg#check /></svg> In your plan</span>` : `<button type="button" class="btn-s" data-action="acceptDay" data-day="${i}">Use this day</button>`}</span></header>
       <ul class="prop-list">${day(i).map(row).join("") || `<li class="muted">Nothing planned.</li>`}</ul></section>`).join("")}</div>
     ${ideas.length ? `<p class="muted small">Also goes to Ideas: ${ideas.map((x) => esc(x.listing.name)).join(", ")}</p>` : ""}
     <div class="ps-all"><b>What do you both think?</b>${psocialMod.voteRow(pr, "all", "proposal")}<span class="muted small">Votes are just opinions. Nothing is used until you tap a button.</span></div>
     ${psocialMod.thread(pr, "proposal")}
-    <div class="row">${S.aiUser ? `<button type="button" class="btn-s" data-action="regenPlan">🔁 Try again</button>` : ""}<button type="button" class="btn-s" data-action="dropPlan">Discard this draft</button></div>`, () => acceptProposal(t.days.map((_, i) => i).filter((i) => !done.has(i))));
+    <div class="row">${S.aiUser ? `<button type="button" class="btn-s" data-action="regenPlan"><svg class=i aria-hidden=true><use href=icons.svg#refresh /></svg> Try again</button>` : ""}<button type="button" class="btn-s" data-action="dropPlan">Discard this draft</button></div>`, () => acceptProposal(t.days.map((_, i) => i).filter((i) => !done.has(i))));
   const ok = $form.querySelector("button[value=ok]");
   if (ok) ok.textContent = "Use the whole plan";
 }
@@ -1220,9 +1235,9 @@ const mapsQ = (loc) => {
 
 function vegTag(level, note = "", flagUnknown = false) {
   const tip = note ? ` title="${esc(note)}"` : "";
-  if (level === "yes") return `<span class="tag veg-tag"${tip}>🥗 Veg options</span>`;
-  if (level === "no") return `<span class="tag nonveg-tag"${tip}>⚠️ No veg/egg options</span>`;
-  if (flagUnknown) return `<span class="tag nonveg-tag"${tip}>❓ Veg options unchecked</span>`;
+  if (level === "yes") return `<span class="tag veg-tag"${tip}><svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg> Veg options</span>`;
+  if (level === "no") return `<span class="tag nonveg-tag"${tip}><svg class=i aria-hidden=true><use href=icons.svg#alert /></svg> No veg/egg options</span>`;
+  if (flagUnknown) return `<span class="tag nonveg-tag"${tip}><svg class=i aria-hidden=true><use href=icons.svg#help /></svg> Veg options unchecked</span>`;
   return "";
 }
 function discoverCard(x, src, idx) {
@@ -1234,15 +1249,15 @@ function discoverCard(x, src, idx) {
     <div class="d-body">
       <div class="d-title">${esc(x.name)}</div>
       <div class="d-meta">
-        ${x.rating ? `<span class="star">★ ${esc(x.rating)}${x.reviews ? ` (${Number(x.reviews).toLocaleString()})` : ""}</span>` : ""}
+        ${x.rating ? `<span class="star"><svg class=i aria-hidden=true><use href=icons.svg#star /></svg> ${esc(x.rating)}${x.reviews ? ` (${Number(x.reviews).toLocaleString()})` : ""}</span>` : ""}
         ${x.priceLevel ? `<span>${esc(x.priceLevel)}</span>` : ""}
         ${x.price ? `<span>${esc(x.price)}</span>` : ""}
-        ${x.area ? `<span>📍 ${esc(x.area)}</span>` : ""}
+        ${x.area ? `<span><svg class=i aria-hidden=true><use href=icons.svg#pin /></svg> ${esc(x.area)}</span>` : ""}
         ${x.category === "food" ? vegTag(vegLevel(x)) : ""}
       </div>
       <p class="d-desc">${esc((x.why || x.content || x.address || "").slice(0, 180))}</p>
       <div class="d-act">
-        ${there ? `<span class="added">✓ ${there.dayId && S.trip.days.some((d) => d.id === there.dayId) ? dayLabel(there.dayId) : "In ideas"}</span>` : `<button class="btn-s primary" data-action="discAdd" data-src="${src}" data-id="${idx}">＋ Add</button>`}
+        ${there ? `<span class="added"><svg class=i aria-hidden=true><use href=icons.svg#check /></svg> ${there.dayId && S.trip.days.some((d) => d.id === there.dayId) ? dayLabel(there.dayId) : "In ideas"}</span>` : `<button class="btn-s primary" data-action="discAdd" data-src="${src}" data-id="${idx}">＋ Add</button>`}
         <a class="btn-s" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${mapsQ(x.address || x.area || x.name)}">Map</a>
       </div>
     </div>
@@ -1250,10 +1265,10 @@ function discoverCard(x, src, idx) {
 }
 function viewDiscover() {
   const t = S.trip;
-  if (!t.destination) return `<div class="empty-state"><div class="es-ic">🧭</div><p>Add a destination to see top sights, food and places to stay.</p><button class="primary" data-action="editTrip">Add destination</button></div>`;
+  if (!t.destination) return `<div class="empty-state"><div class="es-ic"><svg class=i aria-hidden=true><use href=icons.svg#compass /></svg></div><p>Add a destination to see top sights, food and places to stay.</p><button class="primary" data-action="editTrip">Add destination</button></div>`;
   const loading = S.destBusy || (t.destLoading && Date.now() - t.destLoading.at < 60000);
   const f = S.discFilter || "all";
-  const filters = [["all", "All"], ["sight", "🏛️ Sights"], ["activity", "🎟️ Do"], ["food", "🍜 Eat & drink"], ["stay", "🛏️ Stay"], ["nature", "🌿 Nature"], ["shopping", "🛍️ Shop"]];
+  const filters = [["all", "All"], ["sight", "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg> Sights"], ["activity", "<svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg> Do"], ["food", "<svg class=i aria-hidden=true><use href=icons.svg#food /></svg> Eat & drink"], ["stay", "<svg class=i aria-hidden=true><use href=icons.svg#hotel /></svg> Stay"], ["nature", "<svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg> Nature"], ["shopping", "<svg class=i aria-hidden=true><use href=icons.svg#shop /></svg> Shop"]];
   const ok = (x) => f === "all" || x.category === f;
   const picks = (t.aiPicks?.for === t.destination ? t.aiPicks.items : []).map((x, i) => [x, i]).filter(([x]) => ok(x));
   const guide = (t.guide?.for === t.destination ? t.guide.listings : []).map((x, i) => [x, i]).filter(([x]) => ok(x))
@@ -1262,20 +1277,20 @@ function viewDiscover() {
   return `<div class="discover">
     ${aboutBlock()}
     ${slot("discoverTop")}
-    ${w.length ? `<div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${d.icon}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div>
+    ${w.length ? `<div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${wxIcon(d.icon)}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div>
       <p class="muted small">${t.weather.kind === "forecast" ? "Weather forecast for your dates." : "Weather on the same dates last year, as a guide. The forecast appears about two weeks before you go."}</p>` : ""}
     ${prefsCard()}
     <div class="chips">${filters.map(([k, l]) => `<button class="chip ${f === k ? "on" : ""}" data-action="discFilter" data-id="${k}">${l}</button>`).join("")}</div>
 
     ${S.aiUser ? `<section class="d-sec">
-      <div class="d-head"><h3>✨ Top rated, picked by ${esc(t.aiPicks?.for === t.destination && t.aiPicks.source || "Gemini")}</h3>
+      <div class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Top rated, picked by ${esc(t.aiPicks?.for === t.destination && t.aiPicks.source || "Gemini")}</h3>
         ${ctx.aiKey() ? `<button class="btn-s" data-action="aiPicks" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "picks" ? "Searching…" : picks.length ? "Refresh" : "Find top-rated picks"}</button>` : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
       ${picks.length ? `<div class="dgrid">${picks.map(([x, i]) => discoverCard(x, "ai", i)).join("")}</div>`
         : `<p class="muted small">${ctx.aiKey() ? "Gemini searches Google for the best-reviewed places, with ratings." : "Connect a free Gemini key to get top-rated restaurants, sights and hotels with Google ratings."}</p>`}
     </section>` : ""}
 
     <section class="d-sec">
-      <div class="d-head"><h3>📖 Travel guide picks</h3><button class="btn-s" data-action="refreshDest" ${loading ? "disabled" : ""}>${loading ? "Loading…" : "Refresh"}</button></div>
+      <div class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#note /></svg> Travel guide picks</h3><button class="btn-s" data-action="refreshDest" ${loading ? "disabled" : ""}>${loading ? "Loading…" : "Refresh"}</button></div>
       ${guide.length ? `<div class="dgrid">${guide.map(([x, i]) => discoverCard(x, "guide", i)).join("")}</div>`
         : `<p class="muted small">${loading ? "Loading the guide for " + esc(t.destination) + "…" : "No guide listings found for this destination. Try a city name, e.g. “Ubud” rather than “Bali”."}</p>`}
       ${t.guide?.source ? `<p class="muted small">From <a href="${esc(t.guide.source)}" target="_blank" rel="noopener">Wikivoyage</a>, the free travel guide.</p>` : ""}
@@ -1289,22 +1304,22 @@ function prefsCard() {
   const tip = vegTip(t.destination);
   const anyEmpty = t.days.some((d) => !dayItems(d.id).length);
   return `<section class="d-sec prefs-card">
-    <div class="d-head"><h3>💚 Planned around your preferences</h3><button class="btn-s" data-action="editProfile">Edit</button></div>
+    <div class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#heart /></svg> Planned around your preferences</h3><button class="btn-s" data-action="editProfile">Edit</button></div>
     <ul class="prefs-list small">
-      <li>🥚 ${esc(p.diet)}</li>
-      <li>${mode === "slow" ? "🌴 Slow pace: 1–2 anchors a day" : "🏙️ Full days: 3–4 sights a day, 4 when it's cool"}${p.pace === "auto" ? " (picked for this destination)" : ""}</li>
-      ${p.rest ? "<li>☕ A rest block every day, timed to the heat and sunset</li>" : ""}
-      ${p.splurges ? "<li>✨ One splurge each: food, stay, experience</li>" : ""}
-      <li>🍜 Street food and markets, plus one notable restaurant</li>
-      ${p.linksToDays ? "<li>🔗 Places from your shared links go straight onto the best day</li>" : "<li>🔗 Places from your shared links wait in Ideas until you move them to a day</li>"}
+      <li><svg class=i aria-hidden=true><use href=icons.svg#egg /></svg> ${esc(p.diet)}</li>
+      <li>${mode === "slow" ? "<svg class=i aria-hidden=true><use href=icons.svg#palm /></svg> Slow pace: 1–2 anchors a day" : "<svg class=i aria-hidden=true><use href=icons.svg#skyline /></svg> Full days: 3–4 sights a day, 4 when it's cool"}${p.pace === "auto" ? " (picked for this destination)" : ""}</li>
+      ${p.rest ? "<li><svg class=i aria-hidden=true><use href=icons.svg#coffee /></svg> A rest block every day, timed to the heat and sunset</li>" : ""}
+      ${p.splurges ? "<li><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> One splurge each: food, stay, experience</li>" : ""}
+      <li><svg class=i aria-hidden=true><use href=icons.svg#food /></svg> Street food and markets, plus one notable restaurant</li>
+      ${p.linksToDays ? "<li><svg class=i aria-hidden=true><use href=icons.svg#link /></svg> Places from your shared links go straight onto the best day</li>" : "<li><svg class=i aria-hidden=true><use href=icons.svg#link /></svg> Places from your shared links wait in Ideas until you move them to a day</li>"}
     </ul>
-    ${tip ? `<p class="small veg-tip">🗣️ ${esc(tip)}</p>` : ""}
+    ${tip ? `<p class="small veg-tip"><svg class=i aria-hidden=true><use href=icons.svg#speech /></svg> ${esc(tip)}</p>` : ""}
     <div class="prefs-acts">
-      ${anyEmpty ? `<button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}>✨ Fill empty days with a sample itinerary</button>` : ""}
-      ${ctx.aiKey() ? `<button class="btn-s ${anyEmpty ? "" : "primary"}" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "⏳ " + esc(S.planning) : t.proposal ? `🤖 Review ${esc(t.proposal.source || "Gemini")}'s plan` : "🤖 Ask Gemini to plan the days"}</button>` : ""}
-      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}>🟠 Plan with Claude</button>` : ""}
-      ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}>🔄 Rebuild the sample plan</button>
-      <button class="btn-s" data-action="clearSample">🧹 Clear the sample stops</button>` : ""}
+      ${anyEmpty ? `<button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Fill empty days with a sample itinerary</button>` : ""}
+      ${ctx.aiKey() ? `<button class="btn-s ${anyEmpty ? "" : "primary"}" data-action="${t.proposal ? "openProposal" : "geminiPlan"}" ${S.planning ? "disabled" : ""}>${S.planning ? "" + esc(S.planning) : t.proposal ? `<svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> Review ${esc(t.proposal.source || "Gemini")}'s plan` : "<svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> Ask Gemini to plan the days"}</button>` : ""}
+      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan" ${S.planning ? "disabled" : ""}><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Plan with Claude</button>` : ""}
+      ${S.items.some((i) => i.suggestedBy === "guide" || i.suggestedBy === "plan") ? `<button class="btn-s" data-action="rebuildSample" ${t.guide?.listings?.length ? "" : "disabled"}><svg class=i aria-hidden=true><use href=icons.svg#refresh /></svg> Rebuild the sample plan</button>
+      <button class="btn-s" data-action="clearSample"><svg class=i aria-hidden=true><use href=icons.svg#broom /></svg> Clear the sample stops</button>` : ""}
     </div>
     ${ctx.aiKey() && geminiWait() ? `<p class="muted small">Gemini's free limit is used up until ${new Date(geminiWait()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Until then the planner uses its own rules and the travel guide.</p>` : ""}
   </section>`;
@@ -1312,7 +1327,7 @@ function prefsCard() {
 function editProfile() {
   const p = profileOf(S.trip);
   const ta = (name, label) => `<label>${label}<textarea name="${name}" rows="2">${esc(p[name])}</textarea></label>`;
-  openModal(`<h3>💚 Our preferences</h3>
+  openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#heart /></svg> Our preferences</h3>
     <p class="muted small">Used for the sample itinerary${S.aiUser ? ", Gemini's picks and reviews," : ""} and the plan checks. Everyone on the trip can change these.</p>
     <label>Pace<select name="pace">${[["auto", "Pick per destination (cities full, beaches and hills slow)"], ["dense", "Full days"], ["slow", "Slow"]].map(([v, l]) => `<option value="${v}" ${p.pace === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
     <label>Home city (for flight price links)<input name="home" value="${esc(p.home || "")}" placeholder="e.g. Mumbai" autocomplete="off"></label>
@@ -1332,7 +1347,7 @@ function editProfile() {
 function aiSettings() {
   if (!S.aiUser) return;
   const cur = S.priv?.ai || {};
-  openModal(`<h3>✨ Connect Gemini</h3>
+  openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Connect Gemini</h3>
     <p class="muted small">Gemini gives top-rated picks with Google ratings and an expert review of your plan. It needs a free API key. Your Gemini app subscription isn't used for this; the free key is separate and costs nothing.</p>
     <ol class="steps small">
       <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with Google.</li>
@@ -1448,7 +1463,7 @@ function viewAiReview() {
   const t = S.trip;
   if (!S.aiUser) return "";
   const r = t.aiReview;
-  const head = `<div class="d-head"><h3>🤖 ${esc(r?.source || "Gemini")} review</h3>${ctx.aiKey()
+  const head = `<div class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> ${esc(r?.source || "Gemini")} review</h3>${ctx.aiKey()
     ? `<button class="btn-s ${r ? "" : "primary"}" data-action="aiReview" ${S.aiBusy ? "disabled" : ""}>${S.aiBusy === "review" ? "Reviewing…" : r ? "Review again" : "Review our plan"}</button>`
     : `<button class="btn-s primary" data-action="aiSettings">Connect Gemini (free)</button>`}</div>
     <p class="muted small">Using Claude? <button class="link" data-action="copyForClaude" data-id="review">Copy plan for a Claude review</button> or <button class="link" data-action="copyForClaude" data-id="drive">Copy plan to save in Google Drive</button>, then paste it in your Claude trip project.</p>`;
@@ -1459,7 +1474,7 @@ function viewAiReview() {
     ${r.suggestions.map((x, i) => {
       const done = (r.applied || []).includes(i);
       const can = !done && aiActionable(x.action);
-      return `<article class="sug ai ${done ? "done" : ""}"><div class="sug-ic">${done ? "✅" : "💬"}</div><div class="sug-body"><div class="sug-title">${esc(x.title)}</div><div class="sug-detail">${esc(x.detail || "")}</div></div>
+      return `<article class="sug ai ${done ? "done" : ""}"><div class="sug-ic">${done ? "<svg class=i aria-hidden=true><use href=icons.svg#check-circle /></svg>" : "<svg class=i aria-hidden=true><use href=icons.svg#comment /></svg>"}</div><div class="sug-body"><div class="sug-title">${esc(x.title)}</div><div class="sug-detail">${esc(x.detail || "")}</div></div>
         <div class="sug-act">${can ? `<button class="btn-s primary" data-action="aiApply" data-id="${i}">Apply</button>` : done ? `<span class="added">Applied</span>` : ""}</div></article>`;
     }).join("")}
   </section>`;
@@ -1480,23 +1495,23 @@ function viewSmart() {
   const hidden = smartAll().length - list.length;
   const fixes = list.filter((x) => x.level === "fix" && x.changes.length);
   const sel = (key, opts, val) => `<select data-pref="${key}">${opts.map(([v, l]) => `<option value="${v}" ${v === val ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  const icon = { veg: "🥗", rest: "☕", splurge: "✨", route: "🗺️", car: "🚙", legs: "🚇", load: "⚖️", must: "⭐", fill: "📅", spread: "📍", hop: "🚆", fair: "🤝", budget: "💰", locate: "🔎", leg: "🚶" };
+  const icon = { veg: "<svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg>", rest: "<svg class=i aria-hidden=true><use href=icons.svg#coffee /></svg>", splurge: "<svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg>", route: "<svg class=i aria-hidden=true><use href=icons.svg#map /></svg>", car: "<svg class=i aria-hidden=true><use href=icons.svg#car /></svg>", legs: "<svg class=i aria-hidden=true><use href=icons.svg#train /></svg>", load: "<svg class=i aria-hidden=true><use href=icons.svg#scale /></svg>", must: "<svg class=i aria-hidden=true><use href=icons.svg#star /></svg>", fill: "<svg class=i aria-hidden=true><use href=icons.svg#plan /></svg>", spread: "<svg class=i aria-hidden=true><use href=icons.svg#pin /></svg>", hop: "<svg class=i aria-hidden=true><use href=icons.svg#train /></svg>", fair: "<svg class=i aria-hidden=true><use href=icons.svg#handshake /></svg>", budget: "<svg class=i aria-hidden=true><use href=icons.svg#wallet /></svg>", locate: "<svg class=i aria-hidden=true><use href=icons.svg#search /></svg>", leg: "<svg class=i aria-hidden=true><use href=icons.svg#walk /></svg>" };
   return `<div class="smart">
     ${viewAiReview()}
-    <h3 class="sec-h">⚙️ Quick checks</h3>
+    <h3 class="sec-h"><svg class=i aria-hidden=true><use href=icons.svg#settings /></svg> Quick checks</h3>
     <div class="smart-prefs">
       <label>Pace ${sel("pace", [["relaxed", "Relaxed (≈7 h a day)"], ["balanced", "Balanced (≈9 h)"], ["packed", "Packed (≈11 h)"]], p.pace || "balanced")}</label>
       <label>Getting around ${sel("travel", [["mixed", "Whatever's best"], ["transit", "Prefer public transport"], ["car", "We'll have a car"]], p.travel || "mixed")}</label>
       <label>Finish by ${sel("dayEnd", [["20:00", "8 pm"], ["21:00", "9 pm"], ["22:00", "10 pm"], ["23:30", "Late"]], p.dayEnd || "22:00")}</label>
     </div>
     <div class="smart-actions">
-      <button class="primary" data-action="analyse" ${S.analysing ? "disabled" : ""}>${S.analysing ? esc(S.analysing) : "🔎 Analyse plan"}</button>
+      <button class="primary" data-action="analyse" ${S.analysing ? "disabled" : ""}>${S.analysing ? esc(S.analysing) : "<svg class=i aria-hidden=true><use href=icons.svg#search /></svg> Analyse plan"}</button>
       ${fixes.length > 1 ? `<button data-action="applyAll">Apply all ${fixes.length} fixes</button>` : ""}
       ${hidden ? `<button class="link" data-action="undismiss">Show ${hidden} dismissed</button>` : ""}
     </div>
     <p class="muted small">Suggestions update as either of you edits. “Analyse plan” looks up places on the map so routes and travel times can be worked out. Times are estimates: check exact times and fares with Directions.</p>
     ${list.length ? list.map((x) => `<article class="sug ${x.level}">
-        <div class="sug-ic">${icon[x.kind] || "✨"}</div>
+        <div class="sug-ic">${icon[x.kind] || "<svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg>"}</div>
         <div class="sug-body">
           <div class="sug-title">${esc(x.title)}</div>
           ${x.detail ? `<div class="sug-detail">${esc(x.detail).replace(/\n/g, "<br>")}</div>` : ""}
@@ -1505,7 +1520,7 @@ function viewSmart() {
           ${x.changes.length ? `<button class="btn-s primary" data-action="applySug" data-id="${esc(x.id)}">Apply</button>` : ""}
           <button class="btn-s" data-action="dismissSug" data-id="${esc(x.id)}">Dismiss</button>
         </div>
-      </article>`).join("") : `<p class="empty">✅ The plan looks good. Nothing to fix right now.</p>`}
+      </article>`).join("") : `<p class="empty"><svg class=i aria-hidden=true><use href=icons.svg#check-circle /></svg> The plan looks good. Nothing to fix right now.</p>`}
   </div>`;
 }
 async function runAnalyse() {
@@ -1623,8 +1638,8 @@ function openModal(html, onSubmit) {
   syncLayers();
   $form.querySelector("input:not([type=radio]),select,textarea")?.focus();
 }
-const opt = (obj, sel) => Object.entries(obj).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${v.icon} ${v.label}</option>`).join("");
-const dayOpts = (sel) => `<option value="">💡 Ideas (not on a day yet)</option>` + S.trip.days.map((d, i) => `<option value="${d.id}" ${d.id === sel ? "selected" : ""}>Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}${d.title ? " · " + esc(d.title) : ""}</option>`).join("");
+const opt = (obj, sel) => Object.entries(obj).map(([k, v]) => `<option value="${k}" ${k === sel ? "selected" : ""}>${v.label}</option>`).join("");
+const dayOpts = (sel) => `<option value="">Ideas (not on a day yet)</option>` + S.trip.days.map((d, i) => `<option value="${d.id}" ${d.id === sel ? "selected" : ""}>Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}${d.title ? " · " + esc(d.title) : ""}</option>`).join("");
 
 function tripForm(t = {}) {
   return `<h3>${t.id ? "Edit trip" : "New trip"}</h3>
@@ -1916,7 +1931,7 @@ function editLeg(id) {
   const rec = d != null ? recommendMode(d, S.trip.prefs, dayItems(it.dayId).some((x) => ["rental", "car"].includes(x.travel?.mode))) : null;
   openModal(`<h3>Getting there</h3>
     <p class="muted">From <b>${esc(prev?.title || "previous stop")}</b> to <b>${esc(it.title)}</b>${d != null ? ` · about ${d < 10 ? d.toFixed(1) : Math.round(d)} km` : ""}</p>
-    ${rec ? `<div class="rec">✨ Suggested: <b>${MODES[rec.mode].icon} ${MODES[rec.mode].label}</b>, ~${dur(rec.minutes)} (${esc(rec.why)}) <button type="button" class="btn-s" data-userec>Use this</button></div>` : `<p class="muted small">Add locations to both stops to get a suggestion.</p>`}
+    ${rec ? `<div class="rec"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Suggested: <b>${MODES[rec.mode].icon} ${MODES[rec.mode].label}</b>, ~${dur(rec.minutes)} (${esc(rec.why)}) <button type="button" class="btn-s" data-userec>Use this</button></div>` : `<p class="muted small">Add locations to both stops to get a suggestion.</p>`}
     <label>How<select name="mode"><option value="">Choose…</option>${opt(MODES, t.mode)}</select></label>
     <div class="grid2">
       <label>Travel time (min)<input name="minutes" type="number" min="0" step="5" value="${esc(t.minutes || "")}"></label>
@@ -1948,7 +1963,7 @@ function editDay(id) {
     <label>Notes<textarea name="notes" rows="2">${esc(d.notes || "")}</textarea></label>
     <div class="row">
       <button type="button" data-insert>Insert a day after</button>
-      <button type="button" data-clear ${dayItems(id).length ? "" : "disabled"}>🧹 Clear this day</button>
+      <button type="button" data-clear ${dayItems(id).length ? "" : "disabled"}><svg class=i aria-hidden=true><use href=icons.svg#broom /></svg> Clear this day</button>
       <button type="button" class="danger" data-remove>Remove this day</button>
     </div>`,
     async (f) => {
@@ -2273,9 +2288,14 @@ function takeJoin() {
 // The same links opened while the app is already running (pasted into the address bar, or tapped from another app).
 window.addEventListener("hashchange", () => {
   if (/[#&]join=([\w-]{8,})/.test(location.hash)) { takeJoin(); handleJoin(); return; }
-  const linked = (location.hash.match(/[#&]trip=([\w-]+)/) || [])[1];
-  if (!linked || !S.me || linked === S.tripId) return;
-  if (S.trips.some((t) => t.id === linked)) openTrip(linked, { hashEntry: true });
+  const link = parseTripLink(location.hash), linked = link.trip;
+  if (!linked || !S.me) return;
+  if (linked === S.tripId) { // already inside that trip: just move to the tab and day
+    applyLink(linked, link);
+    history.replaceState(history.state, "", "#trip=" + linked);
+    return render();
+  }
+  if (S.trips.some((t) => t.id === linked)) openTrip(linked, { hashEntry: true, link });
   else notInvited(linked, S.me.email);
 });
 const pendingJoin = () => { try { return sessionStorage.getItem("tp-join") || ""; } catch { return ""; } };
@@ -2646,13 +2666,13 @@ const ctx = {
   costs: (fn) => (typeof fn === "function" ? void REG.costs.push(fn) : costs()),
 };
 // Built-in tabs use the same registry. Map and Kit are added by their modules.
-ctx.tab({ id: "plan", icon: "🗓️", label: "Plan", view: viewPlan, order: 10 });
-ctx.tab({ id: "ideas", icon: "💡", label: "Ideas", view: viewIdeas, count: () => ideas().length, order: 30 });
-ctx.tab({ id: "discover", icon: "🧭", label: "Discover", view: viewDiscover, order: 40, more: true });
-ctx.tab({ id: "smart", icon: "✨", label: "Smart", view: viewSmart, count: () => smartList().filter((x) => x.level === "fix").length, warn: true, order: 60, more: true });
-ctx.tab({ id: "budget", icon: "💰", label: "Budget", view: viewBudget, order: 70, more: true });
-ctx.tab({ id: "itinerary", icon: "📄", label: "Itinerary", view: viewItinerary, order: 80, more: true });
-ctx.tab({ id: "changes", icon: "🕘", label: "Activity", view: viewChanges, order: 90, more: true });
+ctx.tab({ id: "plan", icon: "<svg class=i aria-hidden=true><use href=icons.svg#plan /></svg>", label: "Plan", view: viewPlan, order: 10 });
+ctx.tab({ id: "ideas", icon: "<svg class=i aria-hidden=true><use href=icons.svg#ideas /></svg>", label: "Ideas", view: viewIdeas, count: () => ideas().length, order: 30 });
+ctx.tab({ id: "discover", icon: "<svg class=i aria-hidden=true><use href=icons.svg#compass /></svg>", label: "Discover", view: viewDiscover, order: 40, more: true });
+ctx.tab({ id: "smart", icon: "<svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg>", label: "Smart", view: viewSmart, count: () => smartList().filter((x) => x.level === "fix").length, warn: true, order: 60, more: true });
+ctx.tab({ id: "budget", icon: "<svg class=i aria-hidden=true><use href=icons.svg#wallet /></svg>", label: "Budget", view: viewBudget, order: 70, more: true });
+ctx.tab({ id: "itinerary", icon: "<svg class=i aria-hidden=true><use href=icons.svg#note /></svg>", label: "Itinerary", view: viewItinerary, order: 80, more: true });
+ctx.tab({ id: "changes", icon: "<svg class=i aria-hidden=true><use href=icons.svg#clock /></svg>", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
 for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
@@ -2692,10 +2712,10 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, chang
           S.store.txTrip(t.id, (cur) => ({ memberNames: { ...(cur.memberNames || {}), [u.email]: u.name } })).catch(() => {});
       if (first) {
         first = false;
-        const linked = (location.hash.match(/trip=([\w-]+)/) || [])[1];
+        const link = parseTripLink(location.hash), linked = link.trip;
         // A fresh start (the app was closed) opens on Your trips; a reload or a trip link reopens the trip.
         const want = linked || sessionGet("trip");
-        if (want && trips.some((t) => t.id === want)) openTrip(want);
+        if (want && trips.some((t) => t.id === want)) openTrip(want, linked ? { link } : {});
         else if (linked) notInvited(linked, u.email);
       }
       if (!S.tripId) render();

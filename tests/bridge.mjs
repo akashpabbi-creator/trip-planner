@@ -1,6 +1,7 @@
 // Claude link end to end: the real app in a browser against the Firebase emulators (rules from firestore.rules),
 // with the Python script from docs/claude-skill.md playing Claude.
 // Run: node tests/bridge.mjs   (starts the emulators itself; needs /tmp/claude-0/fbt for firebase-tools and the SDK files)
+import { freezeClock } from "./_clock.mjs";
 import { createRequire } from "module";
 import { execSync, spawn, spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync, copyFileSync, readFileSync } from "fs";
@@ -40,7 +41,7 @@ await fetch(`${FS}/aiUsers?documentId=akash@example.com`, { method: "POST", head
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+const b = freezeClock(await chromium.launch());
 const errors = [];
 const geoFail = /nowhere/i;
 async function newPage(viewport = { width: 390, height: 800 }) {
@@ -124,7 +125,6 @@ try {
   const btns = await p.$$eval("#modalForm .bq", (els) => els.map((e) => e.textContent.trim()));
   ok(btns.join("|") === "Review our plan|Plan our empty days|Top places & vegetarian restaurants", "quick buttons: " + btns.join(" | ") + " (no Handle our requests without an ask)");
   ok(/Copy instead/.test(await p.textContent("#modalForm")) && /Make it permanent/.test(await p.textContent("#modalForm")), "Copy instead and the permanent tip are there");
-  await p.screenshot({ path: "/mnt/project-files/trip-planner-build/shots/claude-one-tap.png" });
   const lastOpen = async (n) => { await p.waitForFunction((k) => window.__opened.length === k, n, { timeout: 5000 }); return p.evaluate(() => ({ url: window.__opened.at(-1), copied: window.__copied })); };
   await p.click("#modalForm .bq >> text=Review our plan");
   let o = await lastOpen(1);

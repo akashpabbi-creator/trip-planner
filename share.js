@@ -106,7 +106,7 @@ export function init(ctx) {
       return ctx.addPlaces([{ title, category: "other", notes: text.slice(0, 1500), noGeo: true }], { source: "shared text", autoPlace: false })
         .then(() => ctx.touchTrip()).then(() => { S.tab = "ideas"; toast("Saved to Ideas as a note.", 4000); ctx.render(); });
     }
-    sheet(`<h3>📋 You shared a list</h3>
+    sheet(`<h3><svg class=i aria-hidden=true><use href=icons.svg#clipboard /></svg> You shared a list</h3>
       <p>Save these to “${esc(S.trip.name)}” as separate ideas? They go to Ideas, not onto a day.</p>
       <div class="shr-list">${entries.map((e, i) => `<label><input type="checkbox" name="shr" value="${i}" checked><span>${esc(e.name)}</span>${e.why ? `<small class="muted">${esc(e.why.slice(0, 140))}</small>` : ""}</label>`).join("")}</div>
       <div class="shr-actions">

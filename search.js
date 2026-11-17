@@ -70,11 +70,11 @@ export function init(ctx) {
     add("Plan", byDay.filter((i) => itemMatches(i, q, cat(i).label)).map((i) => itemHit(i, `Day ${dayNo(i) + 1} · ${snippet(itemTexts(i).slice(1), q) || cat(i).label}`)));
     add("Ideas", idea.filter((i) => itemMatches(i, q, cat(i).label)).map((i) => itemHit(i)));
     add("Bookings", (t.bookings || []).filter((b) => matchText([b.title, b.ref, b.from, b.to, b.address, b.notes, b.kind], q))
-      .map((b) => ({ kind: "booking", id: b.id, title: b.title || b.kind || "Booking", sub: snippet([b.ref, b.address, b.notes, [b.from, b.to].filter(Boolean).join(" → ")], q) || (b.start || "").slice(0, 10), icon: "🎫" })));
+      .map((b) => ({ kind: "booking", id: b.id, title: b.title || b.kind || "Booking", sub: snippet([b.ref, b.address, b.notes, [b.from, b.to].filter(Boolean).join(" → ")], q) || (b.start || "").slice(0, 10), icon: "<svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg>" })));
     add("Kit", (t.checklist || []).filter((x) => matchText([x.text], q))
-      .map((x) => ({ kind: "kit", id: x.id, title: x.text, sub: x.group === "pack" ? "Packing" : "To-do", icon: x.group === "pack" ? "🎒" : "✅" })));
+      .map((x) => ({ kind: "kit", id: x.id, title: x.text, sub: x.group === "pack" ? "Packing" : "To-do", icon: x.group === "pack" ? "<svg class=i aria-hidden=true><use href=icons.svg#backpack /></svg>" : "<svg class=i aria-hidden=true><use href=icons.svg#check-circle /></svg>" })));
     add("Trip notes", (Array.isArray(t.tripNotes) ? t.tripNotes : []).filter((n) => matchText([n.text], q))
-      .map((n) => ({ kind: "note", id: n.id, title: String(n.text).split("\n")[0].slice(0, 80), sub: snippet([String(n.text).split("\n").slice(1).join(" ")], q), icon: "📝" })));
+      .map((n) => ({ kind: "note", id: n.id, title: String(n.text).split("\n")[0].slice(0, 80), sub: snippet([String(n.text).split("\n").slice(1).join(" ")], q), icon: "<svg class=i aria-hidden=true><use href=icons.svg#note /></svg>" })));
     return groups;
   }
 
@@ -116,7 +116,7 @@ export function init(ctx) {
     setTimeout(() => el.classList.remove("srch-hit"), 2700);
   }
 
-  ctx.slot("heroActs", () => `<button class="chip ghost round" data-action="search" title="Search this trip" aria-label="Search this trip">🔍</button>`);
+  ctx.slot("heroActs", () => `<button class="chip ghost round" data-action="search" title="Search this trip" aria-label="Search this trip"><svg class=i aria-hidden=true><use href=icons.svg#search /></svg></button>`);
   ctx.action("search", open);
   ctx.action("searchClose", close);
   ctx.action("searchGo", (btn) => go(btn.dataset.kind, btn.dataset.id));

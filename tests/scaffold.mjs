@@ -19,7 +19,8 @@ const URL0 = `http://127.0.0.1:${PORT}/`;
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+import { freezeClock } from "./_clock.mjs";
+const b = freezeClock(await chromium.launch());
 const errors = [];
 async function newPage(viewport, query = "") {
   const ctx = await b.newContext({ viewport });
@@ -166,7 +167,7 @@ try {
   await ph.click(".tabs-bar [data-action=moreToggle]");
   ok(await ph.isVisible(".more-sheet"), "More opens a sheet");
   const more = await ph.$$eval(".more-sheet .t-l", (e) => e.map((x) => x.textContent.trim()));
-  ok(JSON.stringify(more) === JSON.stringify(["Discover", "Smart", "Budget", "Itinerary", "Activity", "Connect Claude"]), "More lists: " + more.join(", "));
+  ok(JSON.stringify(more) === JSON.stringify(["Discover", "Smart", "Budget", "Itinerary", "Activity", "Connect Claude", "Connector"]), "More lists: " + more.join(", "));
   await ph.click(".more-sheet [data-tab=budget]");
   ok(!(await ph.isVisible(".more-sheet")) && (await ph.isVisible(".budget")), "More item switches tab and closes the sheet");
   await ph.click(".tabs-bar [data-action=moreToggle]");

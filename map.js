@@ -1,7 +1,7 @@
 // Map of every day: Leaflet map with numbered day pins, grey idea pins, day chips and a list toggle.
 // Leaflet loads lazily the first time the Map tab opens. One persistent map element survives re-renders.
 const LEAFLET = "https://unpkg.com/leaflet@1.9.4/dist/";
-const COLORS = ["#127a6c", "#d9622b", "#3b6fd4", "#a23b8f", "#b88a1c", "#4a8f2f", "#c2415d", "#6a5acd"];
+const COLORS = ["#2747d4", "#d9622b", "#3b6fd4", "#a23b8f", "#b88a1c", "#4a8f2f", "#c2415d", "#6a5acd"];
 const IDEA = "#8a918c";
 
 const CSS = `
@@ -46,7 +46,7 @@ const M = {
 export function init(ctx) {
   M.ctx = ctx;
   document.head.append(Object.assign(document.createElement("style"), { id: "css-map", textContent: CSS }));
-  ctx.tab({ id: "map", icon: "🗺️", label: "Map", order: 20, view: () => view(ctx) });
+  ctx.tab({ id: "map", icon: "<svg class=i aria-hidden=true><use href=icons.svg#map /></svg>", label: "Map", order: 20, view: () => view(ctx) });
   ctx.slot("dayHead", (day, i) => `<button class="btn-s" data-action="mapDay" data-id="${i}" title="Show this day on the map">Map</button>`);
   ctx.on("render", () => sync(ctx));
   ctx.on("close", () => { M.sel = "all"; M.sig = ""; M.fitKey = ""; });
@@ -102,14 +102,14 @@ function view(ctx) {
         ? `<p class="muted small">${unmapped.length} place${unmapped.length > 1 ? "s aren't" : " isn't"} on the map yet. ${S.analysing ? esc(S.analysing) : canFind ? `<button class="link" data-action="mapFind">Find them</button>` : "Edit their location to fix it."}</p>`
         : none ? `<p class="muted small">${M.sel === "all" ? "Nothing to show yet. Add places and they appear here." : "Nothing on the map for this day yet."}</p>` : `<p class="muted small">Tap a pin to add it to a day or get directions.</p>`}
       <div class="mp-tog">
-        <button class="btn-s ${M.ideas ? "on" : ""}" data-action="mapIdeas" aria-pressed="${M.ideas}">💡 Ideas</button>
+        <button class="btn-s ${M.ideas ? "on" : ""}" data-action="mapIdeas" aria-pressed="${M.ideas}"><svg class=i aria-hidden=true><use href=icons.svg#ideas /></svg> Ideas</button>
         <button class="btn-s ${M.list ? "on" : ""}" data-action="mapList" aria-pressed="${M.list}">${M.list ? "Hide list" : "Show list"}</button>
       </div>
     </div>
     ${M.list ? `<div class="mp-list">${shown.map((x) => {
       let n = 0;
       return x.stops.length ? `<h4>Day ${x.i + 1}${x.d.title ? " · " + esc(x.d.title) : ""}</h4>${x.stops.map((it) => row(it, has(it) ? ++n : "–", colorOf(x.i))).join("")}` : "";
-    }).join("")}${ideas.length ? `<h4>Ideas</h4>${ideas.map((it) => row(it, "💡", IDEA)).join("")}` : ""}</div>` : ""}
+    }).join("")}${ideas.length ? `<h4>Ideas</h4>${ideas.map((it) => row(it, "<svg class=i aria-hidden=true><use href=icons.svg#ideas /></svg>", IDEA)).join("")}` : ""}</div>` : ""}
   </div>`;
 }
 

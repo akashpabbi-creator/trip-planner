@@ -31,7 +31,7 @@ await p.click("[data-action=signin]");
 
 const home = () => p.$(".trip-card, [data-action=newTrip]").then(async () => (await p.$(".tab-body")) === null);
 const inTrip = async () => !!(await p.$(".tab-body"));
-const back = async () => { await p.goBack(); await p.waitForTimeout(250); };
+const back = async () => { await p.goBack(); await p.waitForTimeout(600); };
 async function makeTrip(name) {
   await p.click("[data-action=newTrip]");
   await p.fill("[name=name]", name);
@@ -48,15 +48,22 @@ try {
   ok(await inTrip(), "trip A is open");
 
   // Back from a dialog closes only the dialog.
+  console.log("  dbg before add:", await p.evaluate(() => JSON.stringify({ tab: window.__tripCtx.S.tab, hash: location.hash, wrap: !!document.querySelector(".add-wrap"), vw: innerWidth, txt: document.querySelector("#app").innerText.slice(0, 80) })));
   await p.click("[data-action=addOpen]");
+  await p.waitForSelector(".add-wrap.open", { timeout: 5000 }).catch(async () => console.log("  dbg after add:", await p.evaluate(() => JSON.stringify({ tab: window.__tripCtx.S.tab, hash: location.hash, addOpen: window.__tripCtx.S.addOpen, wrap: !!document.querySelector(".add-wrap"), txt: document.querySelector("#app").innerText.slice(0, 80) }))));
   ok(await p.$eval(".add-wrap", (e) => e.classList.contains("open")), "Add sheet opens");
   await back();
   ok(!(await p.$eval(".add-wrap", (e) => e.classList.contains("open"))) && (await inTrip()), "Back closes the Add sheet and stays in the trip");
 
   // Add sheet, then a dialog from a tile: Back closes the dialog, then the trip is still open.
+  const hist = (l) => p.evaluate((l) => console.log(l) || JSON.stringify({ l, len: history.length, hash: location.hash, layers: 0, more: window.__tripCtx.S.moreOpen }), l);
+  console.log("  dbg", await hist("before more"));
   await p.click("[data-action=moreToggle]");
+  await p.waitForTimeout(300);
+  console.log("  dbg", await hist("more open"));
   ok(await p.$(".more-back") !== null, "More menu opens");
   await back();
+  console.log("  dbg", await hist("after back"), await p.evaluate(() => navigator.userAgent));
   ok((await p.$(".more-back")) === null && (await inTrip()), "Back closes the More menu and stays in the trip");
 
   await p.click("[data-action=addOpen]");

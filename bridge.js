@@ -287,7 +287,7 @@ async function turnOff() {
   await ctx.log("disconnected Claude from the plan");
 }
 function consentModal(onConnect, lead = "", cancel = "") {
-  ctx.openModal(`<h3>🟠 Connect Claude</h3>
+  ctx.openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Connect Claude</h3>
     ${lead ? `<p><b>${ctx.esc(lead)}</b></p>` : ""}
     <p class="small">Link this trip to a Claude chat (the Claude desktop app or Cowork) so Claude can plan, answer change requests, suggest top places, check restaurants for vegetarian food and read links, screenshots and booking emails. All of it is free with your Claude account.</p>
     <ul class="small">
@@ -309,7 +309,7 @@ function openBridge() {
   const quick = [["Review our plan", "Review our plan"], ...(empty ? [["Plan our empty days", "Plan our empty days"]] : []),
     ["Top places & vegetarian restaurants", "Find the top places and vegetarian restaurants for our trip"],
     ...(ask ? [["Handle our requests", "Please handle our new request in the trip planner: " + ask.request]] : [])];
-  ctx.openModal(`<h3>🟠 Claude is connected</h3>
+  ctx.openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Claude is connected</h3>
     <p class="small">${at ? `Claude can see your plan as of ${esc(ctx.ago(at))}.` : "Your plan is being copied for Claude…"} What Claude sends is applied straight away, and you can undo it from the Plan tab.</p>
     <div class="bq-list">${quick.map(([label, req]) => `<button type="button" class="btn-s bq" data-action="bridgeAsk" data-req="${esc(req)}">${esc(label)}</button>`).join("")}
       ${ask ? `<p class="muted small bq-ask">Waiting for Claude: “${esc(ask.request)}”</p>` : ""}</div>

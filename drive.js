@@ -120,7 +120,7 @@ export function init(ctx) {
 
   function setup() {
     if (!S.aiUser) return;
-    sheet(`<h3>📁 Trip folder in Google Drive</h3>
+    sheet(`<h3><svg class=i aria-hidden=true><use href=icons.svg#folder /></svg> Trip folder in Google Drive</h3>
       <p>Pick where this trip's screenshots and Trip Sheet PDF are kept. Google will ask once to let this app use the folders you pick (nothing else in your Drive).</p>
       <p class="muted small">Tip: pick “Travel - Sanj_Akash” to create <b>${esc(folderName(S.trip))}</b> inside it.</p>
       <div class="drv-actions">
@@ -134,7 +134,7 @@ export function init(ctx) {
     const f = folder();
     if (!f && !S.aiUser) return "";
     return `<section class="drv-card" id="drive-folder">
-      <h3>📁 Trip folder</h3>
+      <h3><svg class=i aria-hidden=true><use href=icons.svg#folder /></svg> Trip folder</h3>
       ${f
         ? `<div>${ctx.safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.name)} ↗</a>` : esc(f.name)}</div>
            <p class="muted small">Screenshots shared into the app are saved here, and Claude files the Trip Sheet PDF here.</p>
@@ -173,7 +173,7 @@ export function init(ctx) {
   // Idea cards: a link to the saved screenshot(s).
   ctx.slot("card", (it) => {
     const list = Array.isArray(it.driveFiles) ? it.driveFiles.filter((x) => ctx.safeUrl(x?.url)) : [];
-    return list.length ? `<a class="btn-s" href="${esc(list[0].url)}" target="_blank" rel="noopener" title="Open the screenshot in Google Drive">📎 Screenshot${list.length > 1 ? ` (+${list.length - 1})` : ""}</a>` : "";
+    return list.length ? `<a class="btn-s" href="${esc(list[0].url)}" target="_blank" rel="noopener" title="Open the screenshot in Google Drive"><svg class=i aria-hidden=true><use href=icons.svg#paperclip /></svg> Screenshot${list.length > 1 ? ` (+${list.length - 1})` : ""}</a>` : "";
   });
   ctx.slot("kitTop", section);
   ctx.action("driveSetup", setup);

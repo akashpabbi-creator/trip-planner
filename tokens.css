@@ -1,0 +1,95 @@
+/* Trips design tokens. CSS variables only: no app selectors, so the app and the connector cards (mcp/) can both import this file.
+   Light by default, dark through prefers-color-scheme or :root[data-theme="dark"]; :root[data-theme="light"] forces light. */
+:root {
+  color-scheme: light dark;
+
+  /* colour */
+  --t-ground: #f3f4f6;
+  --t-surface: #ffffff;
+  --t-surface-2: #f8f9fb;
+  --t-ink: #111827;
+  --t-muted: #5b6472;
+  --t-line: #e3e6eb;
+  --t-primary: #2747d4;
+  --t-primary-ink: #ffffff;
+  --t-primary-soft: #e8edfd;
+  --t-primary-soft-ink: #1e3a9f;
+  --t-check: #9a3412;
+  --t-check-bg: #fdebdd;
+  --t-check-line: #f0b48a;
+  --t-check-strong: #7c2d12;
+  --t-good: #166534;
+  --t-good-bg: #e3f3e8;
+  --t-bad: #b3261e;
+  --t-bad-bg: #fbe5e2;
+  --t-star: #8a5a00;
+  --t-star-bg: #fff4dc;
+  --t-shadow: 0 1px 2px rgba(17, 24, 39, 0.05), 0 8px 24px rgba(17, 24, 39, 0.07);
+
+  /* shape: 6 tags, 12 chips and thumbs, 16 cards, 28 sheets, pills fully round */
+  --t-r-tag: 6px;
+  --t-r-chip: 12px;
+  --t-r-card: 16px;
+  --t-r-sheet: 28px;
+  --t-r-pill: 999px;
+  --t-touch: 44px;
+
+  /* type */
+  --t-font-head: "Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --t-font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --t-fs-1: 11px;
+  --t-fs-2: 12px;
+  --t-fs-3: 13px;
+  --t-fs-4: 15px;
+  --t-fs-5: 18px;
+  --t-fs-6: 24px;
+  --t-fs-7: 30px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --t-ground: #0e1116;
+    --t-surface: #171b22;
+    --t-surface-2: #1d222b;
+    --t-ink: #f1f3f6;
+    --t-muted: #9aa4b2;
+    --t-line: #2a303a;
+    --t-primary: #8ba2ff;
+    --t-primary-ink: #0b1230;
+    --t-primary-soft: #1f2849;
+    --t-primary-soft-ink: #c9d3ff;
+    --t-check: #f6b98a;
+    --t-check-bg: #3a2414;
+    --t-check-line: #6b4424;
+    --t-check-strong: #ffd3b0;
+    --t-good: #7fd9a0;
+    --t-good-bg: #12321f;
+    --t-bad: #ff8b7e;
+    --t-bad-bg: #3a1916;
+    --t-star: #f3bd5a;
+    --t-star-bg: #33270e;
+    --t-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+}
+:root[data-theme="dark"] {
+  --t-ground: #0e1116;
+  --t-surface: #171b22;
+  --t-surface-2: #1d222b;
+  --t-ink: #f1f3f6;
+  --t-muted: #9aa4b2;
+  --t-line: #2a303a;
+  --t-primary: #8ba2ff;
+  --t-primary-ink: #0b1230;
+  --t-primary-soft: #1f2849;
+  --t-primary-soft-ink: #c9d3ff;
+  --t-check: #f6b98a;
+  --t-check-bg: #3a2414;
+  --t-check-line: #6b4424;
+  --t-check-strong: #ffd3b0;
+  --t-good: #7fd9a0;
+  --t-good-bg: #12321f;
+  --t-bad: #ff8b7e;
+  --t-bad-bg: #3a1916;
+  --t-star: #f3bd5a;
+  --t-star-bg: #33270e;
+  --t-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.3);
+}

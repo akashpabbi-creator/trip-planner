@@ -136,7 +136,7 @@ try {
   ok(it.driveFiles[0].id === "FILE1" && /FILE1/.test(it.driveFiles[0].url) && it.via === "screenshot", "the idea keeps a link to its picture");
   await p.evaluate(() => document.querySelector("[data-action=tab][data-tab=ideas]").click());
   await p.waitForSelector("article.card");
-  ok(/📎 Screenshot/.test(await p.textContent("article.card")) && (await p.getAttribute("article.card a:has-text('Screenshot')", "href")).includes("FILE1"), "idea card shows 📎 Screenshot linking to Drive");
+  ok(/Screenshot/.test(await p.textContent("article.card")) && (await p.getAttribute("article.card a:has-text('Screenshot')", "href")).includes("FILE1"), "idea card shows Screenshot linking to Drive");
 
   console.log("Drive failing never loses the places");
   drive.fail = true;

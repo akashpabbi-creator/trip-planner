@@ -61,14 +61,14 @@ function slotHtml(ctx, it) {
   if (!leg) return "";
   const dist = Math.round(km(leg.prev, it));
   const isOpen = A.open === it.id;
-  return `<div class="al"><button class="link al-link" data-action="alongOpen" data-id="${it.id}" aria-expanded="${isOpen}">🧭 Stops along the way · ${dist} km</button>${isOpen ? panel(ctx, it) : ""}</div>`;
+  return `<div class="al"><button class="link al-link" data-action="alongOpen" data-id="${it.id}" aria-expanded="${isOpen}"><svg class=i aria-hidden=true><use href=icons.svg#compass /></svg> Stops along the way · ${dist} km</button>${isOpen ? panel(ctx, it) : ""}</div>`;
 }
 
 function panel(ctx, it) {
   const { esc } = ctx;
   const st = A.status[it.id] || { state: "load" };
   const head = `<div class="al-head"><b class="small">Along the way to ${esc(it.title)}</b><button class="btn-s" data-action="alongClose">Close</button></div>`;
-  if (st.state === "load") return `<div class="al-panel">${head}<p class="muted small">⏳ Looking for places near the road…</p></div>`;
+  if (st.state === "load") return `<div class="al-panel">${head}<p class="muted small">Looking for places near the road…</p></div>`;
   if (st.state === "error") return `<div class="al-panel">${head}<p class="muted small">Couldn't look up places right now. <button class="link" data-action="alongOpen" data-id="${it.id}">Try again</button></p></div>`;
   const res = st.results;
   if (!res.length) return `<div class="al-panel">${head}<p class="muted small">Nothing notable found near this route.${st.straight ? " (Straight line: the route service didn't answer.)" : ""}</p></div>`;
@@ -163,10 +163,10 @@ nwr["amenity"~"^(restaurant|cafe)$"]["diet:vegetarian"~"^(yes|only)$"]${around};
 );out center tags 150;`;
 }
 const KINDS = {
-  viewpoint: ["Viewpoint", "🌄", "nature"], attraction: ["Attraction", "🎡", "sight"], museum: ["Museum", "🏛️", "sight"],
-  castle: ["Castle", "🏰", "sight"], monument: ["Monument", "🗿", "sight"], ruins: ["Ruins", "🏺", "sight"], archaeological_site: ["Archaeological site", "🏺", "sight"],
-  waterfall: ["Waterfall", "💧", "nature"], peak: ["Peak", "⛰️", "nature"],
-  restaurant: ["Restaurant with vegetarian food", "🥗", "food"], cafe: ["Café with vegetarian food", "☕", "food"],
+  viewpoint: ["Viewpoint", "<svg class=i aria-hidden=true><use href=icons.svg#mountain /></svg>", "nature"], attraction: ["Attraction", "<svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg>", "sight"], museum: ["Museum", "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg>", "sight"],
+  castle: ["Castle", "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg>", "sight"], monument: ["Monument", "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg>", "sight"], ruins: ["Ruins", "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg>", "sight"], archaeological_site: ["Archaeological site", "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg>", "sight"],
+  waterfall: ["Waterfall", "<svg class=i aria-hidden=true><use href=icons.svg#droplet /></svg>", "nature"], peak: ["Peak", "<svg class=i aria-hidden=true><use href=icons.svg#mountain /></svg>", "nature"],
+  restaurant: ["Restaurant with vegetarian food", "<svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg>", "food"], cafe: ["Café with vegetarian food", "<svg class=i aria-hidden=true><use href=icons.svg#coffee /></svg>", "food"],
 };
 function kindOf(tags) {
   const k = KINDS[tags.tourism] || KINDS[tags.historic] || KINDS[tags.natural] || KINDS[tags.amenity];
