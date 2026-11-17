@@ -64,9 +64,15 @@ for (const [vname, viewport, mobile] of VIEWS) {
     await snap("your-trips");
     await p.click(".trip-card");
     await p.waitForSelector(".tab-body");
-    const tabs = ["plan", "map", "ideas", "discover", "kit", "smart", "budget", "itinerary", "changes"];
+    const tabs = ["plan", "map", "ideas", "discover", "kit", "budget", "itinerary", "changes"];
     for (const id of tabs) { await tab(id); await snap("tab-" + id); if (mobile) overflow.push(...(await p.evaluate((id) => (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 ? [`${id}: ${document.documentElement.scrollWidth} > ${document.documentElement.clientWidth}`] : []), id))); }
     await tab("plan");
+    // the Ask screen
+    await p.click(".thead [data-action=ask]").catch(() => {});
+    await p.waitForTimeout(300);
+    await snap("ask");
+    await p.click("[data-action=askClose]").catch(() => {});
+    await p.waitForTimeout(200);
     // sheets
     const sheet = async (sel, name) => {
       const el = await p.$(sel);

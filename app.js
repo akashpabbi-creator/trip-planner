@@ -25,6 +25,7 @@ import * as driveMod from "./drive.js";
 import * as hubMod from "./trip-hub.js";
 import * as planMod from "./plan.js";
 import * as stopsMod from "./stops.js";
+import * as askMod from "./ask.js";
 import * as homeMod from "./home.js";
 import { findDup, mergePatch, dupGroups, foldPatch, seenNote } from "./dedupe.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
@@ -240,7 +241,10 @@ export function parseTripLink(hash) {
 }
 function applyLink(id, link) {
   if (!link) return;
-  if (link.tab && REG.tabs.some((x) => x.id === link.tab)) {
+  if (link.tab === "smart" || link.tab === "ask") { // the old Smart tab lives on the Ask screen now
+    S.askOpen = true;
+    S.askScroll = 0;
+  } else if (link.tab && REG.tabs.some((x) => x.id === link.tab)) {
     S.tab = link.tab;
     rememberTab(id, S.tab);
   }
@@ -253,6 +257,7 @@ function openTrip(id, opts = {}) {
   S.scrollToday = true;
   S.moreOpen = false;
   S.addOpen = false;
+  S.askOpen = false;
   S.sheet = null;
   S.stripDay = 0;
   localSet("trip", id); // last trip opened: the default when something is shared into the app
@@ -331,7 +336,7 @@ function enterTripEntry(id, { hashEntry } = {}) {
   } else history.pushState({ tp: "trip" }, "", "#trip=" + id);
   NAV.tripEntry = true;
 }
-const layersOpen = () => ($modal.open ? 1 : 0) + (S.sheet ? 1 : 0) + (S.addOpen ? 1 : 0) + (S.moreOpen ? 1 : 0);
+const layersOpen = () => ($modal.open ? 1 : 0) + (S.sheet ? 1 : 0) + (S.addOpen ? 1 : 0) + (S.moreOpen ? 1 : 0) + (S.askOpen ? 1 : 0);
 let syncTimer = 0;
 function syncLayers() { // runs once things settle: closing a sheet and opening a dialog in the same tap must not pop and push
   clearTimeout(syncTimer);
@@ -344,6 +349,7 @@ function applyLayers() {
   if (NAV.layers > open) { unwind(NAV.layers - open); NAV.layers = open; }
 }
 function goHome({ fromBack } = {}) {
+  S.askOpen = false;
   S.addOpen = false;
   S.sheet = null;
   S.moreOpen = false;
@@ -370,7 +376,8 @@ window.addEventListener("popstate", () => {
     if ($modal.open) $modal.close();
     else if (S.sheet) S.sheet = null;
     else if (S.addOpen) S.addOpen = false;
-    else S.moreOpen = false;
+    else if (S.moreOpen) S.moreOpen = false;
+    else { S.askOpen = false; S.scrollBack = S.askScroll || 0; }
     return render();
   }
   if (S.tripId && NAV.tripEntry && !/[#&]trip=/.test(location.hash)) goHome({ fromBack: true });
@@ -385,7 +392,9 @@ function rememberTab(id, tab) { try { sessionStorage.setItem("tp-tabs", JSON.str
 function render() {
   const a = document.activeElement;
   const keep = a && a.id && $app.contains(a) ? { id: a.id, v: a.value, s: a.selectionStart, e: a.selectionEnd } : null;
-  const scroll = window.scrollY;
+  const scroll = S.scrollBack != null ? S.scrollBack : S.askOpen && !S.askWas ? 0 : window.scrollY;
+  S.scrollBack = null;
+  S.askWas = !!S.askOpen;
   const sheetScroll = $app.querySelector(".ss-body")?.scrollTop || 0;
   $app.innerHTML = (S.me ? iosTip() : "") + (!S.me ? viewSignIn() : S.tripId && S.trip ? viewTrip() : S.tripId ? `<div class="loading">Opening trip…</div>` : viewHome());
   if (keep) {
@@ -533,7 +542,26 @@ function aboutBlock() {
   const t = S.trip;
   return t.place?.extract ? `<details class="about"><summary>About ${esc(t.place.title)}</summary><p>${esc(t.place.extract)}</p>${t.place.url ? `<a href="${esc(t.place.url)}" target="_blank" rel="noopener">Read more on Wikipedia ↗</a>` : ""}</details>` : "";
 }
+function openAsk() {
+  if (S.askOpen) return;
+  S.askScroll = window.scrollY;
+  S.askOpen = true;
+  S.moreOpen = false;
+  S.addOpen = false;
+  S.sheet = null;
+  render();
+}
+const askH = () => ({
+  S, esc, ic, smartList, smartAll,
+  canFill: () => S.trip.days.some((d) => !dayItems(d.id).length),
+  geminiWait, aiKey: () => ctx.aiKey(),
+  changeBox: () => (ctx.changeBox ? ctx.changeBox() : ""),
+  notesPlan: () => (ctx.notesPlanRow ? ctx.notesPlanRow() : ""),
+  undoBar: () => (ctx.undoBarHtml ? ctx.undoBarHtml() : ""),
+  review: viewAiReview,
+});
 function viewTrip() {
+  if (S.askOpen) return askMod.html(askH());
   const t = S.trip;
   const c = costs();
   const budget = Number(t.budget) || 0;
@@ -607,7 +635,7 @@ const NAV_SVG = { plan: ic("plan"), map: ic("map"), ideas: ic("ideas"), kit: ic(
 // Desktop: every tab in a side menu (the Trip hub last). Phones: a bottom bar of Plan, Ideas, +, Map and Trip;
 // Kit, Budget, Discover, Smart, Itinerary and Activity open from the Trip hub.
 function viewNav(tabs, cur, counts) {
-  const warnN = (id) => (id === "trip" ? counts.get("smart") + (ctx.pendingChanges?.() || 0) : counts.get(id));
+  const warnN = (id) => (id === "trip" ? smartList().filter((x) => x.level === "fix").length + (ctx.pendingChanges?.() || 0) : counts.get(id));
   const btn = (x) => {
     const n = x.id === "trip" ? 0 : counts.get(x.id);
     return `<button class="${cur?.id === x.id ? "on" : ""}" data-action="tab" data-tab="${x.id}"><span class="t-ic">${NAV_SVG[x.id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`;
@@ -744,7 +772,7 @@ function viewPlan() {
   // A calm stack: Today first, then at most one prominent banner, the ask box, and quiet extras last.
   const chgN = ctx.pendingChanges?.() || 0;
   const lead = t.proposal ? "plan" : chgN ? "changes" : nSmart ? "smart" : "";
-  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="tab" data-tab="smart"><span class="ar-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="ar-t">${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan</span><b>Review</b></button>` : "";
+  const smart = nSmart ? `<button class="smart-banner ${lead === "smart" ? "" : "quiet"}" data-action="ask"><span class="ar-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="ar-t">${nSmart} smart suggestion${nSmart > 1 ? "s" : ""} to improve this plan</span><b>Review</b></button>` : "";
   const checkBox = !ch.length ? "" : ch.length === 1
     ? `<div class="check ${ch[0].level}">${esc(ch[0].text)}</div>`
     : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}"><span class="ar-ic w"><svg class=i aria-hidden=true><use href=icons.svg#alert /></svg></span><span class="ar-t">${ch.length} things to check</span><b>See</b></summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
@@ -756,16 +784,15 @@ function viewPlan() {
   const fillBtns = `<button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Fill empty days</button>
       ${ctx.aiKey() ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}><svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> Plan with Gemini</button>` : ""}
       ${S.aiUser ? `<button class="btn-s" data-action="claudePlan"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Plan with Claude</button>` : ""}`;
-  const showFill = canFill && (S.planAll || !!dayItems(t.days[selI]?.id).length);
-  const asstHtml = `<div class="asst">
+  const asstInner = `
     ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("<svg class=i aria-hidden=true><use href=icons.svg#robot /></svg>")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days${psocialMod.summary(t.proposal, t.members) ? `<span class="ps-sum">${esc(psocialMod.summary(t.proposal, t.members))}</span>` : ""}</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
     ${S.planning && !t.proposal ? `<p class="muted small busy-line">${esc(S.planning)}</p>` : ""}
     ${checkBox}
-    ${showFill ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>${fillBtns}</div>` : ""}
     ${lead !== "smart" ? smart : ""}
-    </div>`;
+`;
+  const asstHtml = asstInner.replace(/\s+/g, "") ? `<div class="asst">${asstInner}</div>` : "";
   S.asstHtml = asstHtml;
   return `
     ${slot("planToday")}
@@ -1480,40 +1507,6 @@ function smartList() {
   try { dismissed = new Set(JSON.parse(localGet("dismiss-" + S.tripId) || "[]")); } catch {}
   return smartAll().filter((x) => !dismissed.has(x.id));
 }
-function viewSmart() {
-  const p = S.trip.prefs || {};
-  const list = smartList();
-  const hidden = smartAll().length - list.length;
-  const fixes = list.filter((x) => x.level === "fix" && x.changes.length);
-  const sel = (key, opts, val) => `<select data-pref="${key}">${opts.map(([v, l]) => `<option value="${v}" ${v === val ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  const icon = { veg: "<svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg>", rest: "<svg class=i aria-hidden=true><use href=icons.svg#coffee /></svg>", splurge: "<svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg>", route: "<svg class=i aria-hidden=true><use href=icons.svg#map /></svg>", car: "<svg class=i aria-hidden=true><use href=icons.svg#car /></svg>", legs: "<svg class=i aria-hidden=true><use href=icons.svg#train /></svg>", load: "<svg class=i aria-hidden=true><use href=icons.svg#scale /></svg>", must: "<svg class=i aria-hidden=true><use href=icons.svg#star /></svg>", fill: "<svg class=i aria-hidden=true><use href=icons.svg#plan /></svg>", spread: "<svg class=i aria-hidden=true><use href=icons.svg#pin /></svg>", hop: "<svg class=i aria-hidden=true><use href=icons.svg#train /></svg>", fair: "<svg class=i aria-hidden=true><use href=icons.svg#handshake /></svg>", budget: "<svg class=i aria-hidden=true><use href=icons.svg#wallet /></svg>", locate: "<svg class=i aria-hidden=true><use href=icons.svg#search /></svg>", leg: "<svg class=i aria-hidden=true><use href=icons.svg#walk /></svg>" };
-  return `<div class="smart">
-    ${viewAiReview()}
-    <h3 class="sec-h"><svg class=i aria-hidden=true><use href=icons.svg#settings /></svg> Quick checks</h3>
-    <div class="smart-prefs">
-      <label>Pace ${sel("pace", [["relaxed", "Relaxed (≈7 h a day)"], ["balanced", "Balanced (≈9 h)"], ["packed", "Packed (≈11 h)"]], p.pace || "balanced")}</label>
-      <label>Getting around ${sel("travel", [["mixed", "Whatever's best"], ["transit", "Prefer public transport"], ["car", "We'll have a car"]], p.travel || "mixed")}</label>
-      <label>Finish by ${sel("dayEnd", [["20:00", "8 pm"], ["21:00", "9 pm"], ["22:00", "10 pm"], ["23:30", "Late"]], p.dayEnd || "22:00")}</label>
-    </div>
-    <div class="smart-actions">
-      <button class="primary" data-action="analyse" ${S.analysing ? "disabled" : ""}>${S.analysing ? esc(S.analysing) : "<svg class=i aria-hidden=true><use href=icons.svg#search /></svg> Analyse plan"}</button>
-      ${fixes.length > 1 ? `<button data-action="applyAll">Apply all ${fixes.length} fixes</button>` : ""}
-      ${hidden ? `<button class="link" data-action="undismiss">Show ${hidden} dismissed</button>` : ""}
-    </div>
-    <p class="muted small">Suggestions update as either of you edits. “Analyse plan” looks up places on the map so routes and travel times can be worked out. Times are estimates: check exact times and fares with Directions.</p>
-    ${list.length ? list.map((x) => `<article class="sug ${x.level}">
-        <div class="sug-ic">${icon[x.kind] || "<svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg>"}</div>
-        <div class="sug-body">
-          <div class="sug-title">${esc(x.title)}</div>
-          ${x.detail ? `<div class="sug-detail">${esc(x.detail).replace(/\n/g, "<br>")}</div>` : ""}
-        </div>
-        <div class="sug-act">
-          ${x.changes.length ? `<button class="btn-s primary" data-action="applySug" data-id="${esc(x.id)}">Apply</button>` : ""}
-          <button class="btn-s" data-action="dismissSug" data-id="${esc(x.id)}">Dismiss</button>
-        </div>
-      </article>`).join("") : `<p class="empty"><svg class=i aria-hidden=true><use href=icons.svg#check-circle /></svg> The plan looks good. Nothing to fix right now.</p>`}
-  </div>`;
-}
 async function runAnalyse() {
   S.analysing = "Looking up places…";
   render();
@@ -1556,7 +1549,7 @@ async function verifyVeg({ quiet = true } = {}) {
     });
     if (writes.length) await S.store.batchUpdateItems(S.tripId, writes);
     const bad = writes.filter(([, p]) => p.veg === "no").length;
-    if (!quiet || bad) toast(`Checked ${writes.length} restaurant${writes.length > 1 ? "s" : ""} for vegetarian food${bad ? `: ${bad} ha${bad > 1 ? "ve" : "s"} few vegetarian options (see Smart)` : ": all have vegetarian options"}.`, 5000);
+    if (!quiet || bad) toast(`Checked ${writes.length} restaurant${writes.length > 1 ? "s" : ""} for vegetarian food${bad ? `: ${bad} ha${bad > 1 ? "ve" : "s"} few vegetarian options (see Ask)` : ": all have vegetarian options"}.`, 5000);
   } catch (e) {
     if (!quiet) toast(e instanceof QuotaError ? e.message : "Couldn't check vegetarian options: " + e.message, 8000);
   } finally {
@@ -2478,6 +2471,7 @@ document.addEventListener("click", async (e) => {
       }
       case "iosTipClose": localSet("ios-tip", "1"); return render();
       case "tab":
+        S.askOpen = false;
         S.tab = b.dataset.tab;
         S.moreOpen = false;
         localSet("tab", S.tab);
@@ -2486,13 +2480,11 @@ document.addEventListener("click", async (e) => {
         render();
         if (S.hubScroll) { document.getElementById(S.hubScroll)?.scrollIntoView({ block: "start" }); S.hubScroll = ""; } else if (S.tab !== "plan") window.scrollTo(0, 0);
         return;
-      case "ask": { // Ask: the assistant card on the Plan tab (the one-screen Ask page comes in a later job)
-        if (S.tab !== "plan") { S.tab = "plan"; if (S.tripId) rememberTab(S.tripId, "plan"); localSet("tab", "plan"); render(); }
-        const el = $app.querySelector(".asst, .side .asst") || $app.querySelector(".side");
-        if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
-        else toast("Nothing to ask for yet.");
-        return;
-      }
+      case "ask": return openAsk(); // the Ask screen: a full-page layer, so Back and Escape close it
+      case "askClose":
+        S.askOpen = false;
+        S.scrollBack = S.askScroll || 0;
+        return render();
       case "moreToggle":
         S.moreOpen = !S.moreOpen;
         return render();
@@ -2624,6 +2616,7 @@ document.addEventListener("change", async (e) => {
   log(`set ${{ pace: "the pace", travel: "the travel style", dayEnd: "the latest finish" }[k]} to “${e.target.selectedOptions?.[0]?.text || e.target.value}”`);
 });
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.askOpen && !$modal.open && !S.moreOpen && !S.addOpen && !S.sheet) { S.askOpen = false; S.scrollBack = S.askScroll || 0; render(); }
   if (e.key === "Escape" && S.moreOpen) { S.moreOpen = false; render(); }
   if (e.key === "Escape" && S.addOpen) { S.addOpen = false; render(); }
   if (e.key === "Escape" && S.userMenu) { S.userMenu = false; renderUser(); }
@@ -2651,6 +2644,7 @@ setInterval(() => { if (S.tripId && !$modal.open) render(); }, 60000);
 /* ----------------------------------------------- feature modules (ctx) */
 // Modules never import this file; everything they need comes through ctx.
 const ctx = {
+  openAsk,
   S, $form, $modal,
   esc, safeUrl, uid, money, ago, stamp, dayDate, fmtDay, toMin, fromMin, dur, nameOf, who, firstName, toast, friendlyError, stampMe, log, touchTrip,
   render, focusDay, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
@@ -2680,7 +2674,6 @@ const ctx = {
 ctx.tab({ id: "plan", icon: "<svg class=i aria-hidden=true><use href=icons.svg#plan /></svg>", label: "Plan", view: viewPlan, order: 10 });
 ctx.tab({ id: "ideas", icon: "<svg class=i aria-hidden=true><use href=icons.svg#ideas /></svg>", label: "Ideas", view: viewIdeas, count: () => ideas().length, order: 30 });
 ctx.tab({ id: "discover", icon: "<svg class=i aria-hidden=true><use href=icons.svg#compass /></svg>", label: "Discover", view: viewDiscover, order: 40, more: true });
-ctx.tab({ id: "smart", icon: "<svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg>", label: "Smart", view: viewSmart, count: () => smartList().filter((x) => x.level === "fix").length, warn: true, order: 60, more: true });
 ctx.tab({ id: "budget", icon: "<svg class=i aria-hidden=true><use href=icons.svg#wallet /></svg>", label: "Budget", view: viewBudget, order: 70, more: true });
 ctx.tab({ id: "itinerary", icon: "<svg class=i aria-hidden=true><use href=icons.svg#note /></svg>", label: "Itinerary", view: viewItinerary, order: 80, more: true });
 ctx.tab({ id: "trip", icon: "<svg class=i aria-hidden=true><use href=icons.svg#trip /></svg>", label: "Trip", order: 100, view: () => hubMod.view({
@@ -2691,7 +2684,7 @@ ctx.tab({ id: "trip", icon: "<svg class=i aria-hidden=true><use href=icons.svg#t
 }) });
 ctx.tab({ id: "changes", icon: "<svg class=i aria-hidden=true><use href=icons.svg#clock /></svg>", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, planMod, stopsMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, planMod, stopsMod, askMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 

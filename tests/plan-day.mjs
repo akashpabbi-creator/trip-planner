@@ -57,9 +57,9 @@ try {
   console.log("empty day");
   await p.click(".dchip[data-i='2']");
   ok(!!(await p.$(".day .day-empty .fill-btns [data-action=buildSample]")), "an empty day offers Fill empty days");
-  ok((await p.$$(".asst .fill-bar")).length === 0, "the assistant card doesn't repeat the buttons while the shown day is empty");
+  ok((await p.$$(".fill-bar")).length === 0, "no fill bar on the Plan: the buttons live on an empty day and on the Ask screen");
   await p.click(".dchip[data-i='0']");
-  ok((await p.$$(".asst .fill-bar")).length === 1, "on a planned day the fill bar is in the assistant card");
+  ok((await p.$$(".fill-bar")).length === 0 && (await p.$$(".day .fill-btns")).length === 0, "a planned day has no fill buttons of its own");
 
   console.log("swipe and All days");
   const swipe = (dx) => p.evaluate((dx) => {

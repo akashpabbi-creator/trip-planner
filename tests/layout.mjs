@@ -65,7 +65,7 @@ try {
     ok(await p.evaluate(() => ["home", "ask", "search"].every((a) => !!document.querySelector(`.thead [data-action=${a}]`))), "back, search and Ask are in the header");
     ok(await p.evaluate(() => getComputedStyle(document.querySelector(".topbar")).display === "none"), "the old top bar is hidden inside a trip");
     // other tabs: no giant buttons, no overflow
-    for (const id of ["trip", "budget", "changes", "kit", "smart", "discover", "ideas", "map"]) {
+    for (const id of ["trip", "budget", "changes", "kit", "discover", "ideas", "map"]) {
       await goTab(p, id, true);
       await p.waitForTimeout(150);
       const o = await p.evaluate(() => ({
@@ -91,7 +91,7 @@ try {
   ok(d.sw <= d.cw, "no horizontal overflow at 1725");
   ok(d.alpha >= 0.9, "top bar is opaque (alpha " + d.alpha + ")");
   ok(d.right <= d.cw, "top bar content is not clipped on the right");
-  ok(!!(await p.$(".trip.has-side .side .asst")) && !!(await p.$(".side .side-idea, .side-card")), "Plan shows the right-hand panel with the assistant");
+  ok(!!(await p.$(".trip.has-side .side")) && !!(await p.$(".side .side-idea, .side-card")), "Plan shows the right-hand panel");
   await ctx.close();
 
   console.log("desktop 1440");

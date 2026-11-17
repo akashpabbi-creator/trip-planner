@@ -157,13 +157,14 @@ try {
     await S.store.addItem(S.tripId, { ...base, title: "Rest & recharge", rest: true, order: 1, time: "15:00" });
     await S.store.addItem(S.tripId, { ...base, title: "Mystery cafe", category: "food", order: 2, time: "", geoFailed: true });
   });
-  await tabClick(A, "smart");
+  await A.click(".thead [data-action=ask]");
   await A.waitForFunction(() => /not on the map yet/.test(document.body.textContent));
   const smart = await A.evaluate(() => document.body.textContent.match(/(\d+) places? not on the map yet/)?.[0]);
   ok(smart === "1 place not on the map yet", "Smart counts only the real place, not Rest & recharge: " + smart);
 
   /* ---- 4. Discover: network error vs no listings */
   console.log("discover guide");
+  await A.click("[data-action=askClose]");
   await tabClick(A, "discover");
   await A.waitForSelector(".d-sec");
   const g = await A.evaluate(() => window.__tripCtx.S.trip.guide);

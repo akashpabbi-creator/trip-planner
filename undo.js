@@ -172,6 +172,7 @@ export function init(c) {
   ctx.undoAi = undo;
   ctx.toastUndo = toastUndo;
   ctx.slot("planTop", bar);
+  ctx.undoBarHtml = bar; // also shown at the top of the Ask screen
   ctx.action("aiUndo", async (b) => { b.disabled = true; await undo(); });
   ctx.action("aiKeep", async () => { await keep(); ctx.render(); });
 }
