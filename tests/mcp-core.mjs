@@ -404,6 +404,38 @@ console.log("(z) card plumbing (MCP Apps)");
   ok(!("structuredContent" in lt) && Array.isArray(JSON.parse(lt.content[0].text)), "tools without a card return text only");
 }
 
+console.log("(z3) Ideas cards");
+{
+  const call = async (name, args) => (await mcp(T, "tools/call", { name, arguments: args })).j?.result;
+  const tl = (await mcp(T, "tools/list")).j?.result?.tools || [];
+  ok(["list_ideas", "search_items", "save_ideas"].every((n) => tl.find((t) => t.name === n)?._meta?.ui?.resourceUri === "ui://trips/ideas"), "the Ideas tools are linked to the Ideas card");
+  ok(["ideas_add_to_day", "ideas_refresh"].every((n) => tl.find((t) => t.name === n)?._meta?.ui?.visibility?.join() === "app"), "Add to day and refresh are app-only helpers");
+  const rr = (await mcp(T, "resources/read", { uri: "ui://trips/ideas" })).j?.result?.contents?.[0];
+  ok(rr?.mimeType === "text/html;profile=mcp-app" && rr.text.includes("Add to day") && rr.text.includes('<symbol id="ideas"'), "resources/read returns the Ideas card");
+  if (process.env.CARD_DUMP_DIR) writeFileSync(join(process.env.CARD_DUMP_DIR, "ideas.html"), rr.text);
+  const li = await call("list_ideas", { trip: "T1" });
+  const lt = JSON.parse(li.content[0].text);
+  ok(Array.isArray(lt.ideas) && lt.ideas.some((x) => x.title === "Spice farm") && !("structuredContent" in lt), "list_ideas text answer is the plain Ideas list");
+  const sc = li.structuredContent;
+  ok(sc?.tripId === "T1" && sc.ideas.some((x) => x.title === "Spice farm" && x.category === "activity") && sc.days.length === 2 && sc.days[0].date === "2026-12-20" && /tab=ideas/.test(sc.appUrl), "list_ideas gives the card its ideas, the days and an Open in app link to Ideas");
+  ok(!sc.ideas.some((x) => x.title === "Baga Beach"), "places already on a day are not in the Ideas list");
+  const sv = await call("save_ideas", { trip: "T1", ideas: [{ title: "Fisherman's Wharf Cafe", category: "food", location: "Panjim", veg: "some", tips: ["book 2 days ahead"] }] });
+  const ss = sv.structuredContent;
+  ok(ss?.ideas?.[0]?.title === "Fisherman's Wharf Cafe" && ss.ideas[0].tips.includes("book 2 days ahead") && ss.ideas[0].veg === "yes" && ss.undoWith?.entry, "save_ideas shows the saved idea with its tip and veg flag, and an Undo");
+  ok(JSON.parse(sv.content[0].text).saved === 1, "save_ideas text answer unchanged");
+  const se = await call("search_items", { trip: "T1", query: "baga" });
+  ok(se.structuredContent?.ideas?.[0]?.title === "Baga Beach" && se.structuredContent.ideas[0].day === 2, "search_items shows matches, with the day for ones already planned");
+  const mv = await call("ideas_add_to_day", { trip: "T1", item: "i4", day: 2 });
+  ok(/Added “Spice farm” to day 2/.test(mv.structuredContent?.receipt?.text) && !mv.structuredContent.ideas.some((x) => x.title === "Spice farm") && mv.structuredContent.undoWith?.entry, "Add to day moves the idea onto the day and returns the refreshed card with Undo");
+  const gd = await tool(T, "get_day", { trip: "T1", day: 2 });
+  ok(gd.v.schedule?.some((s) => s.title === "Spice farm"), "the idea is on day 2 in the plan");
+  await call("undo_change", { trip: "T1", entry: mv.structuredContent.undoWith.entry });
+  const rf = await call("ideas_refresh", { trip: "T1" });
+  ok(rf.structuredContent.ideas.some((x) => x.title === "Spice farm"), "Undo puts it back in Ideas (refresh shows it again)");
+  const bad = await call("ideas_add_to_day", { trip: "T1", item: "i4", day: 9 });
+  ok(bad.isError, "a day that doesn't exist is a clean error");
+}
+
 console.log("(y) day card");
 {
   await seed("trips", "T5", { name: "Kochi", destination: "Kochi, India", startDate: "2027-02-01", currency: "INR", days: [{ id: "k1", title: "Fort Kochi", base: "Fort Kochi", notes: "" }, { id: "k2", title: "", base: "", notes: "" }, { id: "k3", title: "", base: "", notes: "" }],
