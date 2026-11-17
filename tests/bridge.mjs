@@ -230,8 +230,8 @@ try {
   const pk = await p.evaluate(() => window.__tripCtx.S.trip.aiPicks);
   ok(pk.items.length === 3 && pk.for === "Rome", "picks stored on trip.aiPicks with source Claude");
   await p.click(".tabs-bar [data-tab=trip]");
-  await p.click(".hub-list [data-tab=discover]");
-  ok(/picked by Claude/.test(await p.textContent(".discover")) && /Palatine Hill/.test(await p.textContent(".discover")), "Discover heading says Claude and lists the picks");
+  await p.click(".hub-list [data-action=topPicks]");
+  ok(/picked by Claude/.test(await p.textContent(".tp-body")) && /Palatine Hill/.test(await p.textContent(".tp-body")), "Top picks heading says Claude and lists the picks");
 
   // 3. review
   const rev = { kind: "review", summary: "Day 1 is tight.", suggestions: [

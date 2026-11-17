@@ -110,13 +110,14 @@ try {
   await fp.waitForSelector(".tab-body");
   await fp.click(".tabs-bar [data-tab=trip]");
   const more = await fp.textContent(".hub-list");
-  ok(!AI_WORDS.test(more) && /Discover/.test(more), "More sheet: no Connect Claude, no Gemini or Claude text");
+  ok(!AI_WORDS.test(more) && /Top picks/.test(more), "More sheet: no Connect Claude, no Gemini or Claude text");
   await fp.keyboard.press("Escape");
   await fp.click(".tabs-bar [data-tab=plan]");
   const addSheet = await fp.textContent(".add-sheet");
   ok(!AI_WORDS.test(addSheet) && !/screenshot/i.test(addSheet), "add sheet: no screenshot or paste-tips tiles, no Gemini or Claude text: " + addSheet.trim().replace(/\s+/g, " ").slice(0, 120));
   ok((await fp.$$(".add-sheet .icon")).length === 3 && !!(await fp.$(".add-sheet [data-action=noteQuick]")), "add sheet keeps paste-from-clipboard and new stop, plus the trip note tile");
   // Rule-based link saving still works (offline here, so it falls back to the local parser).
+  if (!(await fp.isVisible("#linkInput"))) await fp.click(".bar-plus"); // phones: the link field is in the + sheet
   await fp.fill("#linkInput", "https://example.com/some-place-in-goa");
   await fp.click("[data-action=addLink]");
   await fp.waitForFunction(() => window.__tripCtx.S.items.some((i) => i.url === "https://example.com/some-place-in-goa"), null, { timeout: 15000 });
@@ -129,7 +130,8 @@ try {
   ok(await a.evaluate(() => window.__tripCtx.S.aiUser === true), "demo: everyone is an AI user by default");
   const aid = await makeTrip(a, "Rome", "Rome");
   ok(await a.isVisible(".tabs-desk [data-action=bridgeOpen]"), "Connect Claude is there");
-  await a.click(".tabs-desk [data-tab=discover]");
+  await a.click(".tabs-desk [data-tab=ideas]"); // Top picks live in Ideas now
+  await a.click("[data-action=picksToggle]");
   ok(/Gemini/.test(await text(a)) && (await a.isVisible("[data-action=aiSettings]")), "Discover offers Connect Gemini");
   await a.click("[data-action=aiSettings]");
   await a.fill("#modalForm [name=key]", "AIzaTESTKEY");

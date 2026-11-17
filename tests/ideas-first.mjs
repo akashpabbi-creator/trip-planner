@@ -29,6 +29,7 @@ const ANSWER = { places: [
   place("Quiet Pizza", { tips: "no need to book", vegetarian: "" }),
 ], tips: ["Carry small cash for village stalls", "Buses stop at 9pm", "a".repeat(400), "", "t4", "t5", "t6"] };
 const ANSWER2 = { places: [place("Trattoria Verde", { tips: "Reserve by WhatsApp", bookAheadDays: 3 })], tips: ["Carry small cash for village stalls"] };
+const openLinkField = async (pg) => { if (!(await pg.isVisible("#linkInput"))) await pg.click(".bar-plus"); }; // phones: the link field is in the + sheet
 let answer = ANSWER;
 const gem = [];
 const b = await chromium.launch();
@@ -69,6 +70,7 @@ try {
   console.log("ideas first");
   ok(await d.evaluate(() => window.__tripCtx.profileOf(window.__tripCtx.S.trip).linksToDays === false), "stored autoPlace: true does not turn on placing on days");
   await d.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
+  await openLinkField(d);
   await d.fill("#linkInput", "https://www.instagram.com/p/AAA111/");
   await d.press("#linkInput", "Enter");
   await d.waitForFunction(() => window.__tripCtx.S.items.filter((i) => i.fromLink).length === 4, null, { timeout: 15000 });
@@ -93,6 +95,7 @@ try {
 
   console.log("no double-up");
   answer = ANSWER2;
+  await openLinkField(d);
   await d.fill("#linkInput", "https://www.instagram.com/p/BBB222/");
   await d.press("#linkInput", "Enter");
   await d.waitForFunction(() => /already in Ideas/.test(document.getElementById("toast").textContent), null, { timeout: 15000 });
@@ -114,6 +117,7 @@ try {
   await d.evaluate(async () => { const c = window.__tripCtx; await c.S.store.txTrip(c.S.tripId, () => ({ profile: { linksToDays: true } })); });
   await d.waitForFunction(() => window.__tripCtx.profileOf(window.__tripCtx.S.trip).linksToDays === true);
   answer = { places: [place("Opt In Museum", { category: "sight", vegetarian: "" })], tips: [] };
+  await openLinkField(d);
   await d.fill("#linkInput", "https://www.instagram.com/p/CCC333/");
   await d.press("#linkInput", "Enter");
   await d.waitForFunction(() => window.__tripCtx.S.items.some((i) => i.title === "Opt In Museum"), null, { timeout: 15000 });
@@ -129,7 +133,8 @@ try {
     await d.waitForFunction(() => !window.__tripCtx.S.items.some((i) => i.fromLink));
     answer = { places: [ANSWER.places[0], ANSWER.places[1], place("Giardino degli Aranci", { category: "nature", vegetarian: "", tips: "Go before 8am to avoid the crowds", hours: "Open daily", bestTime: "morning" })], tips: ["Carry small cash for village stalls", "Buses stop at 9pm, so plan a taxi back"] };
     await d.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
-    await d.fill("#linkInput", "https://www.instagram.com/p/AAA111/");
+    await openLinkField(d);
+  await d.fill("#linkInput", "https://www.instagram.com/p/AAA111/");
     await d.press("#linkInput", "Enter");
     await d.waitForFunction(() => window.__tripCtx.S.tab === "ideas" && window.__tripCtx.S.items.filter((i) => i.fromLink).length === 3 && !window.__tripCtx.S.busy);
     await d.addStyleTag({ content: "#toast{display:none!important}" });

@@ -35,9 +35,12 @@ async function page(name) {
   await p.click("[data-action=signin]");
   return p;
 }
-const titles = (p) => p.$$eval(".tab-body .card .c-title", (e) => e.map((x) => x.textContent.trim()));
+const titles = (p) => p.$$eval(".tab-body .icard .ic-title", (e) => e.map((x) => x.childNodes[0].textContent.trim()));
+// Reactions and comments live in the idea's sheet (tap its card). open() shows the sheet for one idea, closeSheet() puts it away.
+const open = (p, t) => p.evaluate((t) => { const c = [...document.querySelectorAll(".icard")].find((x) => x.textContent.includes(t)); c.querySelector(".ic-open").click(); }, t).then(() => p.waitForFunction((t) => document.querySelector(".ssheet")?.textContent.includes(t), t));
+const closeSheet = async (p) => { if (await p.$(".ssheet")) { await p.keyboard.press("Escape"); await p.waitForFunction(() => !document.querySelector(".ssheet")); } };
 const wait = (p, fn, arg) => p.waitForFunction(fn, arg, { timeout: 5000 }).then(() => true).catch(() => false);
-const cardOf = (t) => `[...document.querySelectorAll(".card")].find((c) => /${t}/.test(c.textContent))`;
+const cardOf = (t) => `[...document.querySelectorAll(".ssheet .card")].find((c) => /${t}/.test(c.textContent))`;
 
 try {
   const a = await page("Akash");
@@ -58,29 +61,38 @@ try {
   if (await s.$("[data-action=open]")) await s.click("[data-action=open]");
   await s.waitForSelector(".tab-body");
   for (const p of [a, s]) await p.click(".tabs-bar [data-tab=ideas]");
-  await a.waitForSelector(".card .rx-row");
-  ok((await a.$$(".card .rx-row")).length === 4 && (await s.$$(".card .rx-row")).length === 4, "every card has the quiet reaction row on both phones");
+  await a.waitForSelector(".icard");
+  ok((await a.$$(".icard")).length === 4 && (await s.$$(".icard")).length === 4, "four idea cards on both phones");
+  await open(a, "Colosseum");
+  ok((await a.$$(".ssheet .rx-row")).length === 1 && await a.isVisible(".ssheet [data-action=cmtToggle]"), "an idea's sheet has the quiet reaction row");
+  await closeSheet(a);
   ok((await a.$$(".idea-chips")).length === 1, "filter chips show with 4 ideas");
 
-  const card = (p, t) => p.locator(".card", { hasText: t });
-  const vote = (p, t, v) => card(p, t).locator(`[data-action=vote][data-v=${v}]`).click();
+  const card = (p, t) => p.locator(".ssheet .card", { hasText: t });
+  const showing = async (p, t) => { if (!(await p.$(`.ssheet:has-text("${t}")`))) { await closeSheet(p); await open(p, t); } };
+  const vote = async (p, t, v) => { await showing(p, t); await card(p, t).locator(`[data-action=vote][data-v=${v}]`).click(); };
 
   // votes sync live both ways
   await vote(a, "Colosseum", "love");
+  await showing(s, "Colosseum");
   ok(await wait(s, `(${cardOf("Colosseum")}).querySelector("[data-v=love] .rx-who")?.textContent === "A"`), "Sam sees Akash's ❤️ on Colosseum (initial A)");
   ok(!(await card(s, "Colosseum").locator(".rx-both").count()), "no badge while only one person loves it");
   await vote(s, "Colosseum", "love");
-  ok(await wait(a, () => !!document.querySelector(".card .rx-both")) && (await card(a, "Colosseum").locator(".rx-both").textContent()) === "Both love it", "badge “Both love it” when both picked ❤️ (live on Akash's phone)");
+  await showing(a, "Colosseum");
+  ok(await wait(a, () => !!document.querySelector(".ssheet .rx-both")) && (await card(a, "Colosseum").locator(".rx-both").textContent()) === "Both love it", "badge “Both love it” when both picked ❤️ (live on Akash's phone)");
   ok((await card(a, "Colosseum").locator("[data-v=love]").getAttribute("aria-pressed")) === "true", "my own choice is marked pressed");
   await vote(a, "Villa Borghese", "love");
   await vote(a, "Trattoria Verde", "like");
   await vote(s, "Tourist Trap Pizza", "no");
   await vote(a, "Trattoria Verde", "no");
+  await showing(a, "Trattoria");
   ok(await wait(a, `!(${cardOf("Trattoria")}).querySelector("[data-v=like] .rx-who") && !!(${cardOf("Trattoria")}).querySelector("[data-v=no] .rx-who")`), "choosing another reaction replaces mine (one choice per person)");
   await vote(a, "Trattoria Verde", "no");
   ok(await wait(a, `!(${cardOf("Trattoria")}).querySelector("[data-v=no] .rx-who")`), "tapping the same reaction again clears it");
 
   // sort and filter
+  await closeSheet(a);
+  await closeSheet(s);
   const order = await titles(a);
   ok(order[0] === "Colosseum" && order[order.length - 1] === "Tourist Trap Pizza", "sort: both-loved first, vetoed last: " + order.join(" | "));
   await a.evaluate(async () => { const c = window.__tripCtx; const it = c.S.items.find((i) => i.title === "Tourist Trap Pizza"); await c.S.store.batchUpdateItems(c.S.tripId, [[it.id, { addedAt: Date.now() + 5000 }]]); });
@@ -97,10 +109,12 @@ try {
   ok((await titles(a)).length === 4, "All chip resets");
 
   // comments
+  await showing(a, "Colosseum");
   await card(a, "Colosseum").locator("[data-action=cmtToggle]").click();
   ok(await card(a, "Colosseum").locator(".rx-thread").isVisible(), "💬 expands the thread inline");
   await card(a, "Colosseum").locator("input[data-cmt]").fill("Let's go at sunrise");
   await card(a, "Colosseum").locator("input[data-cmt]").press("Enter");
+  await showing(s, "Colosseum");
   ok(await wait(s, `(${cardOf("Colosseum")}).querySelector("[data-action=cmtToggle] .rx-who")?.textContent === "1"`), "Sam sees “💬 1” collapsed");
   ok(!(await card(s, "Colosseum").locator(".rx-thread").count()), "thread is collapsed by default");
   await card(s, "Colosseum").locator("[data-action=cmtToggle]").click();
@@ -109,11 +123,13 @@ try {
   await card(s, "Colosseum").locator("input[data-cmt]").fill("Yes! Book tickets");
   await card(s, "Colosseum").locator("[data-action=cmtAdd]").click();
   ok(await wait(a, () => /Yes! Book tickets/.test(document.body.textContent)), "Akash sees Sam's reply live (thread stays open)");
+  await closeSheet(a);
   await a.click(".tabs-bar [data-tab=trip]");
   await a.click(".hub-list [data-tab=changes]");
   const act = await a.textContent(".tab-body");
   ok(/commented on “Colosseum”/.test(act) && !/voted|loved/.test(act), "comments appear in Activity, votes do not");
   await a.click(".tabs-bar [data-tab=ideas]");
+  await showing(a, "Colosseum");
   await card(a, "Colosseum").locator(".rx-del").click();
   ok(await wait(s, () => !/Let's go at sunrise/.test(document.body.textContent)), "deleting my own comment removes it for Sam too");
   ok(/Yes! Book tickets/.test(await s.textContent("body")), "other comment stays");

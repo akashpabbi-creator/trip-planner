@@ -90,7 +90,7 @@ try {
   r = await find("closed mondays");
   ok(r.length === 1 && /Trattoria Verde/.test(r[0]) && /Ideas/.test(await p.textContent(".srch-res")), "an idea is found by a tip in its notes, under Ideas");
   await p.click(".srch-r");
-  ok(await p.evaluate(() => window.__tripCtx.S.tab === "ideas" && /Trattoria/.test(document.querySelector(".card.srch-hit")?.textContent || "")), "it jumps to the Ideas tab and highlights the idea");
+  ok(await p.evaluate(() => window.__tripCtx.S.tab === "ideas" && /Trattoria/.test(document.querySelector(".icard.srch-hit")?.textContent || "")), "it jumps to the Ideas tab and highlights the idea");
 
   await p.click("[data-action=search]");
   r = await find("vatican");
@@ -121,10 +121,10 @@ try {
   ok(await p.evaluate(() => { const r = document.querySelector(".idea-bar").getBoundingClientRect(); return r.top >= 0 && r.top < 120; }), "the bar stays near the top when scrolled");
   await p.evaluate(() => window.scrollTo(0, 0));
   await p.click("[data-action=ideaFilter][data-id=food]");
-  const shown = () => p.$$eval(".tab-body .card .c-title", (e) => e.map((x) => x.textContent.trim()));
+  const shown = () => p.$$eval(".tab-body .icard .ic-title", (e) => e.map((x) => x.childNodes[0].textContent.trim()));
   ok((await shown()).length === 4, "Food chip shows the 4 food ideas");
   await p.fill("#ideaQ", "pizza");
-  await p.waitForFunction(() => document.querySelectorAll(".tab-body .card").length === 2);
+  await p.waitForFunction(() => document.querySelectorAll(".tab-body .icard").length === 2);
   ok((await shown()).sort().join() === "Tourist Trap Pizza,Trattoria Verde", "Food + “pizza” combines");
   c = await chips();
   ok(c[0] === "All 2" && c.some((x) => /Food & drink 2/.test(x)) && c.some((x) => /Nature 0/.test(x)), "counts follow the search box: " + c.join(" | "));

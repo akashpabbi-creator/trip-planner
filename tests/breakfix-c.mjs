@@ -165,7 +165,8 @@ try {
   /* ---- 4. Discover: network error vs no listings */
   console.log("discover guide");
   await A.click("[data-action=askClose]");
-  await tabClick(A, "discover");
+  await tabClick(A, "ideas"); // Top picks (the travel guide) live in Ideas
+  await A.click("[data-action=picksToggle]");
   await A.waitForSelector(".d-sec");
   const g = await A.evaluate(() => window.__tripCtx.S.trip.guide);
   ok(g && g.failed === true && !g.listings.length, "guide marked failed when the network was down: " + JSON.stringify(g || null).slice(0, 80));

@@ -83,7 +83,7 @@ export function view(h) {
       ${row(h, { icon: "note", label: "Trip notes", status: st.notes, tab: "kit", scroll: "kit-notes" })}
       ${row(h, { icon: "wallet", label: "Budget", status: st.budget, tab: "budget" })}
       ${row(h, { icon: "alert", label: "Ask and things to check", status: smartN ? plural(smartN, "thing") + " to check" : "Ask for changes, plan, check", action: "ask", warn: smartN > 0, count: smartN || 0 })}
-      ${row(h, { icon: "compass", label: "Discover", status: "Top food, sights and stays", tab: "discover" })}
+      ${row(h, { icon: "compass", label: "Top picks", status: "Top food, sights and stays, in Ideas", action: "topPicks" })}
       <details class="hub-about"><summary class="hub-row"><span class="hr-ic">${h.ic("sun-cloud")}</span><span class="hr-t"><b>About and weather</b><small>${esc(st.about)}</small></span><span class="hr-go">${h.ic("arrow-down")}</span></summary>
         <div class="ha-body">${t.place?.extract ? `<p>${esc(t.place.extract)}</p>${t.place.url ? `<a href="${esc(t.place.url)}" target="_blank" rel="noopener">Read more on Wikipedia ↗</a>` : ""}` : `<p class="muted small">No place summary yet. Set a destination in Edit trip.</p>`}
           ${w.length ? `<p class="small muted">${t.weather.kind === "forecast" ? "Forecast" : "Same dates last year"}: ${Math.min(...w.map((d) => d.min))}–${Math.max(...w.map((d) => d.max))}°C over ${plural(w.length, "day")}.</p>` : ""}</div>

@@ -38,6 +38,7 @@ async function open(width, height, mobile) {
   return { p, ctx };
 }
 const goTab = async (p, id, mobile) => {
+  if (id === "discover") return p.evaluate(() => window.__tripCtx.openTab("discover")); // no hub row any more: its picks moved to Ideas
   if (!mobile) return p.click(`.tabs-desk [data-tab=${id}]`);
   if (["plan", "map", "ideas", "trip"].includes(id)) return p.click(`.tabs-bar [data-tab=${id}]`);
   await p.click(".tabs-bar [data-tab=trip]");

@@ -76,6 +76,7 @@ try {
   await p.waitForTimeout(300);
 
   console.log("long text in the link box opens the sheet");
+  if (!(await p.isVisible("#linkInput"))) await p.click(".bar-plus"); // phones: the link field is in the + sheet
   await p.fill("#linkInput", TIPS);
   await p.click("[data-action=addLink]");
   await p.waitForSelector("#pasteText");
