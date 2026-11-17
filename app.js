@@ -22,6 +22,7 @@ import * as undoMod from "./undo.js";
 import * as psocialMod from "./proposal-social.js";
 import * as shareMod from "./share.js";
 import * as driveMod from "./drive.js";
+import * as hubMod from "./trip-hub.js";
 import * as homeMod from "./home.js";
 import { findDup, mergePatch, dupGroups, foldPatch, seenNote } from "./dedupe.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
@@ -390,6 +391,7 @@ function render() {
     }
   }
   window.scrollTo(0, scroll);
+  document.body.classList.toggle("in-trip", !!(S.me && S.tripId && S.trip));
   renderUser();
   renderPresence();
   renderSync();
@@ -426,6 +428,8 @@ function renderSync() {
   el.hidden = !S.me;
   el.className = "sync " + st;
   el.innerHTML = `<span class="sync-dot"></span><span class="sync-l">${{ saved: "Saved", saving: "Saving…", offline: "Offline · changes will sync" }[st] || "Saved"}</span>`;
+  const t = document.getElementById("tsync"); // the trip header shows the state only when it is not Saved
+  if (t) { t.hidden = st === "saved"; t.className = "thead-sync " + st; t.querySelector(".sync-l").textContent = { saving: "Saving…", offline: "Offline" }[st] || ""; }
 }
 function renderUser() {
   const box = document.getElementById("userBox");
@@ -546,32 +550,16 @@ function viewTrip() {
   }).join("");
   const body = runView(cur);
   const aside = cur?.id === "plan" && isWide() ? sidePanel(S.asstHtml || "") : "";
-  return `<section class="trip ${aside ? "has-side" : ""}">
-    <header class="hero ${cover ? "has-img" : ""} ${cur?.id === "plan" ? "" : "compact"}" ${cover ? `style="--cover:url('${cssUrl(cover)}')"` : ""}>
-      <div class="hero-inner">
-        <div class="hero-top">
-          <button class="chip ghost" data-action="home">‹ Trips</button>
-          <div class="hero-acts">
-            ${slot("heroActs")}
-            <button class="chip ghost" data-action="invite"><span class="avs">${avatars}</span><span>Invite</span></button>
-            <button class="chip ghost round" data-action="editTrip" title="Edit trip" aria-label="Edit trip"><svg class=i aria-hidden=true><use href=icons.svg#settings /></svg></button>
-          </div>
-        </div>
-        <button class="chip ghost round cover-btn" data-action="coverPick" title="Choose a cover" aria-label="Choose a cover"><svg class=i aria-hidden=true><use href=icons.svg#image /></svg></button>
-        <div class="hero-main">
-          <div class="eyebrow">${esc(eyebrow)}</div>
-          <h1>${esc(t.name)}</h1>
-          <div class="hero-meta">
-            ${t.startDate ? `<span class="pill" ${t.weather?.tz ? `title="${esc(t.weather.tz.replace(/_/g, " "))} time"` : ""}>${shortDay(dayDate(0))} – ${shortDay(end)}</span>` : `<button class="pill pill-btn" data-action="editTrip">Set dates</button>`}
-            <span class="pill">${t.days.length} day${t.days.length === 1 ? "" : "s"}</span>
-            ${temps ? `<span class="pill" title="${t.weather.kind === "forecast" ? "Forecast" : "Same dates last year"}">${wxIcon(w[0]?.icon) || ic("sun-cloud")} ${temps}</span>` : ""}
-          </div>
-          <div class="hero-budget ${budget && c.total > budget ? "over" : ""}">
-            <b>${money(c.total)}</b>
-            ${budget ? `<div class="bb-track"><div class="bb-fill" style="width:${pct}%"></div></div><span>${money(budget)}</span>` : `<span class="hb-note">planned</span><button class="link light" data-action="editTrip">Set a budget</button>`}
-          </div>
-        </div>
-      </div>
+  const hubChild = hubMod.isChild(cur?.id);
+  const dates = t.startDate ? `${shortDay(dayDate(0))} – ${shortDay(end)}` : "Set dates";
+  const st = S.sync || "saved";
+  return `<section class="trip ${aside ? "has-side" : ""} tab-${cur?.id || "plan"}">
+    <header class="thead">
+      <button class="tb-btn tb-back" data-action="home" aria-label="Back to Your trips" title="Your trips"><svg class=i aria-hidden=true><use href=icons.svg#arrow-left /></svg></button>
+      <div class="tb-title"><h1>${esc(t.name)}</h1><small>${t.startDate ? `<span ${t.weather?.tz ? `title="${esc(t.weather.tz.replace(/_/g, " "))} time"` : ""}>${dates}</span>` : `<button class="link" data-action="editTrip">Set dates</button>`} · ${t.days.length} day${t.days.length === 1 ? "" : "s"}</small></div>
+      <span class="thead-sync ${st}" id="tsync" ${st === "saved" ? "hidden" : ""}><span class="sync-dot"></span><span class="sync-l">${{ saving: "Saving…", offline: "Offline" }[st] || ""}</span></span>
+      ${slot("heroActs")}
+      <button class="tb-ask" data-action="ask" aria-label="Ask for help planning"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg><span>Ask</span></button>
     </header>
 
     ${cur?.id === "plan" ? dayStrip() : ""}
@@ -579,7 +567,7 @@ function viewTrip() {
     ${viewAddLink()}
 
     ${viewNav(tabs, cur, counts)}
-    <div class="tab-body">${body}</div>
+    <div class="tab-body">${hubChild ? `<button class="hub-back" data-action="tab" data-tab="trip">${ic("arrow-left")} Trip<span>${esc(cur.label)}</span></button>` : ""}${body}</div>
     ${aside}
     <p class="foot muted small">${t.updatedAt ? `Last change ${ago(t.updatedAt)} by ${esc(who(t.updatedBy))}` : ""}</p>
   </section>`;
@@ -599,7 +587,7 @@ function dayStrip() {
 let stripIO = null;
 function layoutVars() {
   const r = document.documentElement.style;
-  r.setProperty("--tb", (document.querySelector(".topbar")?.offsetHeight || 52) + "px");
+  r.setProperty("--tb", (document.querySelector(".thead")?.offsetHeight || document.querySelector(".topbar")?.offsetHeight || 52) + "px");
   r.setProperty("--strip", ($app.querySelector(".dstrip")?.offsetHeight || 0) + "px");
 }
 function markStrip(i, instant) {
@@ -621,7 +609,7 @@ function initStrip() {
   markStrip(Math.min(S.stripDay || 0, strip.children.length - 1), true);
   if (typeof IntersectionObserver === "undefined") return;
   const days = [...$app.querySelectorAll(".day")];
-  const top = (document.querySelector(".topbar")?.offsetHeight || 52) + strip.offsetHeight + 4;
+  const top = (document.querySelector(".thead")?.offsetHeight || document.querySelector(".topbar")?.offsetHeight || 52) + strip.offsetHeight + 4;
   const vis = new Set();
   stripIO = new IntersectionObserver((es) => {
     for (const e of es) {
@@ -635,25 +623,26 @@ function initStrip() {
 }
 window.addEventListener("resize", () => layoutVars());
 
-const NAV_SVG = { plan: ic("plan"), map: ic("map"), ideas: ic("ideas"), kit: ic("backpack"), more: ic("more") };
-// Desktop: every tab inline. Phones: a bottom bar (tabs that aren't "more") plus a More sheet for the rest.
+const NAV_SVG = { plan: ic("plan"), map: ic("map"), ideas: ic("ideas"), kit: ic("backpack"), trip: ic("trip") };
+// Desktop: every tab in a side menu (the Trip hub last). Phones: a bottom bar of Plan, Ideas, +, Map and Trip;
+// Kit, Budget, Discover, Smart, Itinerary and Activity open from the Trip hub.
 function viewNav(tabs, cur, counts) {
+  const warnN = (id) => (id === "trip" ? counts.get("smart") + (ctx.pendingChanges?.() || 0) : counts.get(id));
   const btn = (x) => {
-    const n = counts.get(x.id);
+    const n = x.id === "trip" ? 0 : counts.get(x.id);
     return `<button class="${cur?.id === x.id ? "on" : ""}" data-action="tab" data-tab="${x.id}"><span class="t-ic">${NAV_SVG[x.id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`;
   };
-  const rest = tabs.filter((x) => x.more);
-  const moreN = rest.filter((x) => x.warn).reduce((s, x) => s + counts.get(x.id), 0);
-  const moreOn = S.moreOpen || rest.some((x) => x.id === cur?.id);
+  const byId = (id) => tabs.find((x) => x.id === id);
+  const bar = ["plan", "ideas", "+", "map", "trip"].map((id) => {
+    if (id === "+") return `<button class="add-plus bar-plus" data-action="addOpen" aria-label="Add to the trip" aria-expanded="${!!S.addOpen}">${ic("plus")}</button>`;
+    const x = byId(id);
+    if (!x) return "";
+    const on = id === "trip" ? cur?.id === "trip" || hubMod.isChild(cur?.id) : cur?.id === id;
+    const n = id === "trip" ? warnN("trip") : id === "ideas" ? counts.get("ideas") : 0;
+    return `<button class="${on ? "on" : ""}" data-action="tab" data-tab="${id}"><span class="t-ic">${NAV_SVG[id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${id === "trip" ? "warnc" : ""}">${n}</span>` : ""}</button>`;
+  }).join("");
   return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}${S.aiUser ? `<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="t-l">Connect Claude</span></button><button class="tab-connect" data-action="connectorOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#plug /></svg></span><span class="t-l">Connector</span></button>` : ""}</nav>
-    <nav class="tabs tabs-bar">${tabs.filter((x) => !x.more).map(btn).join("")}
-      <button class="${moreOn ? "on" : ""}" data-action="moreToggle" aria-expanded="${!!S.moreOpen}"><span class="t-ic">${NAV_SVG.more}</span><span class="t-l">More</span>${moreN ? `<span class="count warnc">${moreN}</span>` : ""}</button>
-    </nav>
-    ${S.moreOpen ? `<div class="more-back" data-action="moreClose"></div>
-    <div class="more-sheet" role="menu">
-      ${rest.map((x) => { const n = counts.get(x.id); return `<button class="${cur?.id === x.id ? "on" : ""}" role="menuitem" data-action="tab" data-tab="${x.id}"><span class="t-ic">${x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`; }).join("")}
-      ${S.aiUser ? `<button role="menuitem" data-action="bridgeOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="t-l">Connect Claude</span></button><button role="menuitem" data-action="connectorOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#plug /></svg></span><span class="t-l">Connector</span></button>` : ""}
-    </div>` : ""}`;
+    <nav class="tabs tabs-bar" aria-label="Trip">${bar}</nav>`;
 }
 function runView(tab) {
   try { return tab.view(); } catch (e) { console.error("view " + tab.id, e); return `<p class="empty">Couldn't show this tab. ${esc(e.message)}</p>`; }
@@ -670,7 +659,6 @@ function viewAddLink() {
       <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link, or add a place" aria-label="Paste a link" ${S.busy ? "disabled" : ""}>
       <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
     </div>
-    <button class="add-plus" data-action="addOpen" aria-label="Add to the trip" aria-expanded="${!!S.addOpen}">+</button>
     <div class="sheet-back" data-action="addClose"></div>
     <div class="add-sheet" role="dialog" aria-label="Add to the trip">
       <div class="grab"></div>
@@ -2481,7 +2469,17 @@ document.addEventListener("click", async (e) => {
         S.moreOpen = false;
         localSet("tab", S.tab);
         if (S.tripId) rememberTab(S.tripId, S.tab);
-        return render();
+        S.hubScroll = b.dataset.scroll || "";
+        render();
+        if (S.hubScroll) { document.getElementById(S.hubScroll)?.scrollIntoView({ block: "start" }); S.hubScroll = ""; } else if (S.tab !== "plan") window.scrollTo(0, 0);
+        return;
+      case "ask": { // Ask: the assistant card on the Plan tab (the one-screen Ask page comes in a later job)
+        if (S.tab !== "plan") { S.tab = "plan"; if (S.tripId) rememberTab(S.tripId, "plan"); localSet("tab", "plan"); render(); }
+        const el = $app.querySelector(".asst, .side .asst") || $app.querySelector(".side");
+        if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+        else toast("Nothing to ask for yet.");
+        return;
+      }
       case "moreToggle":
         S.moreOpen = !S.moreOpen;
         return render();
@@ -2672,6 +2670,12 @@ ctx.tab({ id: "discover", icon: "<svg class=i aria-hidden=true><use href=icons.s
 ctx.tab({ id: "smart", icon: "<svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg>", label: "Smart", view: viewSmart, count: () => smartList().filter((x) => x.level === "fix").length, warn: true, order: 60, more: true });
 ctx.tab({ id: "budget", icon: "<svg class=i aria-hidden=true><use href=icons.svg#wallet /></svg>", label: "Budget", view: viewBudget, order: 70, more: true });
 ctx.tab({ id: "itinerary", icon: "<svg class=i aria-hidden=true><use href=icons.svg#note /></svg>", label: "Itinerary", view: viewItinerary, order: 80, more: true });
+ctx.tab({ id: "trip", icon: "<svg class=i aria-hidden=true><use href=icons.svg#trip /></svg>", label: "Trip", order: 100, view: () => hubMod.view({
+  S, esc, ic, money, costs, nameOf, firstName, coverOf, cssUrl, dayDate, shortDay, ago, wxIcon,
+  smartCount: () => smartList().filter((x) => x.level === "fix").length,
+  pendingChanges: () => ctx.pendingChanges?.() || 0,
+  hasKey: () => !!ctx.aiKey(),
+}) });
 ctx.tab({ id: "changes", icon: "<svg class=i aria-hidden=true><use href=icons.svg#clock /></svg>", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
 for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {

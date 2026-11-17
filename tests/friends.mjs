@@ -108,10 +108,11 @@ try {
   await fp.waitForSelector(".tab-body, .trip-card");
   if (await fp.$(".trip-card")) await fp.click(".trip-card"); // a fresh start opens on Your trips
   await fp.waitForSelector(".tab-body");
-  await fp.click(".tabs-bar [data-action=moreToggle]");
-  const more = await fp.textContent(".more-sheet");
+  await fp.click(".tabs-bar [data-tab=trip]");
+  const more = await fp.textContent(".hub-list");
   ok(!AI_WORDS.test(more) && /Discover/.test(more), "More sheet: no Connect Claude, no Gemini or Claude text");
   await fp.keyboard.press("Escape");
+  await fp.click(".tabs-bar [data-tab=plan]");
   const addSheet = await fp.textContent(".add-sheet");
   ok(!AI_WORDS.test(addSheet) && !/screenshot/i.test(addSheet), "add sheet: no screenshot or paste-tips tiles, no Gemini or Claude text: " + addSheet.trim().replace(/\s+/g, " ").slice(0, 120));
   ok((await fp.$$(".add-sheet .icon")).length === 3 && !!(await fp.$(".add-sheet [data-action=noteQuick]")), "add sheet keeps paste-from-clipboard and new stop, plus the trip note tile");
@@ -165,7 +166,9 @@ try {
   const bcJ = await b.newContext({ viewport: { width: 390, height: 800 } });
   const o = await newPage(bcJ, "Olive", "?noai");
   await makeTrip(o, "Lisbon", "Lisbon");
+  await o.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await o.click("[data-action=invite]");
+  await o.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await o.waitForSelector("[data-action=joinMake]");
   ok(!(await o.$("[data-action=leaveTrip]")) && !(await o.$("[data-action=removeMember]")), "owner alone: no Leave, nobody to remove");
   await o.click("[data-action=joinMake]");
@@ -203,13 +206,17 @@ try {
   const finn = await fr.evaluate(() => window.__tripCtx.S.me.email);
   const l2 = st.trips[lisbon.id];
   ok(l2.members.includes(finn) && l2.memberNames[finn] === "Finn" && l2.lastJoin === code, "Finn is a member, with his name, and lastJoin is set");
+  await fr.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await fr.click("[data-action=invite]");
+  await fr.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await fr.waitForSelector("[data-action=leaveTrip]");
   ok(!(await fr.$("[data-action=joinMake]")) && !(await fr.$("input.join-url")) && !(await fr.$("[data-action=removeMember]")), "a non-owner sees Leave this trip, no invite link and no Remove");
   await fr.keyboard.press("Escape");
 
   // Owner removes Finn.
+  await o.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await o.click("[data-action=invite]");
+  await o.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await o.waitForSelector("[data-action=removeMember]");
   ok((await o.$$("[data-action=removeMember]")).length === 1, "owner sees Remove for Finn only");
   o.once("dialog", (d) => d.accept());
@@ -221,7 +228,9 @@ try {
   await o.keyboard.press("Escape");
 
   // Old code after Reset link no longer works.
+  await o.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await o.click("[data-action=invite]");
+  await o.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await o.waitForSelector("[data-action=joinReset]");
   o.once("dialog", (d) => d.accept());
   await o.click("[data-action=joinReset]");
@@ -247,7 +256,9 @@ try {
   await fr3.fill("#demoName", "Finn");
   await fr3.click("[data-action=signin]");
   await fr3.waitForSelector(".tab-body", { timeout: 10000 });
+  await fr3.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await fr3.click("[data-action=invite]");
+  await fr3.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   fr3.once("dialog", (d) => d.accept());
   await fr3.click("[data-action=leaveTrip]");
   await fr3.waitForFunction(() => !window.__tripCtx.S.tripId, null, { timeout: 5000 });

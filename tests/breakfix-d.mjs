@@ -76,7 +76,9 @@ try {
   const bcJ = await b.newContext({ viewport: { width: 390, height: 800 } });
   const o = await newPage(bcJ, "Olive", "?noai");
   const lisbonId = await makeTrip(o, "Lisbon");
+  await o.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await o.click("[data-action=invite]");
+  await o.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await o.click("[data-action=joinMake]");
   await o.waitForSelector("input.join-url");
   const url = await o.inputValue("input.join-url");
@@ -113,7 +115,9 @@ try {
   }, long);
   for (const [label, vp] of [["phone 390px", { width: 390, height: 800 }], ["desktop", { width: 1200, height: 900 }]]) {
     await o.setViewportSize(vp);
-    await o.click("[data-action=invite]");
+    await o.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
+  await o.click("[data-action=invite]");
+  await o.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
     await o.waitForSelector(".members li");
     await o.waitForFunction((e) => document.querySelector(".members").textContent.includes(e), long);
     const r = await o.evaluate(() => {

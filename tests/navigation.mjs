@@ -57,14 +57,14 @@ try {
 
   // Add sheet, then a dialog from a tile: Back closes the dialog, then the trip is still open.
   const hist = (l) => p.evaluate((l) => console.log(l) || JSON.stringify({ l, len: history.length, hash: location.hash, layers: 0, more: window.__tripCtx.S.moreOpen }), l);
-  console.log("  dbg", await hist("before more"));
-  await p.click("[data-action=moreToggle]");
-  await p.waitForTimeout(300);
-  console.log("  dbg", await hist("more open"));
-  ok(await p.$(".more-back") !== null, "More menu opens");
-  await back();
-  console.log("  dbg", await hist("after back"), await p.evaluate(() => navigator.userAgent));
-  ok((await p.$(".more-back")) === null && (await inTrip()), "Back closes the More menu and stays in the trip");
+  // The Trip tab opens the hub, and Back from a hub page goes to the previous tab state without leaving the trip.
+  await p.click(".tabs-bar [data-tab=trip]");
+  ok((await tab()) === "trip" && !!(await p.$(".hub-list")), "Trip tab opens the Trip hub");
+  await p.click(".hub-list [data-tab=budget]");
+  ok((await tab()) === "budget" && !!(await p.$(".hub-back")), "a hub row opens its page with a way back to the hub");
+  await p.click(".hub-back");
+  ok((await tab()) === "trip", "the back link returns to the Trip hub");
+  await p.click(".tabs-bar [data-tab=plan]");
 
   await p.click("[data-action=addOpen]");
   await p.click(".add-sheet .icon[data-action=addIdea], .add-sheet .icon:not([data-action=pasteLink])");
@@ -127,7 +127,7 @@ try {
   ok(!(await inTrip()), "Back from a trip goes to Your trips");
 } catch (e) {
   fails++;
-  console.log("  FAIL exception", e.message);
+  console.log("  FAIL exception", e.stack, await p.evaluate(() => JSON.stringify({ hash: location.hash, tab: window.__tripCtx?.S.tab, trip: !!window.__tripCtx?.S.trip, txt: document.querySelector("#app")?.innerText.slice(0, 100) })).catch(() => ""));
 }
 ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));
 await b.close();

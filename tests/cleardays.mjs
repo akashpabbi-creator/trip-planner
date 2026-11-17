@@ -51,7 +51,9 @@ try {
   const onDays = async () => (await snap()).filter((i) => i.d).length;
   ok((await onDays()) === 4, "four stops on days to start");
 
+  await p.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await p.click("[data-action=editTrip]");
+  await p.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await p.waitForSelector("#modalForm [data-action=clearDays]");
   const order = await p.$$eval("#modalForm .trip-danger button", (bs) => bs.map((x) => x.dataset.action));
   ok(order.join() === "clearDays,deleteTrip", "Clear all days sits beside Delete this trip");

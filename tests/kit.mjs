@@ -318,11 +318,12 @@ try {
   await P.waitForSelector("#todayCard");
   await P.evaluate(() => window.scrollTo(0, 0));
   await P.screenshot({ path: join(SHOTS, "today-phone.png") });
-  await P.click(".tabs-bar [data-tab=kit]");
+  await P.click(".tabs-bar [data-tab=trip]");
+  await P.click(".hub-list [data-tab=kit]");
   await P.waitForSelector("#kit-pack");
   await P.screenshot({ path: join(SHOTS, "kit-phone.png"), fullPage: true });
-  await P.click(".tabs-bar [data-action=moreToggle]");
-  await P.click(".more-sheet [data-tab=budget]");
+  await P.click(".tabs-bar [data-tab=trip]");
+  await P.click(".hub-list [data-tab=budget]");
   await P.waitForSelector("#kit-spend");
   await P.locator("#kit-spend").scrollIntoViewIfNeeded();
   await P.screenshot({ path: join(SHOTS, "budget-phone.png"), fullPage: true });

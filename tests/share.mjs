@@ -63,7 +63,7 @@ try {
     await p.waitForSelector(".tab-body");
   };
   await mk("Rome trip", "Rome");
-  await p.click("#homeBtn");
+  await p.click(".thead [data-action=home]");
   await mk("Goa trip", "Goa");
   const q = (o) => "?" + new URLSearchParams({ shared: "1", ...o });
 

@@ -39,15 +39,15 @@ async function open(width, height, mobile) {
 }
 const goTab = async (p, id, mobile) => {
   if (!mobile) return p.click(`.tabs-desk [data-tab=${id}]`);
-  if (["plan", "map", "ideas", "kit"].includes(id)) return p.click(`.tabs-bar [data-tab=${id}]`);
-  await p.click("[data-action=moreToggle]");
-  await p.click(`.more-sheet [data-tab=${id}]`);
+  if (["plan", "map", "ideas", "trip"].includes(id)) return p.click(`.tabs-bar [data-tab=${id}]`);
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(`.hub-list [data-tab=${id}]`);
 };
 try {
   for (const w of [360, 412]) {
     console.log("phone " + w);
     const { p, ctx } = await open(w, 800, true);
-    ok(!(await p.$(".hero.compact")), "full hero on Plan");
+    ok(!!(await p.$(".thead")) && !(await p.$(".hero")), "slim header on Plan, no hero");
     await goTab(p, "itinerary", true);
     await p.waitForSelector(".itin-actions");
     const m = await p.evaluate(() => ({
@@ -60,13 +60,12 @@ try {
     ok(m.btns.every((x) => x.right <= m.cw), "no action button runs off the right edge");
     ok(m.sw <= m.cw, "no horizontal overflow on the Itinerary tab");
     ok(m.title === "none", "itinerary title card is hidden on screen (the hero has it)");
-    ok(!!(await p.$(".hero.compact")), "compact hero on a non-Plan tab");
-    const hh = await p.$eval(".hero", (e) => Math.round(e.getBoundingClientRect().height));
-    ok(hh <= 140, "compact hero is short: " + hh + "px");
-    ok(await p.$eval(".hero.compact", (e) => ["pill", "hero-budget", "eyebrow"].every((c) => [...e.querySelectorAll("." + c)].every((x) => !x.offsetParent))), "compact hero hides pills, budget and eyebrow");
-    ok(await p.evaluate(() => ["invite", "editTrip", "home"].every((a) => !!document.querySelector(`.hero [data-action=${a}]`))), "back, invite and gear stay in the compact hero");
+    const hh = await p.$eval(".thead", (e) => Math.round(e.getBoundingClientRect().height));
+    ok(hh <= 72, "header is slim on every tab: " + hh + "px");
+    ok(await p.evaluate(() => ["home", "ask", "search"].every((a) => !!document.querySelector(`.thead [data-action=${a}]`))), "back, search and Ask are in the header");
+    ok(await p.evaluate(() => getComputedStyle(document.querySelector(".topbar")).display === "none"), "the old top bar is hidden inside a trip");
     // other tabs: no giant buttons, no overflow
-    for (const id of ["budget", "changes", "kit", "smart", "discover", "ideas", "map"]) {
+    for (const id of ["trip", "budget", "changes", "kit", "smart", "discover", "ideas", "map"]) {
       await goTab(p, id, true);
       await p.waitForTimeout(150);
       const o = await p.evaluate(() => ({
