@@ -162,37 +162,56 @@ try {
   await d.click(".tabs-desk [data-tab=plan]");
   await d.click(".dchip[data-i='0']");
   const day1 = ".day";
-  const cards = await d.$$eval(`${day1} .card`, (e) => e.map((x) => ({ t: x.querySelector(".c-title").textContent, al: !!x.querySelector(".al-link") })));
+  // The along-the-way link lives in the travel sheet (tap the line between two stops).
+  const titles = () => d.$$eval(`${day1} .tl > .stop .c-title`, (e) => e.map((x) => x.textContent.trim()));
+  const openLeg = async (t) => {
+    const id = await d.evaluate((t) => window.__tripCtx.S.items.find((x) => x.title === t).id, t);
+    const btn = await d.$(`.leg-btn[data-id="${id}"]`);
+    if (!btn) return false;
+    await btn.click();
+    await d.waitForSelector(".ssheet");
+    return true;
+  };
+  const closeSheet = async () => { await d.click(".ss-x"); await d.waitForSelector(".ssheet", { state: "detached" }); };
+  const linkOn = async (t) => { if (!(await openLeg(t))) return false; const has = !!(await d.$(".ssheet .al-link")); await closeSheet(); return has; };
+  const cards = [];
+  for (const t of await titles()) cards.push({ t, al: await linkOn(t) });
   ok(cards.map((c) => c.t + ":" + c.al).join() === "Colosseum:false,Trevi Fountain:false,Florence Duomo:true", "link only on the long leg (>25 km): " + JSON.stringify(cards));
-  ok(/\d{3} km/.test(await d.textContent(`${day1} .al-link`)), "link shows the distance");
-  await d.click(`${day1} .al-link`);
+  await openLeg("Florence Duomo");
+  ok(/\d{3} km/.test(await d.textContent(".ssheet .al-link")), "link shows the distance");
+  await d.click(".ssheet .al-link");
   await d.waitForSelector(".al-row");
   const names = await d.$$eval(".al-row b", (e) => e.map((x) => x.textContent));
   ok(names.join() === "Famous Abbey,Orvieto Lookout,Green Table", "ranked: well-known first, then by detour; unnamed, too-far and in-town ones dropped: " + names.join());
   const rows = await d.$$eval(".al-row .muted", (e) => e.map((x) => x.textContent));
   ok(/\d+ min detour/.test(rows[0]) && /well known/.test(rows[0]) && /vegetarian/i.test(rows[2]), "detour minutes, well known and vegetarian labels: " + rows.join(" | "));
   ok(calls.osrm === 1 && calls.over === 1, "one OSRM and one Overpass request");
-  await d.click(`${day1} .al-row:has-text("Orvieto Lookout") [data-action=alongAdd]`);
+  await d.click(`.ssheet .al-row:has-text("Orvieto Lookout") [data-action=alongAdd]`);
   await d.waitForFunction(() => window.__tripCtx.S.items.some((i) => i.title === "Orvieto Lookout" && i.dayId));
   const order = await stopsOf(d, 0);
   ok(order.join() === "Colosseum,Trevi Fountain,Orvieto Lookout,Florence Duomo", "inserted between the two stops: " + order.join());
   ok(await d.evaluate(() => { const i = window.__tripCtx.S.items.find((x) => x.title === "Orvieto Lookout"); return Number.isFinite(i.lat) && i.order > 2 && i.order < 3; }), "new stop has coordinates and an order between the two");
-  const after = await d.$$eval(`${day1} .card`, (e) => e.map((x) => x.querySelector(".c-title").textContent + ":" + !!x.querySelector(".al-link")));
+  if (await d.$(".ssheet")) await closeSheet();
+  const after = [];
+  for (const t of await titles()) after.push(t + ":" + (await linkOn(t)));
   ok(after.join() === "Colosseum:false,Trevi Fountain:false,Orvieto Lookout:true,Florence Duomo:true", "both halves are long legs with their own link: " + after.join());
+  await openLeg("Orvieto Lookout");
   ok(!(await d.$$eval(".al-row b", (e) => e.map((x) => x.textContent))).includes("Orvieto Lookout"), "added suggestion leaves the list");
+  await closeSheet();
   await d.screenshot({ path: `${SHOTS}/along-desktop.png` });
 
   // OSRM down -> straight line (Duomo opens Day 3, coming from Rome on Day 2)
   osrmFails = true;
   await d.evaluate(async () => { const c = window.__tripCtx; const t = c.S.items.find((x) => x.title === "Florence Duomo"); await c.S.store.updateItem(c.S.tripId, t.id, { dayId: c.S.trip.days[2].id, order: 1 }); });
   await d.click(".dchip[data-i='2']");
-  await d.waitForSelector(".day .al-link");
+  await openLeg("Florence Duomo");
   // the Duomo panel was still open on Day 1: the first tap closes it, the second reopens it with a fresh (straight-line) lookup
-  await d.click(".day .al-link");
-  await d.click(".day .al-link");
-  await d.waitForSelector(".day .al-panel");
-  await d.waitForFunction(() => !/Looking/.test(document.querySelector(".day .al-panel").textContent));
-  ok((await d.textContent(".day .al-panel")).includes("straight line"), "OSRM failure falls back to a straight line and still lists places (cross-day leg)");
+  await d.click(".ssheet .al-link");
+  await d.click(".ssheet .al-link");
+  await d.waitForSelector(".ssheet .al-panel");
+  await d.waitForFunction(() => !/Looking/.test(document.querySelector(".ssheet .al-panel").textContent));
+  ok((await d.textContent(".ssheet .al-panel")).includes("straight line"), "OSRM failure falls back to a straight line and still lists places (cross-day leg)");
+  await closeSheet();
 
   /* ---- phone */
   console.log("phone 390px");

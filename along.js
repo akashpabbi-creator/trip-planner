@@ -31,7 +31,7 @@ function km(a, b) {
 export function init(ctx) {
   A.ctx = ctx;
   document.head.append(Object.assign(document.createElement("style"), { id: "css-along", textContent: CSS }));
-  ctx.slot("card", (it, opts) => (opts?.inDay ? slotHtml(ctx, it) : ""));
+  ctx.slot("leg", (it) => slotHtml(ctx, it)); // shown in the travel sheet (stops.js)
   ctx.on("close", () => { A.open = null; });
   ctx.action("alongOpen", (btn, id) => open(ctx, id));
   ctx.action("alongClose", () => { A.open = null; ctx.render(); });
