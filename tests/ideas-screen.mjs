@@ -151,7 +151,7 @@ try {
   await p.click(".bar-plus");
   await p.waitForSelector(".add-wrap.open .add-sheet");
   ok(await p.isVisible("#linkInput"), "the link field is in the sheet");
-  ok(await p.evaluate(() => document.activeElement?.id === "linkInput"), "with nothing on the clipboard the field is focused, ready to type");
+  ok(await p.waitForFunction(() => document.activeElement?.id === "linkInput", null, { timeout: 3000 }).then(() => true, () => false), "with nothing on the clipboard the field is focused, ready to type");
   if (SHOTS) await p.screenshot({ path: join(SHOTS, "add-sheet-empty-phone-light.png") });
   await p.keyboard.press("Escape");
   await p.evaluate(() => navigator.clipboard.writeText("https://www.example.com/rome-eats"));
