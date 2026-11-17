@@ -189,7 +189,7 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
       approxCost: Number(x.approxCost) || null, area: clip(x.area, 80), why: clip(x.why, LIMITS.why),
       durationMin: Number(x.durationMin) || 90, address: clip(x.address, LIMITS.location),
       ...(["yes", "no"].includes(x.veg) ? { veg: x.veg } : {}), ...(x.vegNote ? { vegNote: String(x.vegNote).slice(0, 160) } : {}),
-    })).slice(0, 40); // restaurants with no veg/vegan/egg options are kept but flagged in Smart
+    })).slice(0, 40); // restaurants with no veg/vegan/egg options are kept but flagged in Ask
     if (!items.length) throw new Error("There were no places in the picks.");
     await S.store.updateTrip(S.tripId, { aiPicks: { for: T.destination, at: Date.now(), by: S.me.email, source: "Claude", items }, ...ctx.stampMe() });
     await ctx.log(`received Claude's top picks (${items.length} places)`);
@@ -204,7 +204,7 @@ export async function ingest(input, { fromLink = false, fromPaste = false, reque
     if (!suggestions.length && !p.summary) throw new Error("There was no review in that.");
     await S.store.updateTrip(S.tripId, { aiReview: { at: Date.now(), by: S.me.email, source: "Claude", summary: String(p.summary || "").slice(0, 600), suggestions, applied: [] }, ...ctx.stampMe() });
     await ctx.log("received Claude's review of the plan");
-    ctx.toast("Claude sent a review. See Smart.", 6000);
+    ctx.toast("Claude sent a review. See Ask.", 6000);
     return "review";
   }
   throw new Error("Not sure what that is. It should be a plan, changes, picks or a review.");

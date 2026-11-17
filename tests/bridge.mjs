@@ -239,12 +239,12 @@ try {
     { title: "Book the Colosseum ahead", detail: "Timed tickets.", action: { type: "none" } } ] };
   ok(sendKind(rev).status === 0, "send review");
   await p.waitForFunction(() => window.__tripCtx.S.trip.aiReview?.source === "Claude", null, { timeout: 15000 });
-  await p.click(".tabs-bar [data-tab=trip]");
-  await p.click(".hub-list [data-tab=smart]");
-  ok(/Claude review/.test(await p.textContent(".ai-box h3")) && /Sent by Claude/.test(await p.textContent(".ai-box")), "Smart shows 'Claude review' and 'Sent by Claude'");
+  await p.click(".thead [data-action=ask]");
+  ok(/Claude review/.test(await p.textContent(".ai-box h3")) && /Sent by Claude/.test(await p.textContent(".ai-box")), "Ask shows 'Claude review' and 'Sent by Claude'");
   await p.click(".sug.ai [data-action=aiApply]");
   await p.waitForFunction((id) => window.__tripCtx.S.items.find((i) => i.id === id)?.dayId === window.__tripCtx.S.trip.days[0].id, seed.trevi);
   ok(true, "Apply on a Claude review suggestion works");
+  await p.click("[data-action=askClose]");
 
   // 4. plan
   const plan = { kind: "plan", draft: { summary: "Three easy Rome days.", days: [1, 2, 3].map((n) => ({ day: n, base: "Rome", theme: "Day " + n, items: [
@@ -296,13 +296,11 @@ try {
   await p.evaluate(() => { const x = document.createElement("button"); x.dataset.action = "claudePlan"; document.body.append(x); x.click(); x.remove(); }); // the days are full by now, so the button itself is gone
   o = await lastOpen(n0 + 1);
   ok(decodeURIComponent(o.url).endsWith("Request: Plan our empty days") && !(await p.$("#modalForm textarea[name=answer]")), "Plan with Claude with the link on skips the paste modal");
-  await p.click(".tabs-bar [data-tab=trip]");
-  await p.click(".hub-list [data-tab=smart]");
+  await p.click(".thead [data-action=ask]");
   await p.waitForSelector("[data-action=copyForClaude][data-id=review]", { state: "attached" });
   await p.evaluate(() => document.querySelector("[data-action=copyForClaude][data-id=review]").click());
   o = await lastOpen(n0 + 2);
-  ok(decodeURIComponent(o.url).endsWith("Request: Review our plan"), "Smart tab's plan review button opens Claude");
-  await p.click(".tabs-bar [data-tab=plan]");
+  ok(decodeURIComponent(o.url).endsWith("Request: Review our plan"), "Ask screen's plan review button opens Claude");
   await p.click("#changeInput");
   await p.fill("#changeInput", "swap lunch and dinner on day 2");
   ok(await p.isVisible("[data-action=chgClaude]") && await p.isVisible("[data-action=chgGemini]"), "typing in the box shows Ask Gemini (key set) and Ask Claude");
@@ -313,6 +311,7 @@ try {
   ok(true, "Ask Claude with the link on saves the request, and it reaches the snapshot as `requests`");
   const n7 = await p.evaluate(() => window.__opened.length);
   ok(n7 >= 1 && decodeURIComponent(await p.evaluate(() => window.__opened.at(-1))).includes("Request: Please handle our new request in the trip planner: swap lunch and dinner on day 2"), "...and opens Claude with that request");
+  await p.click("[data-action=askClose]");
   await p.click(".tabs-bar [data-tab=trip]");
   await p.click(".hub-list [data-action=bridgeOpen]");
   ok(/Handle our requests/.test(await p.textContent("#modalForm")) && /Waiting for Claude: “swap lunch and dinner on day 2”/.test(await p.textContent("#modalForm")), "'Handle our requests' shows with the waiting request");

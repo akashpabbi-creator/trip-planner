@@ -48,7 +48,7 @@ try {
   console.log("desktop");
   const d = await newPage({ width: 1200, height: 800 });
   await makeTrip(d, "2026-11-10");
-  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity", "Trip"]), "desktop tabs include the Map and Kit modules");
+  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Budget", "Itinerary", "Activity", "Trip"]), "desktop tabs include the Map and Kit modules");
   ok(!(await d.isVisible(".tabs-bar")), "bottom bar hidden on desktop");
   ok((await d.$$("[data-action=bridgeOpen]:visible")).length === 1, "desktop shows exactly one visible Connect Claude entry");
   await d.click(".tabs-desk [data-action=bridgeOpen]");
@@ -76,7 +76,7 @@ try {
     for (const e of ["render", "trip", "items", "open", "close"]) c.on(e, () => window.__events.push(e));
     c.render();
   });
-  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity", "Trip"]), "desktop order: Plan, Map, Ideas, Discover, Kit, Smart, Budget, Itinerary, Activity, Trip");
+  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Budget", "Itinerary", "Activity", "Trip"]), "desktop order: Plan, Map, Ideas, Discover, Kit, Smart, Budget, Itinerary, Activity, Trip");
   ok((await d.textContent("#slotPlanTop")) === "top" && (await d.$$(".slot-dh")).length === 1 && (await d.$$(".slot-df")).length === 1, "planTop / dayHead / dayFoot slots render");
   await d.click("#helloBtn");
   ok((await d.evaluate(() => window.__hello)) === "x1", "addBar slot + registered action receive clicks");

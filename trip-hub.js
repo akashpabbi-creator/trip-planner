@@ -3,7 +3,7 @@
 // view(h) gets a bag of app helpers: { S, esc, ic, money, costs, nameOf, firstName, coverOf, cssUrl, dayDate, shortDay, ago, who, wxIcon, pendingChanges, smartCount }.
 
 // Tabs that live under the hub (they keep their own tab ids, deep links and tab memory).
-export const CHILDREN = ["kit", "discover", "smart", "budget", "itinerary", "changes"];
+export const CHILDREN = ["kit", "discover", "budget", "itinerary", "changes"];
 export const isChild = (id) => CHILDREN.includes(id);
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
@@ -82,7 +82,7 @@ export function view(h) {
       ${row(h, { icon: "backpack", label: "Packing and to-dos", status: st.packing, tab: "kit", scroll: "kit-pack" })}
       ${row(h, { icon: "note", label: "Trip notes", status: st.notes, tab: "kit", scroll: "kit-notes" })}
       ${row(h, { icon: "wallet", label: "Budget", status: st.budget, tab: "budget" })}
-      ${row(h, { icon: "alert", label: "Smart suggestions", status: smartN ? plural(smartN, "thing") + " to check" : "Nothing to check", tab: "smart", warn: smartN > 0, count: smartN || 0 })}
+      ${row(h, { icon: "alert", label: "Ask and things to check", status: smartN ? plural(smartN, "thing") + " to check" : "Ask for changes, plan, check", action: "ask", warn: smartN > 0, count: smartN || 0 })}
       ${row(h, { icon: "compass", label: "Discover", status: "Top food, sights and stays", tab: "discover" })}
       <details class="hub-about"><summary class="hub-row"><span class="hr-ic">${h.ic("sun-cloud")}</span><span class="hr-t"><b>About and weather</b><small>${esc(st.about)}</small></span><span class="hr-go">${h.ic("arrow-down")}</span></summary>
         <div class="ha-body">${t.place?.extract ? `<p>${esc(t.place.extract)}</p>${t.place.url ? `<a href="${esc(t.place.url)}" target="_blank" rel="noopener">Read more on Wikipedia ↗</a>` : ""}` : `<p class="muted small">No place summary yet. Set a destination in Edit trip.</p>`}

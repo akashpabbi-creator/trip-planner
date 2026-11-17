@@ -172,6 +172,7 @@ export function init(ctx) {
   }
 
   /* ------------------------------------------------------------------ wiring */
+  ctx.notesPlanRow = planRow; // also shown on the Ask screen
   ctx.slot("kitTop", section);
   ctx.slot("addBar", () => `<button class="icon" data-action="noteQuick" title="Add a trip note" aria-label="Add a trip note" data-label="Add a trip note" data-sub="For both of you, and for Claude"><svg class=i aria-hidden=true><use href=icons.svg#note /></svg></button>`);
   // Open notes only, newest last, capped in size (oldest dropped first). First names only, never emails.

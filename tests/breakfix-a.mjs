@@ -330,13 +330,14 @@ try {
     const sg = (title, time) => ({ title, detail: "d", action: { type: "time", itemId: pick, time } });
     await S.store.updateTrip(S.tripId, { aiReview: { at: Date.now(), by: S.me.email, source: "Gemini", summary: "ok", applied: [], suggestions: [sg("t1", "99:99"), sg("t2", "24:00"), sg("t3", "12:60"), sg("t4", "9:05"), sg("t5", "23:59")] } });
   }, pick);
-  await a.click(".tabs-desk [data-tab=smart]");
-  await a.waitForSelector(".sug.ai");
+  await a.click(".thead [data-action=ask]");
+  await a.waitForSelector(".ask-screen .sug.ai");
   const applyFlags = await a.$$eval(".sug.ai", (els) => els.map((e) => !!e.querySelector("[data-action=aiApply]")));
   ok(JSON.stringify(applyFlags) === JSON.stringify([false, false, false, true, true]), "Apply only appears for real times of day: " + applyFlags);
   await a.click(".sug.ai:nth-of-type(4) [data-action=aiApply]").catch(async () => { await a.evaluate(() => document.querySelector("[data-action=aiApply][data-id='3']").click()); });
   await a.waitForTimeout(400);
   ok((await items(a)).find((i) => i.id === pick).time === "09:05", "9:05 is stored as 09:05");
+  await a.click("[data-action=askClose]");
   await a.click(".tabs-desk [data-tab=plan]");
 
   /* ---- 10. duplicate stop */

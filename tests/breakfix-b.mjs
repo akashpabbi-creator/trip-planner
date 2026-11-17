@@ -165,6 +165,7 @@ try {
   console.log("late answers");
   geminiDelay = 1200;
   geminiReply = { kind: "changes", summary: "x", ops: [{ type: "day", day: 1, notes: "Slow start." }] };
+  await p.click(".thead [data-action=ask]");
   await p.fill("#changeInput", "make Day 1 slower");
   await p.click("[data-action=chgGemini]");
   await p.evaluate(() => {
@@ -261,6 +262,7 @@ try {
   await propose(addOps(["Waiting Cafe"]), "waiting");
   dialogs.length = 0;
   dialogAnswer = false;
+  await p.click("[data-action=askClose]");
   await p.click(".dchip[data-i=\'0\']");
   await p.click("section.day [data-action=shuffleDay]");
   await p.waitForTimeout(500);
