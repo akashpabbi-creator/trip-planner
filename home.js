@@ -8,11 +8,16 @@ const MOVE_PX = 10;
 const CSS = `
 .trip-wrap { position: relative; min-width: 0; }
 .trip-wrap > .trip-card { display: block; width: 100%; height: 100%; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; -webkit-user-drag: none; }
-.trip-wrap .tc-pin { margin-left: 6px; font-size: 14px; }
-.tc-more { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center; font-size: 22px; line-height: 1; color: #fff; background: rgba(20, 24, 22, 0.5); backdrop-filter: blur(6px); cursor: pointer; }
-.tc-more:hover, .tc-more:focus-visible { background: rgba(20, 24, 22, 0.75); }
+.trip-wrap .tc-pin { margin-left: 6px; display: inline-grid; vertical-align: -3px; color: var(--accent); }
+.trip-wrap .tc-pin .i { width: 16px; height: 16px; }
+.tc-more { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center; color: var(--muted); background: transparent; cursor: pointer; }
+.tc-more:hover, .tc-more:focus-visible { background: var(--accent-soft); color: var(--accent-soft-ink); }
+.trip-wrap.is-big .tc-more { color: #fff; background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(6px); }
+.trip-wrap.is-big .tc-more:hover, .trip-wrap.is-big .tc-more:focus-visible { background: rgba(15, 23, 42, 0.8); color: #fff; }
+.tc-more .i { width: 22px; height: 22px; }
 @media (hover: hover) and (pointer: fine) {
-  .tc-more { width: 32px; height: 32px; font-size: 18px; opacity: 0; transition: opacity 0.15s; }
+  .tc-more { width: 36px; height: 36px; opacity: 0; transition: opacity 0.15s; }
+  .tc-more .i { width: 20px; height: 20px; }
   .trip-wrap:hover .tc-more, .tc-more:focus-visible { opacity: 1; }
 }
 .hm-list { display: grid; gap: 2px; margin: 4px 0 0; }
@@ -27,15 +32,40 @@ details.home-group > summary { cursor: pointer; list-style: none; margin: 0 0 8p
 details.home-group > summary::-webkit-details-marker { display: none; }
 details.home-group > summary::after { content: " ▾"; }
 details.home-group[open] > summary::after { content: " ▴"; }
-.trip-cards.compact .trip-card { background: var(--panel); color: var(--ink); display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: stretch; }
-.trip-cards.compact .tc-img { height: auto; min-height: 84px; }
-.trip-cards.compact .tc-body { padding: 10px 56px 10px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: center; }
-.trip-cards.compact .tc-title { font-size: 17px; }
-.tc-status { font-size: 13px; font-weight: 700; color: var(--accent); }
+.trip-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.trip-cards .trip-card { background: var(--panel); color: var(--ink); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; text-align: left; padding: 0; }
+.trip-cards .trip-card:hover { border-color: transparent; box-shadow: var(--shadow), 0 0 0 2px var(--accent); }
+.trip-cards .trip-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tc-title { font-family: var(--display); font-weight: 700; color: var(--ink); }
+.tc-status { font-size: 12px; font-weight: 700; color: var(--accent-soft-ink); }
 .tc-status.past { color: var(--muted); }
-.tc-foot { display: flex; align-items: center; gap: 6px; }
-.tc-foot .avs .av { width: 20px; height: 20px; font-size: 10px; background: var(--accent-soft); color: var(--accent); border-color: var(--panel); }
-.tc-new { display: inline-block; margin-left: auto; font-size: 11px; font-weight: 700; line-height: 14px; padding: 2px 8px; border-radius: 99px; background: var(--accent); color: var(--accent-ink, #fff); white-space: nowrap; }
+.tc-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tc-foot .avs { display: inline-flex; flex: none; }
+.tc-foot .avs .av { width: 24px; height: 24px; font-size: 11px; margin-right: 0; margin-left: -6px; background: var(--accent-soft); color: var(--accent-soft-ink); border: 2px solid var(--panel); }
+.tc-foot .avs .av:first-child { margin-left: 0; }
+.tc-foot .av + span { margin-left: 0; }
+.tc-new { display: inline-block; margin-left: auto; font-size: 11px; font-weight: 700; line-height: 14px; padding: 3px 9px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); white-space: nowrap; }
+/* Coming up and pinned trips in the future: a cover card */
+.trip-card.big { display: flex; flex-direction: column; }
+.trip-card.big .tc-img { position: relative; height: 150px; flex: none; border-radius: 0; background-size: cover; background-position: center; }
+.trip-card.big .tc-img::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.28), rgba(0,0,0,0) 45%); pointer-events: none; }
+.trip-card.big .tc-status { position: absolute; z-index: 1; top: 12px; left: 12px; background: var(--panel); color: var(--ink); border-radius: 8px; padding: 5px 9px; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.trip-card.big .tc-body { padding: 14px 16px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.trip-card.big .tc-title { font-size: 22px; line-height: 25px; margin: 0; }
+.trip-card.big .tc-meta { font-size: 13px; color: var(--muted); }
+.trip-card.big .tc-foot { margin-top: 8px; }
+/* Planning, past and other trips: a quiet row */
+.trip-card.row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 56px 10px 10px; border-radius: 16px; min-height: 76px; }
+.trip-card.row .tc-img { width: 56px; height: 56px; min-height: 0; border-radius: 12px; background-size: cover; background-position: center; }
+.trip-card.row .tc-body { padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; min-width: 0; }
+.trip-card.row .tc-title { font-size: 15px; font-weight: 600; margin: 0; -webkit-line-clamp: 1; font-family: var(--t-font-body); }
+.trip-card.row .tc-meta { font-size: 13px; color: var(--muted); }
+.trip-card.row .tc-foot { margin-top: 2px; }
+.trip-card.row .tc-foot .avs .av { width: 20px; height: 20px; font-size: 10px; }
+.trip-card.row .tc-foot:not(:has(.tc-new)) { display: none; }
+.home-fab { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); z-index: 15; height: 56px; padding: 0 22px 0 18px; border-radius: 28px; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; background: var(--accent); color: var(--accent-ink); border: 0; box-shadow: 0 6px 16px rgba(39, 71, 212, 0.3); }
+.home-fab:hover { border: 0; filter: brightness(1.08); }
+.home-fab .i { width: 20px; height: 20px; stroke-width: 2.2; }
 .home-hint { margin: 16px 0 0; text-align: center; }
 .home-hint button { margin-left: 6px; }
 `;
@@ -93,19 +123,21 @@ export const isNew = (t) => {
   return at != null && !!t.updatedBy && t.updatedBy !== mine() && (t.updatedAt || 0) > at;
 };
 
-export function card(t) {
+export function card(t, big) {
   const { esc, fmtDay, ago, firstName, coverOf, cssUrl } = ctx;
   const cover = coverOf(t);
-  return `<div class="trip-wrap" data-trip="${esc(t.id)}">
-    <button class="trip-card" data-action="open" data-id="${esc(t.id)}">
-      <div class="tc-img" ${cover ? `style="background-image:url('${cssUrl(cover)}')"` : ""}></div>
-      <div class="tc-body">
-        <div class="tc-title">${esc(t.name)}${pinned(t) ? `<span class="tc-pin" title="Pinned" aria-label="Pinned"><svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg></span>` : ""}</div>
-        <div class="tc-status ${groupOf(t) === "past" ? "past" : ""}">${esc(status(t))}</div>
-        <div class="muted small">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${plural(nDays(t), "day")}</div>
-        <div class="tc-foot"><span class="avs">${(t.members || []).slice(0, 4).map((m) => `<span class="av" title="${esc(t.memberNames?.[m] || m)}">${esc(firstName(t.memberNames?.[m] || m).slice(0, 1).toUpperCase())}</span>`).join("")}</span><span class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) : ""}</span>${isNew(t) ? `<span class="tc-new">New from ${esc(firstName(t.memberNames?.[t.updatedBy] || t.updatedBy))}</span>` : ""}</div>
-      </div>
-    </button>
+  const days = plural(nDays(t), "day");
+  const when = t.startDate ? fmtDay(new Date(t.startDate + "T00:00")) : "";
+  const meta = [t.destination, when, days].filter(Boolean).join(" · ");
+  const pill = `<span class="tc-status ${groupOf(t) === "past" ? "past" : ""}">${esc(status(t))}</span>`;
+  const title = `<div class="tc-title">${esc(t.name)}${pinned(t) ? `<span class="tc-pin" title="Pinned" aria-label="Pinned"><svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg></span>` : ""}</div>`;
+  const foot = `<div class="tc-foot"><span class="avs">${(t.members || []).slice(0, 4).map((m) => `<span class="av" title="${esc(t.memberNames?.[m] || m)}">${esc(firstName(t.memberNames?.[m] || m).slice(0, 1).toUpperCase())}</span>`).join("")}</span><span class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) : ""}</span>${isNew(t) ? `<span class="tc-new">New from ${esc(firstName(t.memberNames?.[t.updatedBy] || t.updatedBy))}</span>` : ""}</div>`;
+  const img = `<div class="tc-img" ${cover ? `style="background-image:url('${cssUrl(cover)}')"` : ""}>${big ? pill : ""}</div>`;
+  const body = big
+    ? `<div class="tc-body">${title}<div class="tc-meta">${esc(meta)}</div>${foot}</div>`
+    : `<div class="tc-body">${title}<div class="tc-meta">${pill} · ${esc(meta)}</div>${foot}</div>`;
+  return `<div class="trip-wrap ${big ? "is-big" : ""}" data-trip="${esc(t.id)}">
+    <button class="trip-card ${big ? "big" : "row"}" data-action="open" data-id="${esc(t.id)}">${img}${body}</button>
     <button type="button" class="tc-more" data-action="tripMenu" data-id="${esc(t.id)}" aria-haspopup="dialog" aria-label="More options for ${esc(t.name)}" title="More options"><svg class=i aria-hidden=true><use href=icons.svg#more /></svg></button>
   </div>`;
 }
@@ -116,7 +148,7 @@ export function view(trips) {
   const pins = all.filter(pinned);
   const rest = all.filter((t) => !pinned(t));
   const by = (g) => rest.filter((t) => groupOf(t) === g);
-  const cards = (a) => `<div class="trip-cards compact">${a.map(card).join("")}</div>`;
+  const cards = (a) => `<div class="trip-cards">${a.map((t) => card(t, groupOf(t) === "coming")).join("")}</div>`;
   const sec = (title, a) => (a.length ? `<section class="home-group" data-group="${title}"><h3>${title}</h3>${cards(a)}</section>` : "");
   const past = by("past").sort((a, b) => endOf(b) - endOf(a));
   const coming = by("coming").sort((a, b) => startOf(a) - startOf(b));

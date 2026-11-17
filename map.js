@@ -5,36 +5,50 @@ const COLORS = ["#2747d4", "#d9622b", "#3b6fd4", "#a23b8f", "#b88a1c", "#4a8f2f"
 const IDEA = "#8a918c";
 
 const CSS = `
-.mp { display: grid; gap: 8px; }
-.mp-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.mp { display: grid; gap: 10px; }
+.mp-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .mp-chips::-webkit-scrollbar { display: none; }
-.mp-chips .chip { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
-.mp-chips .chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.mp-chips .chip { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; font-size: 14px; font-weight: 600; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; }
+.mp-chips .chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
 .mp-chips .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.mp-host { position: relative; isolation: isolate; height: clamp(380px, calc(100dvh - 250px), 780px); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--accent-soft); box-shadow: var(--shadow); }
-.mp-host .mp-load { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+.mp-chips .chip.on i { box-shadow: 0 0 0 2px var(--accent-ink); }
+.mp-host { position: relative; isolation: isolate; height: clamp(380px, calc(100dvh - 340px), 780px); border-radius: 20px; overflow: hidden; border: 1px solid var(--line); background: var(--accent-soft); box-shadow: var(--shadow); }
+.mp-host .mp-load { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
 .mp-canvas { position: absolute; inset: 0; }
-.mp-bar { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; justify-content: space-between; }
-.mp-bar .muted { margin: 0; }
-.mp-tog { display: flex; gap: 6px; }
-.mp-tog button.on { background: var(--accent-soft); border-color: var(--accent); }
-.mp-pin { width: 28px; height: 28px; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px; }
+.mp-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; }
+.mp-bar .muted { margin: 0; flex: 1 1 200px; }
+.mp-tog { display: inline-flex; gap: 4px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+.mp-tog button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; }
+.mp-tog button .i { width: 16px; height: 16px; }
+.mp-tog button.on { background: var(--accent-soft); color: var(--accent-soft-ink); }
+.mp-tog button:hover { border: 0; color: var(--ink); }
+.mp-pin { width: 30px; height: 30px; border-radius: 50% 50% 50% 4px; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 2px 6px rgba(15, 23, 42, .45); display: grid; place-items: center; color: #fff; font-family: var(--font); font-weight: 700; font-size: 13px; }
 .mp-pin span { transform: rotate(45deg); }
 .mp-pin.idea { width: 20px; height: 20px; border-radius: 50%; transform: none; opacity: .95; }
-.mp .leaflet-popup-content-wrapper, .mp .leaflet-popup-tip { background: var(--panel); color: var(--ink); }
+.mp .leaflet-control-zoom { border: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+.mp .leaflet-control-zoom a { width: 40px; height: 40px; line-height: 40px; font-size: 20px; background: var(--panel); color: var(--ink); border-bottom-color: var(--line); }
+.mp .leaflet-control-zoom a:hover { background: var(--accent-soft); color: var(--accent-soft-ink); }
+.mp .leaflet-control-attribution { background: color-mix(in srgb, var(--panel) 85%, transparent); color: var(--muted); font-size: 11px; }
+.mp .leaflet-control-attribution a { color: var(--accent-soft-ink); }
+.mp .leaflet-popup-content-wrapper { background: var(--panel); color: var(--ink); border-radius: 16px; box-shadow: 0 8px 24px rgba(15, 23, 42, .22); }
+.mp .leaflet-popup-tip { background: var(--panel); }
+.mp .leaflet-popup-close-button { width: 36px; height: 36px; font-size: 20px; line-height: 36px; color: var(--muted); }
 .mp .leaflet-popup-content { margin: 12px 14px; font-family: var(--font); font-size: 14px; line-height: 1.35; min-width: 190px; }
-.mp .leaflet-popup-content b { display: block; margin-bottom: 2px; }
+.mp .leaflet-popup-content b { display: block; margin-bottom: 2px; font-family: var(--display); font-size: 16px; }
 .mp .leaflet-popup-content .muted { margin: 0 0 8px; }
 .mp-pop-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .mp-pop-more { margin-top: 8px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .mp-pop-more button { padding: 2px 9px; font-size: 12px; }
 .mp .leaflet-popup-content a.btn-s { text-decoration: none; color: var(--ink); }
-.mp-list { display: grid; gap: 6px; }
-.mp-list h4 { margin: 8px 0 2px; font-size: 13px; color: var(--muted); font-weight: 600; }
-.mp-row { display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px; text-align: left; width: 100%; }
-.mp-row .n { flex: none; width: 24px; height: 24px; border-radius: 50%; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
-.mp-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp .leaflet-popup-content a.btn-s.primary { color: var(--accent-ink); }
+.mp-list { display: grid; gap: 8px; }
+.mp-list h4 { margin: 10px 0 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.mp-row { display: flex; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 8px 14px 8px 10px; text-align: left; width: 100%; min-height: 52px; }
+.mp-row .n { flex: none; width: 30px; height: 30px; border-radius: 50%; color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 700; }
+.mp-row .n .i { width: 16px; height: 16px; }
+.mp-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 15px; }
 .mp-row .muted { flex: none; }
+@media (prefers-reduced-motion: reduce) { .mp .leaflet-zoom-anim .leaflet-zoom-animated, .mp .leaflet-fade-anim .leaflet-popup { transition: none !important; } }
 `;
 
 const M = {
@@ -103,7 +117,7 @@ function view(ctx) {
         : none ? `<p class="muted small">${M.sel === "all" ? "Nothing to show yet. Add places and they appear here." : "Nothing on the map for this day yet."}</p>` : `<p class="muted small">Tap a pin to add it to a day or get directions.</p>`}
       <div class="mp-tog">
         <button class="btn-s ${M.ideas ? "on" : ""}" data-action="mapIdeas" aria-pressed="${M.ideas}"><svg class=i aria-hidden=true><use href=icons.svg#ideas /></svg> Ideas</button>
-        <button class="btn-s ${M.list ? "on" : ""}" data-action="mapList" aria-pressed="${M.list}">${M.list ? "Hide list" : "Show list"}</button>
+        <button class="btn-s ${M.list ? "on" : ""}" data-action="mapList" aria-pressed="${M.list}"><svg class=i aria-hidden=true><use href=icons.svg#note /></svg> ${M.list ? "Hide list" : "Show list"}</button>
       </div>
     </div>
     ${M.list ? `<div class="mp-list">${shown.map((x) => {
@@ -158,7 +172,7 @@ function sync(ctx) {
   draw(ctx);
 }
 
-const pinIcon = (n, color) => M.L.divIcon({ className: "", html: `<div class="mp-pin" style="background:${color}"><span>${n}</span></div>`, iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -26] });
+const pinIcon = (n, color) => M.L.divIcon({ className: "", html: `<div class="mp-pin" style="background:${color}"><span>${n}</span></div>`, iconSize: [30, 30], iconAnchor: [15, 30], popupAnchor: [0, -28] });
 const ideaIcon = () => M.L.divIcon({ className: "", html: `<div class="mp-pin idea" style="background:${IDEA}"></div>`, iconSize: [20, 20], iconAnchor: [10, 10], popupAnchor: [0, -10] });
 
 // Redraws pins and lines only when what they show has changed.

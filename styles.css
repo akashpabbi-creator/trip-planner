@@ -38,7 +38,8 @@
 .thumb.ph .i, .bk-ic .i { width: 26px; height: 26px; vertical-align: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; overflow-x: clip; }
-body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font); -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+html { font-size: 100%; }
+body { background: var(--bg); color: var(--ink); font: 0.9375rem/1.5 var(--font); -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
 a { color: var(--accent); text-underline-offset: 2px; }
 h1, h2, h3 { line-height: 1.2; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -95,7 +96,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 4px 16px 96px; }
 
 /* home */
 .home-head { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 14px; }
-.home-head h2 { font-weight: 700; font-size: 26px; letter-spacing: -0.02em; margin: 0; }
+.home-head h2 { font-family: var(--t-font-head); font-weight: 700; font-size: var(--t-fs-7); line-height: 36px; letter-spacing: -0.01em; margin: 0; }
 .trip-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .trip-card { text-align: left; padding: 0; border-radius: var(--radius); box-shadow: var(--shadow); white-space: normal; overflow: hidden; border: 0; }
 .tc-img { height: 140px; background: linear-gradient(135deg, var(--accent), var(--accent-soft)) center / cover; }
@@ -907,3 +908,8 @@ body.in-trip .topbar { display: none; }
 .day .card .c-links { padding-top: 6px; }
 .day .card .c-foot { font-size: 11.5px; }
 .day .card .c-by { font-size: 11.5px; }
+
+/* Reduced motion: no animation or smooth scrolling for people who ask for it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}
