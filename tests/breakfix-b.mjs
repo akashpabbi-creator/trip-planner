@@ -261,17 +261,20 @@ try {
   await propose(addOps(["Waiting Cafe"]), "waiting");
   dialogs.length = 0;
   dialogAnswer = false;
-  await p.click("section.day[data-day] >> nth=0 >> [data-action=shuffleDay]");
+  await p.click(".dchip[data-i=\'0\']");
+  await p.click("section.day [data-action=shuffleDay]");
   await p.waitForTimeout(500);
   ok(dialogs.length === 1 && /Replace the 1 change waiting for review\?/.test(dialogs[0]), "shuffle with a proposal waiting asks first: " + dialogs[0]);
   ok((await p.evaluate(() => window.__tripCtx.S.trip.changes.request)) === "waiting", "Cancel keeps the waiting proposal");
   dialogAnswer = true;
-  await p.click("section.day[data-day] >> nth=0 >> [data-action=shuffleDay]");
+  await p.click(".dchip[data-i=\'0\']");
+  await p.click("section.day [data-action=shuffleDay]");
   await p.waitForFunction(() => /Shuffle/.test(window.__tripCtx.S.trip.changes?.request || ""), null, { timeout: 5000 });
   ok(true, "OK replaces it with the shuffle");
   await closeModal();
   dialogs.length = 0;
-  await p.click("section.day[data-day] >> nth=0 >> [data-action=shuffleDay]");
+  await p.click(".dchip[data-i=\'0\']");
+  await p.click("section.day [data-action=shuffleDay]");
   await p.waitForTimeout(500);
   ok(dialogs.length === 1, "a second shuffle replaces the first one only after asking");
 

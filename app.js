@@ -23,6 +23,7 @@ import * as psocialMod from "./proposal-social.js";
 import * as shareMod from "./share.js";
 import * as driveMod from "./drive.js";
 import * as hubMod from "./trip-hub.js";
+import * as planMod from "./plan.js";
 import * as homeMod from "./home.js";
 import { findDup, mergePatch, dupGroups, foldPatch, seenNote } from "./dedupe.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
@@ -206,12 +207,12 @@ function checks() {
   S.trip.days.forEach((d, i) => {
     const sch = schedule(d.id);
     if (sch.length && sch[sch.length - 1].end > 22 * 60 + 30)
-      out.push({ level: "warn", text: `Day ${i + 1} runs until ${fromMin(sch[sch.length - 1].end)}. Consider moving something.` });
+      out.push({ day: i, level: "warn", text: `Day ${i + 1} runs until ${fromMin(sch[sch.length - 1].end)}. Consider moving something.` });
     for (let k = 1; k < sch.length; k++) {
       if (!sch[k].auto && sch[k].start < sch[k - 1].end + (Number(sch[k].it.travel?.minutes) || 0))
-        out.push({ level: "warn", text: `Day ${i + 1}: not enough time to reach “${sch[k].it.title}” by ${fromMin(sch[k].start)}.` });
+        out.push({ day: i, level: "warn", text: `Day ${i + 1}: not enough time to reach “${sch[k].it.title}” by ${fromMin(sch[k].start)}.` });
       if (sch[k].it.travel == null || !sch[k].it.travel.mode)
-        out.push({ level: "info", text: `Day ${i + 1}: how will you get to “${sch[k].it.title}”? Add the transport.` });
+        out.push({ day: i, level: "info", text: `Day ${i + 1}: how will you get to “${sch[k].it.title}”? Add the transport.` });
     }
   });
   return out;
@@ -404,12 +405,8 @@ function render() {
 function scrollToToday() {
   if (!S.scrollToday || !S.trip || S.tab !== "plan" || !S.items) return;
   S.scrollToday = false;
-  const linked = S.linkDay != null && S.linkDay < S.trip.days.length ? S.linkDay : null;
   S.linkDay = null;
-  const i = linked ?? today();
-  if (linked != null) S.stripDay = linked;
-  const el = i >= 0 ? $app.querySelector(`.day[data-day="${S.trip.days[i].id}"]`) : null;
-  if (el) el.scrollIntoView({ block: "start" });
+  window.scrollTo(0, 0); // the selected day (the linked day, today, or Day 1) was chosen while drawing the strip
 }
 // 0-based index of today within the trip dates, or -1. `?today=YYYY-MM-DD` overrides the date for testing.
 const TODAY_OVERRIDE = (new URLSearchParams(location.search).get("today") || "").match(/^\d{4}-\d{2}-\d{2}$/)?.[0] || "";
@@ -573,18 +570,9 @@ function viewTrip() {
   </section>`;
 }
 
-// Plan: a sticky row of day chips (weekday, date, base town) that jumps to a day and follows the one in view.
-function dayStrip() {
-  const t = S.trip;
-  if (!t.days.length) return "";
-  const ti = today();
-  const act = Math.min(S.stripDay || 0, t.days.length - 1);
-  return `<nav class="dstrip" aria-label="Days">${t.days.map((d, i) => {
-    const dt = dayDate(i);
-    return `<button class="dchip ${i === act ? "on" : ""} ${i === ti ? "today" : ""}" data-action="dayJump" data-i="${i}" aria-label="Day ${i + 1}${dt ? ", " + fmtDay(dt) : ""}"><small>${dt ? dt.toLocaleDateString(undefined, { weekday: "short" }) : "Day"}</small><b>${dt ? dt.getDate() : i + 1}</b><span>${esc(d.base || "")}</span></button>`;
-  }).join("")}</nav>`;
-}
-let stripIO = null;
+// Plan: a sticky row of day chips (plan.js) picks which day shows; "All" shows a one-row-per-day overview.
+const planH = () => ({ S, esc, ic, dayDate, fmtDay, today, schedule, dayItems, dayCost, money, checks, dayWeather });
+const dayStrip = () => planMod.stripHtml(planH());
 function layoutVars() {
   const r = document.documentElement.style;
   r.setProperty("--tb", (document.querySelector(".thead")?.offsetHeight || document.querySelector(".topbar")?.offsetHeight || 52) + "px");
@@ -593,33 +581,17 @@ function layoutVars() {
 function markStrip(i, instant) {
   const strip = $app.querySelector(".dstrip");
   if (!strip) return;
-  const chips = [...strip.children];
-  const changed = S.stripDay !== i;
-  S.stripDay = i;
-  chips.forEach((c, k) => c.classList.toggle("on", k === i));
-  const c = chips[i];
-  if (c && (changed || instant) && strip.scrollWidth > strip.clientWidth) strip.scrollTo({ left: c.offsetLeft - (strip.clientWidth - c.offsetWidth) / 2, behavior: instant ? "auto" : "smooth" });
+  const c = strip.querySelector(".dchip.on");
+  if (c && strip.scrollWidth > strip.clientWidth) strip.scrollTo({ left: c.offsetLeft - (strip.clientWidth - c.offsetWidth) / 2, behavior: instant ? "auto" : "smooth" });
 }
 function initStrip() {
-  stripIO?.disconnect();
-  stripIO = null;
   layoutVars();
-  const strip = $app.querySelector(".dstrip");
-  if (!strip) return;
-  markStrip(Math.min(S.stripDay || 0, strip.children.length - 1), true);
-  if (typeof IntersectionObserver === "undefined") return;
-  const days = [...$app.querySelectorAll(".day")];
-  const top = (document.querySelector(".thead")?.offsetHeight || document.querySelector(".topbar")?.offsetHeight || 52) + strip.offsetHeight + 4;
-  const vis = new Set();
-  stripIO = new IntersectionObserver((es) => {
-    for (const e of es) {
-      const i = days.indexOf(e.target);
-      e.isIntersecting ? vis.add(i) : vis.delete(i);
-    }
-    if (vis.size) markStrip(Math.min(...vis));
-    else if (window.scrollY < 120) markStrip(0);
-  }, { rootMargin: `-${top}px 0px -55% 0px` });
-  days.forEach((d) => stripIO.observe(d));
+  markStrip(0, true);
+}
+// Show a day on the Plan (used after something is added to it or found by search).
+function focusDay(dayId) {
+  const i = S.trip?.days.findIndex((d) => d.id === dayId);
+  if (i >= 0) { S.stripDay = i; S.planAll = false; }
 }
 window.addEventListener("resize", () => layoutVars());
 
@@ -752,24 +724,30 @@ function viewPlan() {
     ? `<div class="check ${ch[0].level}">${esc(ch[0].text)}</div>`
     : `<details class="checks"><summary class="${ch.some((c) => c.level === "bad") ? "bad" : "warn"}"><span class="ar-ic w"><svg class=i aria-hidden=true><use href=icons.svg#alert /></svg></span><span class="ar-t">${ch.length} things to check</span><b>See</b></summary>${ch.map((c) => `<div class="check ${c.level}">${esc(c.text)}</div>`).join("")}</details>`;
   const ico = (e, w) => `<span class="ar-ic ${w || ""}">${e}</span>`;
+  const selI = planMod.selected(planH());
+  const anyEmpty = t.days.some((d) => !dayItems(d.id).length);
+  const canFill = !t.proposal && !S.planning && anyEmpty;
+  // The same three buttons sit on an empty day and, when the shown day has stops, in the assistant card.
+  const fillBtns = `<button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Fill empty days</button>
+      ${ctx.aiKey() ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}><svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> Plan with Gemini</button>` : ""}
+      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Plan with Claude</button>` : ""}`;
+  const showFill = canFill && (S.planAll || !!dayItems(t.days[selI]?.id).length);
   const asstHtml = `<div class="asst">
     ${t.proposal ? `<button class="smart-banner" data-action="openProposal">${ico("<svg class=i aria-hidden=true><use href=icons.svg#robot /></svg>")}<span class="ar-t">${S.aiUser ? esc(t.proposal.source || "Gemini") + " drafted a plan" : "A plan was drafted"} for your days${psocialMod.summary(t.proposal, t.members) ? `<span class="ps-sum">${esc(psocialMod.summary(t.proposal, t.members))}</span>` : ""}</span><b>Review</b></button>` : ""}
     ${lead === "smart" ? smart : ""}
     ${slot("planTop")}
     ${S.planning && !t.proposal ? `<p class="muted small busy-line">${esc(S.planning)}</p>` : ""}
     ${checkBox}
-    ${!t.proposal && !S.planning && t.days.some((d) => !dayItems(d.id).length) ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>
-      <button class="btn-s primary" data-action="buildSample" ${t.guide?.listings?.length ? "" : "disabled"}><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Fill empty days</button>
-      ${ctx.aiKey() ? `<button class="btn-s" data-action="geminiPlan" ${geminiWait() ? "disabled" : ""}><svg class=i aria-hidden=true><use href=icons.svg#robot /></svg> Plan with Gemini</button>` : ""}
-      ${S.aiUser ? `<button class="btn-s" data-action="claudePlan"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Plan with Claude</button>` : ""}</div>` : ""}
+    ${showFill ? `<div class="fill-bar"><span class="small">${t.days.every((d) => !dayItems(d.id).length) ? "Your days are empty." : "Some days are empty."} Fill them when you're ready:</span>${fillBtns}</div>` : ""}
     ${lead !== "smart" ? smart : ""}
     </div>`;
   S.asstHtml = asstHtml;
   return `
     ${slot("planToday")}
     ${isWide() ? "" : asstHtml}
-    <div class="days">
-    ${t.days.map((d, i) => {
+    ${S.planAll ? planMod.overviewHtml(planH()) : ""}
+    <div class="days" ${S.planAll ? "hidden" : ""}>
+    ${t.days.map((d, i) => (i !== selI || S.planAll ? "" : (() => {
       const sch = schedule(d.id);
       const date = dayDate(i);
       const heading = d.title || d.base || "";
@@ -786,10 +764,10 @@ function viewPlan() {
           </div>
           <div class="day-side">${slot("dayHead", d, i)}</div>
         </header>
-        ${sch.length ? `<div class="tl">${sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><span>From yesterday: ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</span></div>` : "") + `<div class="stop"><span class="tm ${s.auto ? "auto" : ""}" title="${s.auto ? "Estimated from the stops before it" : "Fixed time"}">${fromMin(s.start)}</span>${card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto, rail: true })}</div>`).join("")}</div>` : `<p class="empty small">Nothing planned yet. Add something from Ideas.</p>`}
+        ${sch.length ? `<div class="tl">${sch.map((s, k) => (k ? legView(sch[k - 1].it, s.it, i) : s.it.travel?.fromPrevDay && MODES[s.it.travel.mode] ? `<div class="leg"><span>From yesterday: ${MODES[s.it.travel.mode].icon} ${MODES[s.it.travel.mode].label} · ${dur(+s.it.travel.minutes)}</span></div>` : "") + `<div class="stop"><span class="tm ${s.auto ? "auto" : ""}" title="${s.auto ? "Estimated from the stops before it" : "Fixed time"}">${fromMin(s.start)}</span>${card(s.it, { inDay: true, time: fromMin(s.start), auto: s.auto, rail: true })}</div>`).join("")}</div>` : `<div class="empty small day-empty"><p>Nothing planned yet. Add something from Ideas, or let the app suggest a plan.</p>${canFill ? `<div class="fill-btns">${fillBtns}</div>` : ""}</div>`}
         <div class="day-foot"><button class="link" data-action="pickForDay" data-id="${d.id}">+ Add from ideas</button><button class="link" data-action="newItem" data-day="${d.id}">+ New stop</button>${slot("dayFoot", d, i)}</div>
       </section>`;
-    }).join("")}
+    })())).join("")}
     </div>
     <div class="day-controls">
       <button data-action="addDay">+ Add a day</button>
@@ -2006,6 +1984,7 @@ function pickDay(itemId) {
     <div class="pick-days">${S.trip.days.map((d, i) => `<label class="pick"><input type="radio" name="dayId" value="${d.id}" ${i === 0 ? "checked" : ""}> Day ${i + 1}${dayDate(i) ? " · " + fmtDay(dayDate(i)) : ""}${d.title ? " · " + esc(d.title) : ""} <span class="muted small">(${dayItems(d.id).length} stops)</span></label>`).join("")}</div>`,
     async (f) => {
       await S.store.updateItem(S.tripId, itemId, { dayId: f.dayId, order: nextOrder(f.dayId), userEdited: true, ...stampMe() });
+      focusDay(f.dayId);
       await log(`scheduled “${it.title}” on ${dayLabel(f.dayId)}`);
       await touchTrip();
     });
@@ -2036,6 +2015,7 @@ async function move(id, dir) {
     const target = dayItems(nd.id);
     const order = dir < 0 ? (target.length ? target[target.length - 1].order + 1 : 1) : (target.length ? target[0].order - 1 : 1);
     await S.store.updateItem(S.tripId, id, { dayId: nd.id, order, userEdited: true, ...stampMe() });
+    focusDay(nd.id);
     await log(`moved “${it.title}” to ${dayLabel(nd.id)}`);
     return touchTrip();
   }
@@ -2406,9 +2386,10 @@ document.addEventListener("click", async (e) => {
         S.addOpen = false;
         return render();
       case "dayJump": {
-        const i = +b.dataset.i;
-        markStrip(i);
-        return $app.querySelectorAll(".day")[i]?.scrollIntoView({ behavior: "smooth", block: "start" });
+        S.stripDay = +b.dataset.i;
+        S.planAll = false;
+        render();
+        return window.scrollTo(0, 0);
       }
       case "coverPick": {
         if (b.dataset.i == null) return coverPicker();
@@ -2640,7 +2621,7 @@ setInterval(() => { if (S.tripId && !$modal.open) render(); }, 60000);
 const ctx = {
   S, $form, $modal,
   esc, safeUrl, uid, money, ago, stamp, dayDate, fmtDay, toMin, fromMin, dur, nameOf, who, firstName, toast, friendlyError, stampMe, log, touchTrip,
-  render, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
+  render, focusDay, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
   untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
   CATEGORIES, MODES, CURRENCIES,
   openTrip, invite, clearAllDays, coversOf, coverOf, coverSrc, cssUrl, $form, $modal,
@@ -2678,7 +2659,7 @@ ctx.tab({ id: "trip", icon: "<svg class=i aria-hidden=true><use href=icons.svg#t
 }) });
 ctx.tab({ id: "changes", icon: "<svg class=i aria-hidden=true><use href=icons.svg#clock /></svg>", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, planMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 

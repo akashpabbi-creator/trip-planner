@@ -67,14 +67,16 @@ try {
   });
   await p.waitForTimeout(500);
   await p.evaluate(() => window.__tripCtx.render());
-  const days = await p.$$("section.day");
-  ok(days.length === 3, "three days");
-  ok(!!(await days[1].$("[data-action=shuffleDay]")) && (await days[1].$eval("[data-action=shuffleDay]", (e) => e.textContent)).includes("Shuffle"), "🔀 Shuffle sits in the day footer");
-  ok(!(await days[0].$("[data-action=shuffleDay]")) && !(await days[2].$("[data-action=shuffleDay]")), "no Shuffle on days with no stops");
-  if (SHOTS) { await days[1].$eval(".day-foot", (e) => e.scrollIntoView({ block: "center" })); await p.waitForTimeout(200); await p.screenshot({ path: join(SHOTS, "plan-dayfoot.png") }); }
+  const shufOn = async (i) => { await p.click(`.dchip[data-i='${i}']`); return (await p.$$("section.day [data-action=shuffleDay]")).length; };
+  ok((await p.$$("section.day")).length === 1 && (await p.$$(".dchip[data-i]")).length === 3, "three days in the strip, one shown");
+  ok((await shufOn(1)) === 1 && (await p.textContent("section.day [data-action=shuffleDay]")).includes("Shuffle"), "Shuffle sits in the day footer");
+  ok((await shufOn(0)) === 0 && (await shufOn(2)) === 0, "no Shuffle on days with no stops");
+  await p.click(".dchip[data-i='1']");
+  if (SHOTS) { await p.$eval(".day-foot", (e) => e.scrollIntoView({ block: "center" })); await p.waitForTimeout(200); await p.screenshot({ path: join(SHOTS, "plan-dayfoot.png") }); }
 
   console.log("shuffle Day 2");
-  await p.click("section.day[data-day] >> nth=1 >> [data-action=shuffleDay]");
+  await p.click(".dchip[data-i=\'1\']");
+  await p.click("section.day [data-action=shuffleDay]");
   await p.waitForSelector("#modalForm .chg-op");
   const c1 = await p.evaluate(() => window.__tripCtx.S.trip.changes);
   const idOf = Object.fromEntries(Object.entries(ids).map(([k, v]) => [v, k]));
@@ -100,7 +102,8 @@ try {
   let differs = 0;
   let prev = [outs[0], ins[0]].join(">");
   for (let k = 0; k < 4; k++) {
-    await p.click("section.day[data-day] >> nth=1 >> [data-action=shuffleDay]");
+    await p.click(".dchip[data-i=\'1\']");
+  await p.click("section.day [data-action=shuffleDay]");
     await p.waitForSelector("#modalForm .chg-op");
     const c = await p.evaluate(() => window.__tripCtx.S.trip.changes);
     const key = [idOf[c.ops.find((o) => o.type === "remove").itemId], idOf[c.ops.find((o) => o.type === "move").itemId]].join(">");
@@ -127,7 +130,8 @@ try {
   console.log("nothing to swap");
   await p.evaluate(async () => { const c = window.__tripCtx; for (const i of c.ideas()) await c.S.store.deleteItem(c.S.tripId, i.id); });
   await p.waitForTimeout(400);
-  await p.click("section.day[data-day] >> nth=1 >> [data-action=shuffleDay]");
+  await p.click(".dchip[data-i=\'1\']");
+  await p.click("section.day [data-action=shuffleDay]");
   await p.waitForFunction(() => /Nothing in Ideas to swap in for Day 2\./.test(document.getElementById("toast").textContent), null, { timeout: 4000 });
   ok(true, "toast: Nothing in Ideas to swap in for Day 2.");
   ok((await p.inputValue("#changeInput")) === "Swap a couple of Day 2 stops for new places" && (await p.evaluate(() => document.activeElement?.id)) === "changeInput", "Ask for a change box is prefilled and focused");

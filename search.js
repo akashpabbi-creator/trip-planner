@@ -107,6 +107,7 @@ export function init(ctx) {
     S.tab = TAB[kind];
     S.moreOpen = false;
     if (kind === "idea") ctx.resetIdeaView?.();
+    if (kind === "stop") ctx.focusDay?.(ctx.S.items.find((x) => x.id === id)?.dayId);
     ctx.render();
     const esc2 = (window.CSS?.escape || ((s) => s))(id);
     const el = kind === "kit" ? document.querySelector(`[data-kid="${esc2}"]`) : kind === "note" ? document.querySelector(`[data-nid="${esc2}"]`) : document.querySelector(`${SEL[kind]}[data-id="${esc2}"]`);

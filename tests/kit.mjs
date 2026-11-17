@@ -120,7 +120,9 @@ try {
 
   /* ------------------------------------------------------------ route link */
   console.log("route link");
-  const hrefs = await A.$$eval(".day .k-route", (as) => as.map((a) => a.href));
+  const hrefs = [];
+  for (let i = 0; i < 3; i++) { await A.click(`.dchip[data-i='${i}']`); hrefs.push(...(await A.$$eval(".day .k-route", (as) => as.map((a) => a.href)))); }
+  await A.click(".dchip[data-i='0']");
   ok(hrefs.length === 3, "Route link in every day header with 2+ stops");
   const u0 = new URL(hrefs[0]);
   ok(u0.searchParams.get("origin") === "41.8902,12.4922" && u0.searchParams.get("destination") === "Piazza della Rotonda, Rome", "day 1 origin = first stop, destination = last stop (name + city when no coordinates): " + u0.searchParams.get("destination"));

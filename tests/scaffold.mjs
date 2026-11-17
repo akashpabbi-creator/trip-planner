@@ -77,7 +77,7 @@ try {
     c.render();
   });
   ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity", "Trip"]), "desktop order: Plan, Map, Ideas, Discover, Kit, Smart, Budget, Itinerary, Activity, Trip");
-  ok((await d.textContent("#slotPlanTop")) === "top" && (await d.$$(".slot-dh")).length === 3 && (await d.$$(".slot-df")).length === 3, "planTop / dayHead / dayFoot slots render");
+  ok((await d.textContent("#slotPlanTop")) === "top" && (await d.$$(".slot-dh")).length === 1 && (await d.$$(".slot-df")).length === 1, "planTop / dayHead / dayFoot slots render");
   await d.click("#helloBtn");
   ok((await d.evaluate(() => window.__hello)) === "x1", "addBar slot + registered action receive clicks");
   await d.click('.tabs-desk [data-tab=map]');
@@ -188,9 +188,9 @@ try {
     await ph.click("[data-action=open]");
     await ph.waitForSelector(".day.today");
     await ph.waitForTimeout(400);
-    return ph.evaluate(() => window.scrollY > 100);
+    return ph.evaluate(() => document.querySelectorAll(".day").length === 1 && document.querySelector(".dchip.on")?.classList.contains("today") && /^Day 2\b/.test(document.querySelector(".day .day-n").textContent));
   })();
-  ok(scrollOk, "Plan scrolls to today's day when reopening the trip");
+  ok(scrollOk, "Plan opens on today's day (only that day shown) when reopening the trip");
 
   /* ---- today outside trip dates */
   const out = await ph.evaluate(() => { window.__tripCtx.S.trip.startDate = "2030-01-01"; return window.__tripCtx.today(); });

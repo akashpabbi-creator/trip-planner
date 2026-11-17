@@ -252,7 +252,8 @@ try {
 
   // Plan strip + budget
   await d.click('.tabs-desk [data-tab=plan]');
-  const pills = await d.$$eval(".day-head .bk-pill", (e) => e.map((x) => x.textContent.trim()));
+  const pills = [];
+  for (let i = 0, n = await d.$$eval(".dchip[data-i]", (e) => e.length); i < n; i++) { await d.click(`.dchip[data-i='${i}']`); pills.push(...(await d.$$eval(".day-head .bk-pill", (e) => e.map((x) => x.textContent.trim())))); }
   ok(pills.some((t) => /06:40/.test(t)) && pills.some((t) => /14:00/.test(t)), "Plan day 1 header shows the flight and hotel: " + pills.join(" | "));
   ok(pills.some((t) => /check-out 11:00/.test(t)), "check-out shows on day 4: " + pills.join(" | "));
   await d.click('.tabs-desk [data-tab=budget]');
