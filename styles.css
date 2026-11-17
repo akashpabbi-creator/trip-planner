@@ -797,3 +797,70 @@ dialog .bq-row .btn-s { border-radius: 99px; padding: 8px 16px; }
 .pick:has(input:checked) { border-color: var(--accent); }
 
 .dup-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--accent-soft); font-size: 14px; }
+
+/* ---------------- redesign job 2: slim trip header, 5-item bottom bar, Trip hub ---------------- */
+body.in-trip .topbar { display: none; }
+.thead { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; min-height: 56px; margin: 0 -12px; padding: 6px 12px; padding-top: max(6px, env(safe-area-inset-top)); background: color-mix(in srgb, var(--bg) 96%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); box-sizing: border-box; }
+.tb-btn, .thead .chip.round { flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink); display: inline-grid; place-items: center; box-shadow: none; }
+.tb-btn .i, .thead .chip.round .i { width: 22px; height: 22px; }
+.tb-title { flex: 1; min-width: 0; }
+.tb-title h1 { font-family: var(--display); font-size: 18px; line-height: 1.2; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-title small { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-title .link { padding: 0; min-height: 0; font-size: 12px; }
+.thead-sync { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.thead-sync[hidden] { display: none; }
+.thead-sync.offline { color: var(--t-check-strong); }
+.tb-ask { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px; border: 0; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; }
+.tb-ask .i { width: 18px; height: 18px; }
+@media (min-width: 701px) { .thead { margin: 0; padding-left: 0; padding-right: 0; } }
+.dstrip { top: var(--tb, 56px); }
+
+/* bottom bar: Plan, Ideas, +, Map, Trip */
+.tabs-bar .bar-plus { flex: none; width: 52px; height: 52px; min-height: 0; margin: -14px 6px 0; padding: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); box-shadow: 0 6px 18px rgba(39,71,212,.35); display: grid; place-items: center; align-self: flex-start; border: 0; }
+.tabs-bar .bar-plus .i { width: 26px; height: 26px; }
+.tabs-bar .bar-plus[aria-expanded=true] { transform: rotate(45deg); }
+
+/* Trip hub */
+.hub { display: grid; gap: 12px; margin-top: 12px; }
+.tcover { position: relative; border-radius: 16px; min-height: 150px; padding: 14px; display: flex; flex-direction: column; justify-content: flex-end; color: #fff; background: linear-gradient(135deg, #1b36a8, var(--t-primary) 55%, #5b7cf0); overflow: hidden; }
+.tcover.has-img { background: linear-gradient(180deg, rgba(0,0,0,.2), rgba(0,0,0,.05) 35%, rgba(0,0,0,.72)), var(--cover) center 40% / cover; }
+.tcover .cover-btn { position: absolute; top: 10px; right: 10px; bottom: auto; width: auto !important; height: 36px !important; padding: 0 12px; gap: 6px; border-radius: 99px; background: rgba(0,0,0,.38); color: #fff; display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; backdrop-filter: blur(8px); }
+.tcover .cover-btn .i { width: 18px; height: 18px; }
+.tcover h2 { font-family: var(--display); font-size: 26px; margin: 2px 0 8px; line-height: 1.1; overflow-wrap: anywhere; color: #fff; }
+.tcover .eyebrow { color: rgba(255,255,255,.9); }
+.hub-people { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 10px 12px; }
+.hp-t { flex: 1; min-width: 120px; display: grid; }
+.hp-t small { color: var(--muted); font-size: 12px; }
+.hub-people .btn-s { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+.hub-bar { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin: -4px 4px 0; }
+.hub-bar i { display: block; height: 100%; background: var(--accent); }
+.hub-bar.over i { background: var(--t-check-strong); }
+.hub-list { display: grid; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.hub-list > .hub-row, .hub-about > summary.hub-row { border-bottom: 1px solid var(--line); }
+.hub-row { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 8px 14px; border: 0; background: none; color: var(--ink); text-align: left; list-style: none; cursor: pointer; border-radius: 0; box-shadow: none; }
+.hub-row::-webkit-details-marker { display: none; }
+.hr-ic { flex: none; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--t-primary-soft-ink, var(--accent)); }
+.hub-row.warn .hr-ic { background: var(--t-check-bg); color: var(--t-check-strong); }
+.hr-ic .i { width: 20px; height: 20px; }
+.hr-t { flex: 1; min-width: 0; display: grid; }
+.hr-t b { font-size: 15px; font-weight: 600; }
+.hr-t small { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-go { flex: none; color: var(--muted); }
+.hr-go .i { width: 18px; height: 18px; }
+.hub-row .count { flex: none; }
+.hub-row:hover { background: var(--panel-2); }
+.hub-about[open] > summary .hr-go { transform: rotate(180deg); }
+.ha-body { padding: 4px 16px 14px 62px; font-size: 14px; border-bottom: 1px solid var(--line); }
+.ha-body p { margin: 4px 0; }
+.hub-list > :last-child { border-bottom: 0; }
+.hub-back { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px 0 6px; margin: 4px 0 0; border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 14px; }
+.hub-back .i { width: 18px; height: 18px; }
+.hub-back span { color: var(--muted); font-weight: 500; }
+.hub-back span::before { content: "·"; margin: 0 6px; }
+@media (min-width: 701px) { .hub-back { display: none; } .hub { max-width: 720px; } }
+@media print { .thead, .hub-back { display: none !important; } }
+
+.tab-trip .add-link { display: none; }
+.hp-t { min-width: 0; }
+.hp-t b, .hp-t small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-people .avs { display: inline-flex; flex-wrap: nowrap; max-width: 100%; overflow: hidden; }

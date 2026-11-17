@@ -47,10 +47,11 @@ async function run(label, { banner, wikiImage, nearby = {}, commons = {}, ov = (
   await p.fill("[name=numDays]", "3");
   await p.click("#modalForm button[value=ok]");
   await p.waitForSelector(".tab-body");
+  await p.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); }); // the cover lives on the Trip hub
   await p.waitForFunction(() => window.__tripCtx.S.trip.place?.for === "Italy", null, { timeout: 15000 });
   return { p, ctx };
 }
-const heroCover = (p) => p.$eval(".hero", (e) => e.style.getPropertyValue("--cover"));
+const heroCover = (p) => p.$eval(".tcover", (e) => e.style.getPropertyValue("--cover"));
 
 try {
   const FLAG = "https://upload.wikimedia.org/wikipedia/commons/0/03/Flag_of_Italy.svg";
@@ -79,7 +80,7 @@ try {
   await p.click("[data-action=home]");
   ok((await p.$eval(".tc-img", (e) => e.style.backgroundImage)).includes("example.org/mine.jpg"), "home trip card uses the photo link");
   await p.click(".tc-img");
-  await p.waitForSelector(".hero");
+  await p.waitForSelector(".tcover");
   await p.click(".cover-btn");
   await p.click("[data-action=coverClear]");
   await p.waitForFunction(() => !window.__tripCtx.S.trip.coverUrl);

@@ -48,7 +48,7 @@ try {
   console.log("desktop");
   const d = await newPage({ width: 1200, height: 800 });
   await makeTrip(d, "2026-11-10");
-  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity"]), "desktop tabs include the Map and Kit modules");
+  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity", "Trip"]), "desktop tabs include the Map and Kit modules");
   ok(!(await d.isVisible(".tabs-bar")), "bottom bar hidden on desktop");
   ok((await d.$$("[data-action=bridgeOpen]:visible")).length === 1, "desktop shows exactly one visible Connect Claude entry");
   await d.click(".tabs-desk [data-action=bridgeOpen]");
@@ -56,7 +56,7 @@ try {
   ok(/Claude/.test(await d.textContent("#modalForm")), "desktop Connect Claude opens the bridge sheet");
   await d.keyboard.press("Escape");
   await d.waitForTimeout(200);
-  ok(await d.isVisible("#sync") && /Saved/.test(await d.textContent("#sync")), "sync indicator shows Saved");
+  ok(/Saved/.test(await d.textContent("#sync")) && !(await d.isVisible("#tsync")), "sync state is Saved, and the trip header stays quiet about it");
   await d.evaluate(() => {
     const c = window.__tripCtx;
     c.tab({ id: "map", icon: "🗺️", label: "Map", view: () => `<p id="mapStub">map</p>`, order: 20 });
@@ -76,7 +76,7 @@ try {
     for (const e of ["render", "trip", "items", "open", "close"]) c.on(e, () => window.__events.push(e));
     c.render();
   });
-  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity"]), "desktop order: Plan, Map, Ideas, Discover, Kit, Smart, Budget, Itinerary, Activity");
+  ok(JSON.stringify(await tabLabels(d, ".tabs-desk button[data-tab]")) === JSON.stringify(["Plan", "Map", "Ideas", "Discover", "Kit", "Smart", "Budget", "Itinerary", "Activity", "Trip"]), "desktop order: Plan, Map, Ideas, Discover, Kit, Smart, Budget, Itinerary, Activity, Trip");
   ok((await d.textContent("#slotPlanTop")) === "top" && (await d.$$(".slot-dh")).length === 3 && (await d.$$(".slot-df")).length === 3, "planTop / dayHead / dayFoot slots render");
   await d.click("#helloBtn");
   ok((await d.evaluate(() => window.__hello)) === "x1", "addBar slot + registered action receive clicks");
@@ -161,17 +161,16 @@ try {
     c.render();
   });
   ok(!(await ph.isVisible(".tabs-desk")), "inline tabs hidden on phone");
-  ok(JSON.stringify(await tabLabels(ph, ".tabs-bar")) === JSON.stringify(["Plan", "Map", "Ideas", "Kit", "More"]), "bottom bar: Plan, Map, Ideas, Kit, More");
-  ok((await ph.$$(".tabs-bar button")).length === 5, "5 bottom items");
-  ok(!(await ph.isVisible(".more-sheet")), "More sheet closed by default");
-  await ph.click(".tabs-bar [data-action=moreToggle]");
-  ok(await ph.isVisible(".more-sheet"), "More opens a sheet");
-  const more = await ph.$$eval(".more-sheet .t-l", (e) => e.map((x) => x.textContent.trim()));
-  ok(JSON.stringify(more) === JSON.stringify(["Discover", "Smart", "Budget", "Itinerary", "Activity", "Connect Claude", "Connector"]), "More lists: " + more.join(", "));
-  await ph.click(".more-sheet [data-tab=budget]");
-  ok(!(await ph.isVisible(".more-sheet")) && (await ph.isVisible(".budget")), "More item switches tab and closes the sheet");
-  await ph.click(".tabs-bar [data-action=moreToggle]");
-  await ph.click(".more-sheet [data-action=bridgeOpen]");
+  ok(JSON.stringify(await tabLabels(ph, ".tabs-bar")) === JSON.stringify(["Plan", "Ideas", "Map", "Trip"]), "bottom bar: Plan, Ideas, +, Map, Trip");
+  ok((await ph.$$(".tabs-bar button")).length === 5 && !!(await ph.$(".tabs-bar .add-plus")), "5 bottom items with the + in the middle");
+  await ph.click(".tabs-bar [data-tab=trip]");
+  ok(await ph.isVisible(".hub-list"), "Trip opens the hub");
+  const rows = await ph.$$eval(".hub-list .hr-t b", (e) => e.map((x) => x.textContent.trim()));
+  ok(["Bookings", "Budget", "Discover", "Preferences", "Connect Claude", "Connector", "Activity and undo", "Itinerary"].every((r) => rows.includes(r)), "hub lists the areas: " + rows.join(", "));
+  await ph.click(".hub-list [data-tab=budget]");
+  ok(await ph.isVisible(".budget"), "a hub row opens its page");
+  await ph.click(".tabs-bar [data-tab=trip]");
+  await ph.click(".hub-list [data-action=bridgeOpen]");
   await ph.waitForSelector("#modal[open]");
   ok(/Claude/.test(await ph.textContent("#modalForm")), "Connect Claude opens the bridge sheet");
   await ph.keyboard.press("Escape");
@@ -185,7 +184,7 @@ try {
   await ph.screenshot({ path: join(dir, "phone.png") });
   const scrollOk = await (async () => {
     // reopen the trip: Plan should scroll to today's day
-    await ph.click("#homeBtn");
+    await ph.click(".thead [data-action=home]");
     await ph.click("[data-action=open]");
     await ph.waitForSelector(".day.today");
     await ph.waitForTimeout(400);

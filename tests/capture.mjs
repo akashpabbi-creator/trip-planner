@@ -371,7 +371,8 @@ try {
     ] }));
   });
   await ph.waitForFunction(() => window.__tripCtx.S.trip.bookings?.length === 3);
-  await ph.click(".tabs-bar [data-tab=kit]");
+  await ph.click(".tabs-bar [data-tab=trip]");
+  await ph.click(".hub-list [data-tab=kit]");
   await ph.click("#chk-sec summary");
   await ph.waitForTimeout(300);
   await ph.screenshot({ path: join(dir, "kit-phone.png"), fullPage: true });

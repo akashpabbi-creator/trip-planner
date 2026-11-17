@@ -97,8 +97,8 @@ try {
   await p.waitForTimeout(500);
 
   console.log("connect Claude (phone: More sheet)");
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-action=bridgeOpen]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-action=bridgeOpen]");
   ok(/Connect Claude/.test(await p.textContent("#modalForm h3")) && /never your Gemini key/.test(await p.textContent("#modalForm")), "modal explains it, before connecting");
   await p.click("#modalForm button[value=ok]");
   await p.waitForFunction(() => /Claude is connected/.test(document.querySelector("#modalForm h3")?.textContent || ""), null, { timeout: 15000 });
@@ -229,8 +229,8 @@ try {
   await p.waitForFunction(() => window.__tripCtx.S.trip.aiPicks?.source === "Claude", null, { timeout: 15000 });
   const pk = await p.evaluate(() => window.__tripCtx.S.trip.aiPicks);
   ok(pk.items.length === 3 && pk.for === "Rome", "picks stored on trip.aiPicks with source Claude");
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-tab=discover]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-tab=discover]");
   ok(/picked by Claude/.test(await p.textContent(".discover")) && /Palatine Hill/.test(await p.textContent(".discover")), "Discover heading says Claude and lists the picks");
 
   // 3. review
@@ -239,8 +239,8 @@ try {
     { title: "Book the Colosseum ahead", detail: "Timed tickets.", action: { type: "none" } } ] };
   ok(sendKind(rev).status === 0, "send review");
   await p.waitForFunction(() => window.__tripCtx.S.trip.aiReview?.source === "Claude", null, { timeout: 15000 });
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-tab=smart]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-tab=smart]");
   ok(/Claude review/.test(await p.textContent(".ai-box h3")) && /Sent by Claude/.test(await p.textContent(".ai-box")), "Smart shows 'Claude review' and 'Sent by Claude'");
   await p.click(".sug.ai [data-action=aiApply]");
   await p.waitForFunction((id) => window.__tripCtx.S.items.find((i) => i.id === id)?.dayId === window.__tripCtx.S.trip.days[0].id, seed.trevi);
@@ -260,8 +260,8 @@ try {
   await p.click("[data-action=aiKeep]");
 
   // 5. paste fallback (a fenced answer, and an old-style plan answer)
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-action=bridgeOpen]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-action=bridgeOpen]");
   await p.click("details.about summary >> text=Claude has no internet");
   await p.fill("[name=paste]", "Here you go:\n```json\n" + JSON.stringify({ kind: "changes", request: "pasted", summary: "s", ops: [{ type: "check", text: "Sunscreen", group: "pack" }, { type: "move", itemId: "ghost", toDay: 1 }] }) + "\n```");
   await p.click("#modalForm button[value=ok]");
@@ -296,8 +296,8 @@ try {
   await p.evaluate(() => { const x = document.createElement("button"); x.dataset.action = "claudePlan"; document.body.append(x); x.click(); x.remove(); }); // the days are full by now, so the button itself is gone
   o = await lastOpen(n0 + 1);
   ok(decodeURIComponent(o.url).endsWith("Request: Plan our empty days") && !(await p.$("#modalForm textarea[name=answer]")), "Plan with Claude with the link on skips the paste modal");
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-tab=smart]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-tab=smart]");
   await p.waitForSelector("[data-action=copyForClaude][data-id=review]", { state: "attached" });
   await p.evaluate(() => document.querySelector("[data-action=copyForClaude][data-id=review]").click());
   o = await lastOpen(n0 + 2);
@@ -313,14 +313,14 @@ try {
   ok(true, "Ask Claude with the link on saves the request, and it reaches the snapshot as `requests`");
   const n7 = await p.evaluate(() => window.__opened.length);
   ok(n7 >= 1 && decodeURIComponent(await p.evaluate(() => window.__opened.at(-1))).includes("Request: Please handle our new request in the trip planner: swap lunch and dinner on day 2"), "...and opens Claude with that request");
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-action=bridgeOpen]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-action=bridgeOpen]");
   ok(/Handle our requests/.test(await p.textContent("#modalForm")) && /Waiting for Claude: “swap lunch and dinner on day 2”/.test(await p.textContent("#modalForm")), "'Handle our requests' shows with the waiting request");
   await p.click("[data-close]");
 
   // 8. turn off
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-action=bridgeOpen]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-action=bridgeOpen]");
   p.once("dialog", (d) => d.accept());
   await p.click("[data-action=bridgeOff]");
   await p.waitForFunction(() => !window.__tripCtx.bridgeToken(), null, { timeout: 10000 });

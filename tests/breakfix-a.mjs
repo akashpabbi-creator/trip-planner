@@ -80,12 +80,17 @@ try {
   const s1 = await dayId(a, 0);
   await addStop(a, { title: "Keep me", dayId: s1, order: 1 });
   await a.waitForTimeout(200);
+  await bea.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await bea.click("[data-action=editTrip]");
+  await bea.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await bea.waitForSelector("#modalForm");
   ok((await bea.$$("[data-action=deleteTrip]")).length === 0, "a non-owner's Edit trip has no Delete button");
   await closeModal(bea);
+  await bea.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   ok((await bea.$$("[data-action=invite]")).length === 1, "invite sheet still reachable for a non-owner");
+  await bea.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await bea.click("[data-action=invite]");
+  await bea.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await bea.waitForSelector("[data-action=leaveTrip]");
   ok(true, "non-owner still gets Leave this trip in the invite sheet");
   await closeModal(bea);
@@ -96,7 +101,9 @@ try {
   ok(rejected === "permission-denied", "store.deleteTrip rejects for a non-owner: " + rejected);
   await a.waitForTimeout(200);
   ok((await items(a)).some((i) => i.title === "Keep me") && !!(await trip(a)).name, "stops and the trip survive a non-owner delete attempt");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await a.click("[data-action=editTrip]");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   ok((await a.$$("[data-action=deleteTrip]")).length === 1, "the owner sees Delete this trip");
   await closeModal(a);
 
@@ -118,7 +125,9 @@ try {
   ok((await a.evaluate(() => window.__tripCtx.S.trips.length)) === 1, "no trip was created from the blank forms");
   await a.click("[data-action=open]");
   await a.waitForSelector(".tab-body");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await a.click("[data-action=editTrip]");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await a.fill("[name=name]", "  ");
   await a.click("#modalForm button[value=ok]");
   await a.waitForTimeout(200);
@@ -144,7 +153,9 @@ try {
   /* ---- 3. fewer days */
   console.log("3. shrinking the trip");
   const d = [await dayId(a, 0), await dayId(a, 1), await dayId(a, 2)];
+  await a.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await a.click("[data-action=editTrip]");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await a.fill("[name=numDays]", "5");
   await a.click("#modalForm button[value=ok]");
   await a.waitForFunction(() => window.__tripCtx.S.trip.days.length === 5);
@@ -156,7 +167,9 @@ try {
   await a.waitForTimeout(200);
   a.autoDialog = false;
   a.dialogs.length = 0;
+  await a.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await a.click("[data-action=editTrip]");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await a.fill("[name=numDays]", "3");
   await a.click("#modalForm button[value=ok]");
   await a.waitForTimeout(300);
@@ -199,7 +212,9 @@ try {
   await a.waitForTimeout(300);
   ok((await items(a)).find((i) => i.id === keepId).updatedAt === 111, "saving without changes writes nothing");
   // trip form
+  await a.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await a.click("[data-action=editTrip]");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await a.evaluate(async () => {
     const S = window.__tripCtx.S;
     await S.store.txTrip(S.tripId, (cur) => ({ days: [...cur.days, { id: "extra1", title: "", base: "", notes: "" }], budget: 9000, updatedBy: "bea@demo", updatedAt: Date.now() }));
@@ -209,7 +224,9 @@ try {
   await a.waitForTimeout(300);
   const t4 = await trip(a);
   ok(t4.name === "Goa 2026" && t4.days.length === 3 && t4.budget === 9000, `name saved, partner's new day (${t4.days.length} days) and budget (${t4.budget}) untouched`);
+  await a.evaluate(() => { window.__tripCtx.S.tab = "trip"; window.__tripCtx.render(); });
   await a.click("[data-action=editTrip]");
+  await a.evaluate(() => { window.__tripCtx.S.tab = "plan"; window.__tripCtx.render(); });
   await a.fill("[name=numDays]", "2");
   await a.evaluate(async () => {
     const S = window.__tripCtx.S;
@@ -395,10 +412,10 @@ try {
   await makeTrip(ph, { name: LONG, dest: LONG, days: 2 });
   const overflow = (p) => p.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
   let o = await overflow(ph);
-  ok(o.sw <= o.iw, `phone: the hero does not overflow sideways (${o.sw} <= ${o.iw})`);
-  const h1 = await ph.evaluate(() => { const e = document.querySelector(".hero h1"); return { h: e.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(e).lineHeight) || parseFloat(getComputedStyle(e).fontSize) * 1.1, r: e.getBoundingClientRect().right }; });
+  ok(o.sw <= o.iw, `phone: the header does not overflow sideways (${o.sw} <= ${o.iw})`);
+  const h1 = await ph.evaluate(() => { const e = document.querySelector(".thead h1"); return { h: e.getBoundingClientRect().height, lh: parseFloat(getComputedStyle(e).lineHeight) || parseFloat(getComputedStyle(e).fontSize) * 1.1, r: e.getBoundingClientRect().right }; });
   ok(h1.h <= h1.lh * 2 + 4 && h1.r <= 390, `hero title stops at two lines (${Math.round(h1.h)}px)`);
-  await ph.click("#homeBtn");
+  await ph.click(".thead [data-action=home]");
   await ph.waitForSelector(".trip-card");
   o = await overflow(ph);
   ok(o.sw <= o.iw, `phone: trip cards do not overflow (${o.sw} <= ${o.iw})`);
@@ -409,8 +426,8 @@ try {
   await closeModal(ph);
   await ph.click("[data-action=open]");
   await ph.waitForSelector(".tab-body");
-  await ph.click(".tabs-bar [data-action=moreToggle]");
-  await ph.click(".more-sheet [data-tab=itinerary]");
+  await ph.click(".tabs-bar [data-tab=trip]");
+  await ph.click(".hub-list [data-tab=itinerary]");
   await ph.waitForSelector(".itin-actions");
   const ia = await ph.evaluate(() => {
     const box = document.querySelector(".itin-actions").getBoundingClientRect();
@@ -423,7 +440,7 @@ try {
   await makeTrip(dk, { name: LONG, dest: LONG, days: 2 });
   o = await overflow(dk);
   ok(o.sw <= o.iw, `desktop dark: hero does not overflow (${o.sw} <= ${o.iw})`);
-  await dk.click("#homeBtn");
+  await dk.click(".thead [data-action=home]");
   await dk.waitForSelector(".trip-card");
   o = await overflow(dk);
   ok(o.sw <= o.iw, `desktop dark: trip cards do not overflow (${o.sw} <= ${o.iw})`);

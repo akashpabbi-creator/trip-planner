@@ -49,11 +49,11 @@ try {
   await p.click("#modalForm button[value=ok]");
   await p.waitForSelector(".tab-body");
 
-  await p.evaluate(() => { const c = window.__tripCtx; c.S.aiUser = false; c.S.moreOpen = true; c.render(); });
+  await p.evaluate(() => { const c = window.__tripCtx; c.S.aiUser = false; c.S.tab = "trip"; c.render(); });
   ok(await p.locator("[data-action=connectorOpen]").count() === 0, "no Connector entry for non-AI users");
-  await p.evaluate(() => { const c = window.__tripCtx; c.S.aiUser = true; c.S.store.idToken = async () => "tok123"; c.S.moreOpen = true; c.render?.(); });
+  await p.evaluate(() => { const c = window.__tripCtx; c.S.aiUser = true; c.S.store.idToken = async () => "tok123"; c.S.tab = "trip"; c.render?.(); });
   await p.evaluate(() => window.__tripCtx.render());
-  await p.locator(".more-sheet [data-action=connectorOpen]").click();
+  await p.locator(".hub-list [data-action=connectorOpen]").click();
   await p.waitForSelector(".cn-row");
   ok(await p.inputValue(".cn-url input") === W + "/mcp", "shows the connector address");
   ok(await p.locator(".cn-row").count() === 2, "lists both connected apps");

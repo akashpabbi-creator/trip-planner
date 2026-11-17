@@ -109,8 +109,8 @@ try {
   await card(s, "Colosseum").locator("input[data-cmt]").fill("Yes! Book tickets");
   await card(s, "Colosseum").locator("[data-action=cmtAdd]").click();
   ok(await wait(a, () => /Yes! Book tickets/.test(document.body.textContent)), "Akash sees Sam's reply live (thread stays open)");
-  await a.click(".tabs-bar [data-action=moreToggle]");
-  await a.click(".more-sheet [data-tab=changes]");
+  await a.click(".tabs-bar [data-tab=trip]");
+  await a.click(".hub-list [data-tab=changes]");
   const act = await a.textContent(".tab-body");
   ok(/commented on “Colosseum”/.test(act) && !/voted|loved/.test(act), "comments appear in Activity, votes do not");
   await a.click(".tabs-bar [data-tab=ideas]");

@@ -135,8 +135,8 @@ try {
 
   console.log("Ask Claude with the Claude link on");
   await p.evaluate(() => window.__tripCtx.S.store.updatePrivate(window.__tripCtx.S.me.email, { ai: null }));
-  await p.click(".tabs-bar [data-action=moreToggle]");
-  await p.click(".more-sheet [data-action=bridgeOpen]");
+  await p.click(".tabs-bar [data-tab=trip]");
+  await p.click(".hub-list [data-action=bridgeOpen]");
   await p.click("#modalForm button[value=ok]");
   await p.waitForFunction(() => /connected/.test(document.querySelector("#modalForm h3")?.textContent || ""));
   const tok = await p.evaluate(() => window.__tripCtx.bridgeToken());
