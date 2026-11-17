@@ -302,9 +302,11 @@ try {
   // stay card "Prices" link
   await d.evaluate(() => window.__tripCtx.addPlaces([{ title: "Hotel Artemide", category: "stay", location: "Via Nazionale 22, Rome centre", lat: 41.9, lng: 12.49 }], { source: "test", autoPlace: false }));
   await d.click('.tabs-desk [data-tab=ideas]');
-  await d.waitForSelector(".bk-prices a");
-  const pr = new URL(await d.getAttribute(".bk-prices a", "href")).searchParams.get("q");
+  await d.evaluate(() => [...document.querySelectorAll(".icard")].find((x) => /Hotel Artemide/.test(x.textContent)).querySelector(".ic-open").click()); // the idea sheet holds the Prices link
+  await d.waitForSelector(".ssheet .bk-prices a");
+  const pr = new URL(await d.getAttribute(".ssheet .bk-prices a", "href")).searchParams.get("q");
   ok(pr === "hotels in Hotel Artemide Rome centre 2026-11-10 to 2026-11-13", "stay card 'Prices' link uses the matching nights: " + pr);
+  await d.keyboard.press("Escape");
 
   /* ---- regex fallback in the UI */
   console.log("bookings from an email (no Gemini)");

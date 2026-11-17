@@ -35,6 +35,7 @@ details.home-group[open] > summary::after { content: " ▴"; }
 .tc-status.past { color: var(--muted); }
 .tc-foot { display: flex; align-items: center; gap: 6px; }
 .tc-foot .avs .av { width: 20px; height: 20px; font-size: 10px; background: var(--accent-soft); color: var(--accent); border-color: var(--panel); }
+.tc-new { display: inline-block; margin-left: auto; font-size: 11px; font-weight: 700; line-height: 14px; padding: 2px 8px; border-radius: 99px; background: var(--accent); color: var(--accent-ink, #fff); white-space: nowrap; }
 .home-hint { margin: 16px 0 0; text-align: center; }
 .home-hint button { margin-left: 6px; }
 `;
@@ -75,6 +76,23 @@ export function status(t) {
   return ago < 14 ? `Ended ${ago <= 1 ? "yesterday" : plural(ago, "day") + " ago"}` : ago < 60 ? `Ended ${plural(Math.round(ago / 7), "week")} ago` : `Ended ${plural(Math.round(ago / 30), "month")} ago`;
 }
 
+// "New since you looked": per device, when you last left each trip. A change by the other person after that marks the card.
+const SEEN = "tp-trip-seen";
+const readSeen = () => { try { return JSON.parse(localStorage.getItem(SEEN) || "{}") || {}; } catch { return {}; } };
+const writeSeen = (m) => { try { localStorage.setItem(SEEN, JSON.stringify(m)); } catch { /* private window: marks reset */ } };
+export function markOpened(id) { if (!id) return; const m = readSeen(); m[id] = Date.now(); writeSeen(m); }
+// A trip with no record yet starts clean, so nothing is "new" the first time this device sees it.
+export function seedOpened(trips) {
+  const m = readSeen();
+  let dirty = false;
+  for (const t of trips || []) if (m[t.id] == null) { m[t.id] = Date.now(); dirty = true; }
+  if (dirty) writeSeen(m);
+}
+export const isNew = (t) => {
+  const at = readSeen()[t.id];
+  return at != null && !!t.updatedBy && t.updatedBy !== mine() && (t.updatedAt || 0) > at;
+};
+
 export function card(t) {
   const { esc, fmtDay, ago, firstName, coverOf, cssUrl } = ctx;
   const cover = coverOf(t);
@@ -85,7 +103,7 @@ export function card(t) {
         <div class="tc-title">${esc(t.name)}${pinned(t) ? `<span class="tc-pin" title="Pinned" aria-label="Pinned"><svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg></span>` : ""}</div>
         <div class="tc-status ${groupOf(t) === "past" ? "past" : ""}">${esc(status(t))}</div>
         <div class="muted small">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${plural(nDays(t), "day")}</div>
-        <div class="tc-foot"><span class="avs">${(t.members || []).slice(0, 4).map((m) => `<span class="av" title="${esc(t.memberNames?.[m] || m)}">${esc(firstName(t.memberNames?.[m] || m).slice(0, 1).toUpperCase())}</span>`).join("")}</span><span class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) : ""}</span></div>
+        <div class="tc-foot"><span class="avs">${(t.members || []).slice(0, 4).map((m) => `<span class="av" title="${esc(t.memberNames?.[m] || m)}">${esc(firstName(t.memberNames?.[m] || m).slice(0, 1).toUpperCase())}</span>`).join("")}</span><span class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) : ""}</span>${isNew(t) ? `<span class="tc-new">New from ${esc(firstName(t.memberNames?.[t.updatedBy] || t.updatedBy))}</span>` : ""}</div>
       </div>
     </button>
     <button type="button" class="tc-more" data-action="tripMenu" data-id="${esc(t.id)}" aria-haspopup="dialog" aria-label="More options for ${esc(t.name)}" title="More options"><svg class=i aria-hidden=true><use href=icons.svg#more /></svg></button>

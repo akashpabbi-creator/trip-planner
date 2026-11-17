@@ -27,6 +27,7 @@ import * as planMod from "./plan.js";
 import * as stopsMod from "./stops.js";
 import * as askMod from "./ask.js";
 import * as homeMod from "./home.js";
+import * as ideasMod from "./ideas.js";
 import { findDup, mergePatch, dupGroups, foldPatch, seenNote } from "./dedupe.js";
 import { DEFAULT_PROFILE, profileOf, profileText, buildSample, checkDraft, dayShape, vegTip, chooseMode, vegOk, vegLevel, placeScale } from "./profile.js";
 
@@ -230,7 +231,7 @@ function stopTrip() {
   S.items = [];
   S.activity = [];
   S.presence = [];
-  if (prev) emit("close", prev);
+  if (prev) { homeMod.markOpened(prev); emit("close", prev); }
 }
 // Deep links: #trip=<tripId>[&tab=<tabId>][&day=<n>] (day is 1-based). Opened from a link, the trip lands on that tab and day;
 // the address then settles back to plain #trip=<tripId>. Unknown tabs fall back to Plan, a day outside the trip is ignored.
@@ -254,6 +255,7 @@ function applyLink(id, link) {
 function openTrip(id, opts = {}) {
   stopTrip();
   S.tripId = id;
+  ideasMod.seed(id);
   S.scrollToday = true;
   S.moreOpen = false;
   S.addOpen = false;
@@ -414,6 +416,7 @@ function render() {
   initStrip();
   scrollToToday();
   syncLayers();
+  ideasMod.visit(S.me && S.tripId && S.trip ? S.tripId : null, !!(S.me && S.tripId && S.trip && S.tab === "ideas" && !S.askOpen));
   emit("render");
 }
 // Plan opens on today's day during the trip (once per opened trip).
@@ -432,6 +435,18 @@ function today() {
   const ymd = TODAY_OVERRIDE || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const i = Math.round((new Date(ymd + "T00:00:00") - new Date(t.startDate + "T00:00:00")) / 86400000);
   return i >= 0 && i < t.days.length ? i : -1;
+}
+// Today as a Date (honours ?today=YYYY-MM-DD, like today()).
+const nowDate = () => (TODAY_OVERRIDE ? new Date(TODAY_OVERRIDE + "T00:00:00") : new Date());
+// Switch to a trip tab from code (what the "tab" action does, without a button).
+function openTab(tab) {
+  S.askOpen = false;
+  S.tab = tab;
+  S.moreOpen = false;
+  localSet("tab", tab);
+  if (S.tripId) rememberTab(S.tripId, tab);
+  render();
+  window.scrollTo(0, 0);
 }
 function renderSync() {
   const el = document.getElementById("sync");
@@ -637,8 +652,9 @@ const NAV_SVG = { plan: ic("plan"), map: ic("map"), ideas: ic("ideas"), kit: ic(
 function viewNav(tabs, cur, counts) {
   const warnN = (id) => (id === "trip" ? smartList().filter((x) => x.level === "fix").length + (ctx.pendingChanges?.() || 0) : counts.get(id));
   const btn = (x) => {
-    const n = x.id === "trip" ? 0 : counts.get(x.id);
-    return `<button class="${cur?.id === x.id ? "on" : ""}" data-action="tab" data-tab="${x.id}"><span class="t-ic">${NAV_SVG[x.id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : ""}">${n}</span>` : ""}</button>`;
+    const fresh = x.id === "ideas" ? ideasMod.newOnes({ S }, ideas()).length : 0;
+    const n = x.id === "trip" ? 0 : fresh || counts.get(x.id);
+    return `<button class="${cur?.id === x.id ? "on" : ""}" data-action="tab" data-tab="${x.id}"><span class="t-ic">${NAV_SVG[x.id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${x.warn ? "warnc" : fresh ? "newc" : ""}" ${fresh ? `aria-label="${fresh} new"` : ""}>${n}</span>` : ""}</button>`;
   };
   const byId = (id) => tabs.find((x) => x.id === id);
   const bar = ["plan", "ideas", "+", "map", "trip"].map((id) => {
@@ -646,8 +662,9 @@ function viewNav(tabs, cur, counts) {
     const x = byId(id);
     if (!x) return "";
     const on = id === "trip" ? cur?.id === "trip" || hubMod.isChild(cur?.id) : cur?.id === id;
-    const n = id === "trip" ? warnN("trip") : id === "ideas" ? counts.get("ideas") : 0;
-    return `<button class="${on ? "on" : ""}" data-action="tab" data-tab="${id}"><span class="t-ic">${NAV_SVG[id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${id === "trip" ? "warnc" : ""}">${n}</span>` : ""}</button>`;
+    const fresh = id === "ideas" ? ideasMod.newOnes({ S }, ideas()).length : 0; // what the other person added since you last looked
+    const n = id === "trip" ? warnN("trip") : id === "ideas" ? fresh || counts.get("ideas") : 0;
+    return `<button class="${on ? "on" : ""}" data-action="tab" data-tab="${id}"><span class="t-ic">${NAV_SVG[id] || x.icon}</span><span class="t-l">${esc(x.label)}</span>${n ? `<span class="count ${id === "trip" ? "warnc" : fresh ? "newc" : ""}" ${fresh ? `aria-label="${fresh} new"` : ""}>${n}</span>` : ""}</button>`;
   }).join("");
   return `<nav class="tabs tabs-desk">${tabs.map(btn).join("")}${S.aiUser ? `<button class="tab-connect" data-action="bridgeOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg></span><span class="t-l">Connect Claude</span></button><button class="tab-connect" data-action="connectorOpen"><span class="t-ic"><svg class=i aria-hidden=true><use href=icons.svg#plug /></svg></span><span class="t-l">Connector</span></button>` : ""}</nav>
     <nav class="tabs tabs-bar" aria-label="Trip">${bar}</nav>`;
@@ -657,21 +674,25 @@ function runView(tab) {
 }
 
 function viewAddLink() {
-  // Phones: the + opens a bottom sheet of tiles. Desktop: the same buttons sit inline beside the field.
+  // Phones: the + opens a bottom sheet with the link field first (it reads the clipboard), then tiles for the other ways to add.
+  // Desktop: the same field and buttons sit inline above the tab.
   const SHORT = { "From a screenshot": "Screenshot", "Paste tips or text": "Paste text", "Add a trip note": "Note" };
   const extra = slot("addBar").replace(/<button class="icon"(?![^>]*data-label)([^>]*?)title="([^"]*)"/g, '<button class="icon"$1title="$2" data-label="$2"')
     .replace(/data-label="([^"]*)"/g, (m, l) => `data-label="${l}" data-short="${SHORT[l] || l}"`);
   return `<div class="add-wrap ${S.addOpen ? "open" : ""}">
-    <div class="add-link">
-      <span class="al-ic"><svg class=i aria-hidden=true><use href=icons.svg#link /></svg></span>
-      <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link, or add a place" aria-label="Paste a link" ${S.busy ? "disabled" : ""}>
-      <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
-    </div>
     <div class="sheet-back" data-action="addClose"></div>
     <div class="add-sheet" role="dialog" aria-label="Add to the trip">
       <div class="grab"></div>
       <h3>Add to the trip</h3>
       <p class="muted small">${S.aiUser ? "Links, screenshots and tips" : "Links and places"} all land in Ideas. Move them to a day when you are ready.</p>
+      <div class="as-link">
+        <div class="add-link">
+          <span class="al-ic"><svg class=i aria-hidden=true><use href=icons.svg#link /></svg></span>
+          <input id="linkInput" type="url" inputmode="url" placeholder="Paste a link, or add a place" aria-label="Paste a link" ${S.busy ? "disabled" : ""}>
+          <button class="primary" data-action="addLink" ${S.busy ? "disabled" : ""}>${S.busy ? "Working…" : "Save"}</button>
+        </div>
+        <div class="as-clip" role="status"><svg class=i aria-hidden=true><use href=icons.svg#clipboard /></svg><span></span></div>
+      </div>
       <div class="as-grid">
         <button class="icon" data-action="pasteLink" title="Paste from clipboard" data-label="Paste from clipboard" data-short="Clipboard" data-sub="Use the copied link"><svg class=i aria-hidden=true><use href=icons.svg#clipboard /></svg></button>
         <button class="icon" data-action="newItem" title="Add a place without a link" data-label="New stop" data-short="New stop" data-sub="Add a place by name"><svg class=i aria-hidden=true><use href=icons.svg#pin /></svg></button>
@@ -827,6 +848,7 @@ function viewPlan() {
     </div>`;
 }
 
+// Ideas (ideas.js): quiet cards, Book ahead with real dates, New marks, and Top picks (moved here from Discover).
 function viewIdeas() {
   const list = ideas();
   const members = S.trip.members;
@@ -834,13 +856,18 @@ function viewIdeas() {
     const all = S.items.filter((i) => i.addedBy === m && !i.suggestedBy);
     const sched = all.filter((i) => S.trip.days.some((d) => d.id === i.dayId));
     return `<span class="stat"><b>${esc(who(m))}</b>: ${sched.length} of ${all.length} picks planned</span>`;
-  });
-  const bar = socialMod.ideasBar(list, members, CATEGORIES);
+  }).join("");
   const dups = dupGroups(S.items, (i) => S.trip.days.some((d) => d.id === i.dayId));
-  const dupBar = dups.length ? `<div class="dup-bar"><span>${dups.reduce((n, g) => n + g.drop.length, 0)} spot${dups.reduce((n, g) => n + g.drop.length, 0) === 1 ? " is" : "s are"} saved more than once.</span><button type="button" class="btn-s" data-action="mergeDups">Merge duplicates</button></div>` : "";
-  const shown = socialMod.arrangeIdeas(list, members, CATEGORIES);
-  return `<div class="stats">${stats.join("")}</div>${dupBar}${bar}
-    ${shown.length ? `<div class="cards">${shown.map((it) => card(it)).join("")}</div>` : list.length ? `<p class="empty">Nothing matches that filter yet.</p>` : `<p class="empty">No ideas waiting. Paste a link above, or share one to this app from your phone.${/iP(hone|ad|od)/.test(navigator.userAgent) ? " On iPhone, copy it and paste it above." : ""}</p>`}`;
+  const nDup = dups.reduce((n, g) => n + g.drop.length, 0);
+  const dupBar = dups.length ? `<div class="dup-bar"><span>${nDup} spot${nDup === 1 ? " is" : "s are"} saved more than once.</span><button type="button" class="btn-s" data-action="mergeDups">Merge duplicates</button></div>` : "";
+  return ideasMod.html({
+    S, esc, ic, who, firstName, CATEGORIES, vegTag, safeUrl, sourceOf, suggestedFrom, dayDate, fmtDay, now: nowDate,
+    list, stats, dupBar,
+    bar: socialMod.ideasBar(list, members, CATEGORIES),
+    shown: socialMod.arrangeIdeas(list, members, CATEGORIES),
+    dest: S.trip.destination,
+    topPicks: topPicksBody,
+  });
 }
 
 function viewBudget() {
@@ -1281,9 +1308,10 @@ function discoverCard(x, src, idx) {
     </div>
   </article>`;
 }
-function viewDiscover() {
+// Top picks: filter chips, the Gemini/Claude picks (AI users) and the travel-guide picks. Shown in Ideas (S.picksOpen).
+function topPicksBody() {
   const t = S.trip;
-  if (!t.destination) return `<div class="empty-state"><div class="es-ic"><svg class=i aria-hidden=true><use href=icons.svg#compass /></svg></div><p>Add a destination to see top sights, food and places to stay.</p><button class="primary" data-action="editTrip">Add destination</button></div>`;
+  if (!t.destination) return `<p class="muted small">Add a destination to see top sights, food and places to stay.</p>`;
   const loading = S.destBusy || (t.destLoading && Date.now() - t.destLoading.at < 60000);
   const f = S.discFilter || "all";
   const filters = [["all", "All"], ["sight", "<svg class=i aria-hidden=true><use href=icons.svg#landmark /></svg> Sights"], ["activity", "<svg class=i aria-hidden=true><use href=icons.svg#ticket /></svg> Do"], ["food", "<svg class=i aria-hidden=true><use href=icons.svg#food /></svg> Eat & drink"], ["stay", "<svg class=i aria-hidden=true><use href=icons.svg#hotel /></svg> Stay"], ["nature", "<svg class=i aria-hidden=true><use href=icons.svg#leaf /></svg> Nature"], ["shopping", "<svg class=i aria-hidden=true><use href=icons.svg#shop /></svg> Shop"]];
@@ -1291,13 +1319,7 @@ function viewDiscover() {
   const picks = (t.aiPicks?.for === t.destination ? t.aiPicks.items : []).map((x, i) => [x, i]).filter(([x]) => ok(x));
   const guide = (t.guide?.for === t.destination ? t.guide.listings : []).map((x, i) => [x, i]).filter(([x]) => ok(x))
     .sort(([a], [b]) => (a.category === "food" && !vegOk(a)) - (b.category === "food" && !vegOk(b)));
-  const w = t.weather?.days || [];
-  return `<div class="discover">
-    ${aboutBlock()}
-    ${slot("discoverTop")}
-    ${w.length ? `<div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${wxIcon(d.icon)}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div>
-      <p class="muted small">${t.weather.kind === "forecast" ? "Weather forecast for your dates." : "Weather on the same dates last year, as a guide. The forecast appears about two weeks before you go."}</p>` : ""}
-    ${prefsCard()}
+  return `
     <div class="chips">${filters.map(([k, l]) => `<button class="chip ${f === k ? "on" : ""}" data-action="discFilter" data-id="${k}">${l}</button>`).join("")}</div>
 
     ${S.aiUser ? `<section class="d-sec">
@@ -1313,6 +1335,19 @@ function viewDiscover() {
         : `<p class="muted small">${loading ? "Loading the guide for " + esc(t.destination) + "…" : "No guide listings found for this destination. Try a city name, e.g. “Ubud” rather than “Bali”."}</p>`}
       ${t.guide?.source ? `<p class="muted small">From <a href="${esc(t.guide.source)}" target="_blank" rel="noopener">Wikivoyage</a>, the free travel guide.</p>` : ""}
     </section>
+  `;
+}
+function viewDiscover() {
+  const t = S.trip;
+  if (!t.destination) return `<div class="empty-state"><div class="es-ic"><svg class=i aria-hidden=true><use href=icons.svg#compass /></svg></div><p>Add a destination to see top sights, food and places to stay.</p><button class="primary" data-action="editTrip">Add destination</button></div>`;
+  const w = t.weather?.days || [];
+  return `<div class="discover">
+    ${aboutBlock()}
+    ${slot("discoverTop")}
+    ${w.length ? `<div class="wx-strip">${w.map((d, i) => `<div class="wx-day"><div class="muted small">${dayDate(i) ? dayDate(i).toLocaleDateString(undefined, { weekday: "short" }) : "Day " + (i + 1)}</div><div class="wx-ic">${wxIcon(d.icon)}</div><div><b>${d.max}°</b> <span class="muted">${d.min}°</span></div></div>`).join("")}</div>
+      <p class="muted small">${t.weather.kind === "forecast" ? "Weather forecast for your dates." : "Weather on the same dates last year, as a guide. The forecast appears about two weeks before you go."}</p>` : ""}
+    ${prefsCard()}
+    <button class="btn-s primary" data-action="topPicks">${ic("sparkle")} Top picks for ${esc(t.destination)} are in Ideas</button>
   </div>`;
 }
 
@@ -2119,8 +2154,14 @@ async function saveTips({ todos = [], tips = [], label = "this post" } = {}) {
   if (out.todos) log(`added ${out.todos} booking to-do${out.todos > 1 ? "s" : ""} from a saved link`);
   return out;
 }
+const url0 = (raw) => !!extractUrl(raw) || looksLikeText(raw);
 const looksLikeText = (raw) => String(raw || "").trim().length > 40 || /\n/.test(String(raw || "").trim());
 async function addLink(raw) {
+  if (S.addOpen && url0(raw)) { // saving from the + sheet: close it, the link is on its way
+    S.addOpen = false;
+    $app.querySelector(".add-wrap")?.classList.remove("open");
+    syncLayers();
+  }
   const url = extractUrl(raw);
   // Not a link but a lot of text (tips, a transcript): offer to find the places in it.
   if (!url && looksLikeText(raw) && ctx.openPaste && S.aiUser) {
@@ -2406,7 +2447,9 @@ document.addEventListener("click", async (e) => {
         return renderUser();
       case "addOpen":
         S.addOpen = !S.addOpen;
-        return render();
+        render();
+        if (S.addOpen) ideasMod.onAddOpen(ctx); // the link field is ready; a link on the clipboard fills it
+        return;
       case "addClose":
         S.addOpen = false;
         return render();
@@ -2639,7 +2682,7 @@ document.addEventListener("paste", (e) => {
 });
 document.getElementById("homeBtn").onclick = () => S.me && goHome();
 // Keep "x min ago" labels and the online dots fresh.
-setInterval(() => { if (S.tripId && !$modal.open) render(); }, 60000);
+setInterval(() => { if (S.tripId && !$modal.open && !S.addOpen) render(); }, 60000);
 
 /* ----------------------------------------------- feature modules (ctx) */
 // Modules never import this file; everything they need comes through ctx.
@@ -2647,7 +2690,7 @@ const ctx = {
   openAsk,
   S, $form, $modal,
   esc, safeUrl, uid, money, ago, stamp, dayDate, fmtDay, toMin, fromMin, dur, nameOf, who, firstName, toast, friendlyError, stampMe, log, touchTrip,
-  render, focusDay, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
+  openTab, extractUrl, render, focusDay, openModal, dayItems, ideas, schedule, dayCost, nextOrder, orderForTime, placeIdea, addPlaces, saveTips, dayLabel, mapsQ, inTrip,
   untouched, waitFor, planSnapshot, planInputs, finishDraft, profileOf, profileText, aiToItem, card, runAnalyse,
   CATEGORIES, MODES, CURRENCIES,
   openTrip, invite, clearAllDays, coversOf, coverOf, coverSrc, cssUrl, $form, $modal,
@@ -2684,7 +2727,7 @@ ctx.tab({ id: "trip", icon: "<svg class=i aria-hidden=true><use href=icons.svg#t
 }) });
 ctx.tab({ id: "changes", icon: "<svg class=i aria-hidden=true><use href=icons.svg#clock /></svg>", label: "Activity", view: viewChanges, order: 90, more: true });
 window.__tripCtx = ctx; // handy for tests and the console
-for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, planMod, stopsMod, askMod, psocialMod, shareMod, driveMod, searchMod, homeMod]) {
+for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, changesMod, bridgeMod, connectorMod, bookingsMod, pasteMod, notesMod, shuffleMod, planMod, stopsMod, askMod, psocialMod, shareMod, driveMod, searchMod, homeMod, ideasMod]) {
   try { m.init(ctx); } catch (e) { console.error("module init", e); }
 }
 
@@ -2716,6 +2759,7 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, chang
     let first = true;
     tripsUnsub = S.store.watchTrips(u.email, (trips) => {
       S.trips = trips;
+      homeMod.seedOpened(trips);
       // Record my display name on trips I've been invited to, so the other person sees a name, not an email.
       for (const t of trips)
         if (!t.memberNames?.[u.email])

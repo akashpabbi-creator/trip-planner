@@ -265,6 +265,7 @@ try {
   ok(fe[3].text === "Couldn't save. Check your connection and try again." && fe[4].text === fe[3].text && !fe[3].gone, "everything else gets the connection message");
   const dlt = (await items(a)).find((i) => i.title === "Dolphin trip").id;
   await a.click(".tabs-desk [data-tab=ideas]");
+  await a.evaluate((id) => document.querySelector(`.icard[data-id="${id}"] .ic-open`).click(), dlt); // the idea sheet holds Edit
   await a.evaluate((id) => document.querySelector(`[data-action=editItem][data-id="${id}"]`).click(), dlt);
   await a.waitForSelector("#modalForm [name=title]");
   await a.evaluate(() => { const S = window.__tripCtx.S; window.__origUpd ||= S.store.updateItem; S.store.updateItem = async () => { throw Object.assign(new Error("NOT_FOUND: no entity to update: app: trips/x/items/y"), { code: "not-found" }); }; });
@@ -282,6 +283,7 @@ try {
   await closeModal(a);
   await a.evaluate(() => { window.__tripCtx.S.store.updateItem = window.__origUpd; });
   ok(!/NOT_FOUND|PERMISSION_DENIED|entity/.test(await toastText(a)), "no raw database wording on screen");
+  await a.evaluate(() => { window.__tripCtx.S.sheet = null; window.__tripCtx.render(); }); // close the idea sheet
   await a.click(".tabs-desk [data-tab=plan]");
 
   /* ---- 7. #trip link you're not on */

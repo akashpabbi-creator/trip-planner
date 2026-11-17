@@ -65,7 +65,17 @@ export function html(h) {
   if (!sh) return "";
   const it = S.items?.find((i) => i.id === sh.id);
   const day = it ? S.trip.days.find((d) => d.id === it.dayId) : null;
-  if (!it || !day) { S.sheet = null; return ""; }
+  if (!it || (!day && !(sh.idea && sh.kind === "stop")) || (day && sh.idea)) { S.sheet = null; return ""; } // an idea that got a day closes its sheet
+  if (!day) { // an idea (no day yet): the full card, with Add to day, Edit, reactions and comments
+    return `<div class="ssheet-back" data-action="sheetClose"></div><section class="ssheet" role="dialog" aria-modal="true" aria-label="Idea: ${h.esc(it.title || "Untitled")}" tabindex="-1">
+      <div class="grab"></div><div class="ss-head"><span class="ss-kick">Idea</span><button class="ss-x" data-action="sheetClose" aria-label="Close">${h.ic("x")}</button></div>
+      <div class="ss-body">${h.card(it, { full: true })}</div>
+      <div class="ss-actions">
+        <button class="primary" data-action="schedule" data-id="${it.id}">Add to a day</button>
+        <button class="danger" data-action="stopDelete" data-id="${it.id}">${h.ic("trash")} Delete</button>
+      </div>
+    </section>`;
+  }
   const di = S.trip.days.indexOf(day);
   const back = `<div class="ssheet-back" data-action="sheetClose"></div>`;
   const head = (kick) => `<div class="grab"></div><div class="ss-head"><span class="ss-kick">${kick}</span><button class="ss-x" data-action="sheetClose" aria-label="Close">${h.ic("x")}</button></div>`;
@@ -238,7 +248,7 @@ export function init(ctx) {
   ctx.restoreOrder = restoreOrder;
   ctx.restoreDeleted = restoreDeleted;
 
-  const open = (kind, id) => { S.sheet = { kind, id }; ctx.render(); document.querySelector(".ssheet")?.focus({ preventScroll: true }); };
+  const open = (kind, id) => { const it = S.items.find((i) => i.id === id); S.sheet = { kind, id, idea: !!it && !S.trip.days.some((d) => d.id === it.dayId) }; ctx.render(); document.querySelector(".ssheet")?.focus({ preventScroll: true }); };
   ctx.action("openStop", (btn, id) => { if (Date.now() - lastClick < 350) return; open("stop", id); });
   ctx.action("openLeg", (btn, id) => open("leg", id));
   ctx.action("sheetClose", () => { S.sheet = null; ctx.render(); });

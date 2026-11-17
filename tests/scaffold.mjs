@@ -99,9 +99,19 @@ try {
   const added = await d.evaluate(() => window.__added);
   ok(added.length === 2 && added.every((x) => x.id && x.title), "addPlaces returns [{ id, title, where }]");
   await d.click('.tabs-desk [data-tab=ideas]');
-  await d.waitForSelector(".card");
-  ok((await d.$$(".slot-card")).length === 2, "card slot renders in every card");
-  const hrefs = await d.$$eval(".card .dir-link", (as) => as.map((a) => a.href));
+  await d.waitForSelector(".icard");
+  // an idea's sheet holds the full card: the card slot and Directions live there
+  const hrefs = [];
+  let slots = 0;
+  for (let k = 0; k < 2; k++) {
+    await d.evaluate((k) => document.querySelectorAll(".icard .ic-open")[k].click(), k);
+    await d.waitForSelector(".ssheet .card");
+    slots += (await d.$$(".ssheet .slot-card")).length;
+    hrefs.push(...(await d.$$eval(".ssheet .dir-link", (as) => as.map((a) => a.href))));
+    await d.keyboard.press("Escape");
+    await d.waitForFunction(() => !document.querySelector(".ssheet"));
+  }
+  ok(slots === 2, "card slot renders in every idea sheet");
   ok(hrefs.some((h) => h.includes("destination=41.8902%2C12.4922")), "Directions uses lat,lng when known: " + hrefs[0]);
   ok(hrefs.some((h) => /destination=Mystery.*Rome/.test(decodeURIComponent(h).replace(/\+/g, " ")) || /destination=Somewhere/.test(decodeURIComponent(h))), "Directions falls back to location + destination");
   const foot = await d.evaluate(() => {
@@ -166,7 +176,7 @@ try {
   await ph.click(".tabs-bar [data-tab=trip]");
   ok(await ph.isVisible(".hub-list"), "Trip opens the hub");
   const rows = await ph.$$eval(".hub-list .hr-t b", (e) => e.map((x) => x.textContent.trim()));
-  ok(["Bookings", "Budget", "Discover", "Preferences", "Connect Claude", "Connector", "Activity and undo", "Itinerary"].every((r) => rows.includes(r)), "hub lists the areas: " + rows.join(", "));
+  ok(["Bookings", "Budget", "Top picks", "Preferences", "Connect Claude", "Connector", "Activity and undo", "Itinerary"].every((r) => rows.includes(r)), "hub lists the areas: " + rows.join(", "));
   await ph.click(".hub-list [data-tab=budget]");
   ok(await ph.isVisible(".budget"), "a hub row opens its page");
   await ph.click(".tabs-bar [data-tab=trip]");

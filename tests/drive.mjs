@@ -135,8 +135,11 @@ try {
   const it = await p.evaluate(() => window.__tripCtx.S.items.find((i) => i.title === "Trevi Fountain"));
   ok(it.driveFiles[0].id === "FILE1" && /FILE1/.test(it.driveFiles[0].url) && it.via === "screenshot", "the idea keeps a link to its picture");
   await p.evaluate(() => document.querySelector("[data-action=tab][data-tab=ideas]").click());
-  await p.waitForSelector("article.card");
-  ok(/Screenshot/.test(await p.textContent("article.card")) && (await p.getAttribute("article.card a:has-text('Screenshot')", "href")).includes("FILE1"), "idea card shows Screenshot linking to Drive");
+  await p.waitForSelector(".icard");
+  await p.click(".icard .ic-open"); // the idea sheet holds the full card, with its Drive link
+  await p.waitForSelector(".ssheet article.card");
+  ok(/Screenshot/.test(await p.textContent(".ssheet article.card")) && (await p.getAttribute(".ssheet article.card a:has-text('Screenshot')", "href")).includes("FILE1"), "idea sheet shows Screenshot linking to Drive");
+  await p.keyboard.press("Escape");
 
   console.log("Drive failing never loses the places");
   drive.fail = true;

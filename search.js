@@ -101,7 +101,7 @@ export function init(ctx) {
   }
 
   const TAB = { idea: "ideas", stop: "plan", booking: "kit", kit: "kit", note: "kit" };
-  const SEL = { idea: ".card", stop: ".card", booking: ".bk-card" };
+  const SEL = { idea: ".icard", stop: ".card", booking: ".bk-card" };
   function go(kind, id) {
     close();
     S.tab = TAB[kind];

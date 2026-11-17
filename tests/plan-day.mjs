@@ -82,7 +82,7 @@ try {
   console.log("add to a day");
   await p.click(".dchip[data-i='0']");
   await C(() => { const c = window.__tripCtx; c.S.tab = "ideas"; c.render(); });
-  await p.click(".card [data-action=schedule]");
+  await p.click(".icard [data-action=schedule]");
   await p.waitForSelector("#modalForm input[name=dayId]");
   await p.click("#modalForm .pick:nth-of-type(4) input");
   await p.click("#modalForm button[value=ok]");
