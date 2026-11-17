@@ -8,19 +8,23 @@
 //   3. A tool without an entry here is untouched: same text answer, no card. The text `content` is never changed.
 import { deepLink } from "./links.js";
 import status from "./status-card.js";
+import day from "./day-card.js";
+import { DAY_TOOL_CARDS, DAY_APP_TOOLS } from "./day-data.js";
 import ideas from "./ideas-card.js";
 import { structureIdeas, IDEAS_APP_TOOLS } from "./ideas.js";
 
 export const VIEWS = {
   "ui://trips/status": status,
+  "ui://trips/day": day,
   "ui://trips/ideas": ideas,
 };
 
 export const TOOL_CARDS = {
   whoami: { uri: "ui://trips/status", structure: (r, _a, _c, env) => ({ ...r, appUrl: deepLink(env, {}) }) },
+  ...DAY_TOOL_CARDS,
   ...Object.fromEntries(["list_ideas", "search_items", "save_ideas", "ideas_add_to_day", "ideas_refresh"].map((n) => [n, { uri: "ui://trips/ideas", structure: structureIdeas[n] }])), // Ideas carousel (ideas.js)
 };
 
 // App-only helper tools (_meta.ui.visibility ["app"]): callable from a card, hidden from the model by hosts that honour it.
 // A helper is { name, description, inputSchema, run(args, c) } like any tool; card jobs add theirs here.
-export const APP_TOOLS = [...IDEAS_APP_TOOLS];
+export const APP_TOOLS = [...DAY_APP_TOOLS, ...IDEAS_APP_TOOLS];
