@@ -50,14 +50,14 @@ details.home-group[open] > summary::after { content: " ▴"; }
 .trip-card.big .tc-img { position: relative; height: 150px; flex: none; border-radius: 0; background-size: cover; background-position: center; }
 .trip-card.big .tc-img::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.28), rgba(0,0,0,0) 45%); pointer-events: none; }
 .trip-card.big .tc-status { position: absolute; z-index: 1; top: 12px; left: 12px; background: var(--panel); color: var(--ink); border-radius: 8px; padding: 5px 9px; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
-.trip-card.big .tc-body { padding: 14px 16px 16px; display: grid; gap: 4px; min-width: 0; }
-.trip-card.big .tc-title { font-size: 22px; line-height: 1.2; margin: 0; }
+.trip-card.big .tc-body { padding: 14px 16px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0; }
+.trip-card.big .tc-title { font-size: 22px; line-height: 25px; margin: 0; }
 .trip-card.big .tc-meta { font-size: 13px; color: var(--muted); }
 .trip-card.big .tc-foot { margin-top: 8px; }
 /* Planning, past and other trips: a quiet row */
 .trip-card.row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 56px 10px 10px; border-radius: 16px; min-height: 76px; }
 .trip-card.row .tc-img { width: 56px; height: 56px; min-height: 0; border-radius: 12px; background-size: cover; background-position: center; }
-.trip-card.row .tc-body { padding: 0; display: grid; gap: 1px; min-width: 0; }
+.trip-card.row .tc-body { padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; min-width: 0; }
 .trip-card.row .tc-title { font-size: 15px; font-weight: 600; margin: 0; -webkit-line-clamp: 1; font-family: var(--t-font-body); }
 .trip-card.row .tc-meta { font-size: 13px; color: var(--muted); }
 .trip-card.row .tc-foot { margin-top: 2px; }
