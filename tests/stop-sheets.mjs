@@ -132,6 +132,7 @@ try {
   console.log("phone Back button closes the sheet");
   await p.click(".stop-row:has-text('Beach Shack')");
   await p.waitForSelector(".ssheet");
+  await p.waitForFunction(() => history.state?.tp === "layer"); // the sheet has its own history entry
   await p.goBack();
   await p.waitForFunction(() => !document.querySelector(".ssheet"));
   ok(!!(await p.$(".day")), "Back closed the sheet and stayed in the trip");
