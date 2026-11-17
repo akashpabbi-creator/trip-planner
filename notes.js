@@ -78,7 +78,7 @@ export function init(ctx) {
     const gem = ctx.aiKey(), claudeFirst = !gem;
     return `<div class="nt-plan">
       <div class="nt-btns">
-        <button class="${claudeFirst ? "btn-s primary" : "btn-s"}" data-action="notePlanClaude">🟠 Plan from notes with Claude</button>
+        <button class="${claudeFirst ? "btn-s primary" : "btn-s"}" data-action="notePlanClaude"><svg class=i aria-hidden=true><use href=icons.svg#sparkle /></svg> Plan from notes with Claude</button>
         ${canGemini() ? `<button class="btn-s" data-action="notePlanGemini" ${busy ? "disabled" : ""}>${busy ? "Gemini is working on it…" : "Plan from notes with Gemini"}</button>` : ""}
       </div>
       <p class="muted small" style="margin:0">Claude reads your open notes and suggests changes. Nothing changes until you tap Apply.</p>
@@ -89,7 +89,7 @@ export function init(ctx) {
     const list = all().slice().sort((a, b) => (b.at || 0) - (a.at || 0));
     const todo = list.filter((n) => !n.done), done = list.filter((n) => n.done);
     return `<section class="d-sec nt-sec" id="kit-notes">
-      <div class="d-head"><h3>📝 Trip notes</h3>${todo.length ? `<span class="muted small">${todo.length} open</span>` : ""}</div>
+      <div class="d-head"><h3><svg class=i aria-hidden=true><use href=icons.svg#note /></svg> Trip notes</h3>${todo.length ? `<span class="muted small">${todo.length} open</span>` : ""}</div>
       <textarea id="ntNew" class="nt-ta" maxlength="${MAX_CHARS}" placeholder="${esc(PH)}" aria-label="New trip note">${esc(draft)}</textarea>
       <div class="nt-add"><span class="muted small">Ctrl+Enter adds</span><button class="btn-s primary" data-action="noteAdd">Add note</button></div>
       ${planRow()}
@@ -112,7 +112,7 @@ export function init(ctx) {
   }
   function quick() {
     if (!S.trip) return ctx.toast("Open a trip first.");
-    ctx.openModal(`<h3>🗒️ Add a trip note</h3>
+    ctx.openModal(`<h3><svg class=i aria-hidden=true><use href=icons.svg#note /></svg> Add a trip note</h3>
       <label>Note<textarea name="text" class="nt-ta" rows="5" maxlength="${MAX_CHARS}" placeholder="${esc(PH)}" required></textarea></label>
       <p class="muted small">You both see it on the Kit tab, and Claude can use it when you ask it to plan from your notes.</p>`, async (fd) => {
       if (!clean(fd.text)) return false;
@@ -173,7 +173,7 @@ export function init(ctx) {
 
   /* ------------------------------------------------------------------ wiring */
   ctx.slot("kitTop", section);
-  ctx.slot("addBar", () => `<button class="icon" data-action="noteQuick" title="Add a trip note" aria-label="Add a trip note" data-label="Add a trip note" data-sub="For both of you, and for Claude">🗒️</button>`);
+  ctx.slot("addBar", () => `<button class="icon" data-action="noteQuick" title="Add a trip note" aria-label="Add a trip note" data-label="Add a trip note" data-sub="For both of you, and for Claude"><svg class=i aria-hidden=true><use href=icons.svg#note /></svg></button>`);
   // Open notes only, newest last, capped in size (oldest dropped first). First names only, never emails.
   ctx.slot("snapshot", (snap) => {
     let left = SNAP_CHARS;

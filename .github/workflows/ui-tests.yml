@@ -1,0 +1,67 @@
+name: App tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    # Static checks: nothing lost from the feature map, service worker lists every file and CACHE is bumped when app files change.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tests/feature-map.mjs
+      - run: node tests/sw-check.mjs
+        if: github.event_name != 'pull_request'
+      - run: BASE_REF=origin/${{ github.base_ref }} node tests/sw-check.mjs
+        if: github.event_name == 'pull_request'
+
+  ui:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      # The tests look for Playwright in /opt/node-tools and for firebase-tools, the Firebase SDK and Leaflet in /tmp/claude-0/fbt.
+      - run: |
+          sudo mkdir -p /opt/node-tools && sudo chown "$USER" /opt/node-tools
+          npm i --prefix /opt/node-tools playwright@1
+          npx --prefix /opt/node-tools playwright install --with-deps chromium
+          mkdir -p /tmp/claude-0/fbt
+          npm i --prefix /tmp/claude-0/fbt firebase-tools@15 firebase@10.12.2 leaflet@1.9.4
+      - run: node tests/run-ui.mjs ${{ matrix.shard }}/4
+
+  screens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          sudo mkdir -p /opt/node-tools && sudo chown "$USER" /opt/node-tools
+          npm i --prefix /opt/node-tools playwright@1
+          npx --prefix /opt/node-tools playwright install --with-deps chromium
+      # Every screen, phone and desktop, light and dark. Download the "screens" artifact from the run to look at them.
+      - run: node tests/screens.mjs screens-out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens
+          path: screens-out/*.png
+          retention-days: 30

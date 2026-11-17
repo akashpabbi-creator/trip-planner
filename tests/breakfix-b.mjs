@@ -18,7 +18,8 @@ await new Promise((r) => setTimeout(r, 800));
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+import { freezeClock } from "./_clock.mjs";
+const b = freezeClock(await chromium.launch());
 const errors = [];
 let geminiReply = null, geminiDelay = 0, geminiRaw = null;
 const dialogs = [];
@@ -119,6 +120,8 @@ try {
   await p2.goto(`http://127.0.0.1:${PORT}/`);
   await p2.fill("#demoName", "Akash");
   await p2.click("[data-action=signin]");
+  await p2.waitForSelector(".tab-body, .trip-card");
+  if (await p2.$(".trip-card")) await p2.click(".trip-card"); // a fresh start opens on Your trips
   await p2.waitForFunction(() => window.__tripCtx?.S?.items?.length >= 4, null, { timeout: 10000 });
   await propose(addOps(["Piazza Navona"]));
   await Promise.all([p, p2].map((pg) => pg.waitForFunction(() => window.__tripCtx.S.trip.changes, null, { timeout: 8000 })));

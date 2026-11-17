@@ -37,7 +37,7 @@ export function init(ctx) {
       : list.length
         ? list.map((c) => `<div class="cn-row"><span>${esc(c.client)}<small class="muted">${c.since ? "since " + esc(new Date(c.since).toISOString().slice(0, 10)) : ""}</small></span><button type="button" class="btn-s danger" data-action="connectorCut" data-id="${esc(c.id)}">Disconnect</button></div>`).join("")
         : `<p class="muted small">Nothing is connected yet.</p>`;
-    sheet(`<h3>🔌 Trips connector</h3>
+    sheet(`<h3><svg class=i aria-hidden=true><use href=icons.svg#plug /></svg> Trips connector</h3>
       <p class="small">Add this connector in Claude or Gemini and they can read and change your trips directly, as you. Every change they make shows in Activity with an Undo button.</p>
       <p class="small"><b>Claude:</b> Settings, Connectors, Add custom connector. <b>Gemini:</b> add it as a custom app (MCP). Paste this address:</p>
       <div class="cn-url"><input readonly value="${esc(url)}" aria-label="Connector address" onfocus="this.select()"><button type="button" class="btn-s" data-action="connectorCopy">Copy</button></div>

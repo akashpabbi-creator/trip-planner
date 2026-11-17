@@ -248,7 +248,7 @@ export async function fetchPlace(dest) {
 }
 
 const WMO = (c) =>
-  c == null ? "" : c === 0 ? "☀️" : c <= 2 ? "🌤️" : c === 3 ? "☁️" : c <= 48 ? "🌫️" : c <= 67 ? "🌧️" : c <= 77 ? "🌨️" : c <= 82 ? "🌦️" : "⛈️";
+  c == null ? "" : c === 0 ? "sun" : c <= 2 ? "sun-cloud" : c === 3 ? "cloud" : c <= 48 ? "fog" : c <= 67 ? "rain" : c <= 77 ? "snow" : c <= 82 ? "rain" : "storm";
 const iso = (d) => d.toISOString().slice(0, 10);
 
 export async function fetchWeather(lat, lng, startDate, nDays) {

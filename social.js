@@ -3,7 +3,7 @@
 import { itemMatches } from "./search.js";
 let C = null; // ctx, set by init
 
-const VOTES = [["love", "❤️", "Love it"], ["like", "👍", "Like it"], ["no", "👎", "Not for us"]];
+const VOTES = [["love", "<svg class=i aria-hidden=true><use href=icons.svg#heart /></svg>", "Love it"], ["like", "<svg class=i aria-hidden=true><use href=icons.svg#thumb-up /></svg>", "Like it"], ["no", "<svg class=i aria-hidden=true><use href=icons.svg#thumb-down /></svg>", "Not for us"]];
 const open = new Set(); // item ids whose comment thread is expanded
 const view = { cat: "all", sort: "love", q: "" }; // Ideas tab filter and sort
 
@@ -56,7 +56,7 @@ function cardRow(it) {
   }).join("");
   const n = (it.comments || []).length;
   return `<div class="rx-row">${btns}
-    <button type="button" class="rx ${open.has(it.id) ? "on" : ""} ${n ? "has" : ""}" data-action="cmtToggle" data-id="${it.id}" title="Comments" aria-expanded="${open.has(it.id)}">💬${n ? `<span class="rx-who">${n}</span>` : ""}</button>
+    <button type="button" class="rx ${open.has(it.id) ? "on" : ""} ${n ? "has" : ""}" data-action="cmtToggle" data-id="${it.id}" title="Comments" aria-expanded="${open.has(it.id)}"><svg class=i aria-hidden=true><use href=icons.svg#comment /></svg>${n ? `<span class="rx-who">${n}</span>` : ""}</button>
     ${bothLove(it, members) ? `<span class="tag rx-both">Both love it</span>` : ""}
   </div>${open.has(it.id) ? thread(it) : ""}`;
 }
@@ -111,7 +111,7 @@ export function ideasBar(list, members, cats) {
   return `<div class="idea-bar">
     <div class="idea-find"><input type="search" id="ideaQ" data-ideaq value="${C.esc(view.q)}" placeholder="Search ideas" autocomplete="off" enterkeyhint="search" aria-label="Search ideas">
       <select class="idea-sort" data-sort aria-label="Sort ideas"><option value="love" ${view.sort === "love" ? "selected" : ""}>Both love first</option><option value="new" ${view.sort === "new" ? "selected" : ""}>Newest first</option></select></div>
-    <div class="chips idea-chips">${chip("all", "All", hit.length)}${both ? chip("love", "❤️ Both love", n("love")) : ""}${present.map((k) => chip(k, `${cats[k].icon} ${C.esc(cats[k].label)}`, n(k))).join("")}</div>
+    <div class="chips idea-chips">${chip("all", "All", hit.length)}${both ? chip("love", "<svg class=i aria-hidden=true><use href=icons.svg#heart /></svg> Both love", n("love")) : ""}${present.map((k) => chip(k, `${cats[k].icon} ${C.esc(cats[k].label)}`, n(k))).join("")}</div>
   </div>`;
 }
 // Both-loved first, vetoed last, then newest. "Newest" keeps pure date order.

@@ -1,6 +1,7 @@
 // Claude link end to end: the real app in a browser against the Firebase emulators (rules from firestore.rules),
 // with the Python script from docs/claude-skill.md playing Claude.
 // Run: node tests/bridge.mjs   (starts the emulators itself; needs /tmp/claude-0/fbt for firebase-tools and the SDK files)
+import { freezeClock } from "./_clock.mjs";
 import { createRequire } from "module";
 import { execSync, spawn, spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync, copyFileSync, readFileSync } from "fs";
@@ -40,7 +41,7 @@ await fetch(`${FS}/aiUsers?documentId=akash@example.com`, { method: "POST", head
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+const b = freezeClock(await chromium.launch());
 const errors = [];
 const geoFail = /nowhere/i;
 async function newPage(viewport = { width: 390, height: 800 }) {

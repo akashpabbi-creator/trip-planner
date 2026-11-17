@@ -18,7 +18,8 @@ await new Promise((r) => setTimeout(r, 800));
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+import { freezeClock } from "./_clock.mjs";
+const b = freezeClock(await chromium.launch());
 const errors = [];
 try {
   const p = await (await b.newContext({ viewport: { width: 390, height: 800 }, hasTouch: false })).newPage();

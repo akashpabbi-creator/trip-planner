@@ -92,6 +92,6 @@ export function init(ctx) {
     return proposeChanges({ source: "Shuffle", request: `Shuffle Day ${n}`, summary: `Day ${n}: ${summary}.`, ops }).then(() => openChanges());
   }
 
-  ctx.slot("dayFoot", (d) => (ctx.dayItems(d.id).length ? `<button class="link shf-btn" data-action="shuffleDay" data-id="${d.id}" title="Swap a few stops for places from Ideas">🔀 Shuffle</button>` : ""));
+  ctx.slot("dayFoot", (d) => (ctx.dayItems(d.id).length ? `<button class="link shf-btn" data-action="shuffleDay" data-id="${d.id}" title="Swap a few stops for places from Ideas"><svg class=i aria-hidden=true><use href=icons.svg#shuffle /></svg> Shuffle</button>` : ""));
   ctx.action("shuffleDay", (b, id) => shuffle(id));
 }

@@ -54,7 +54,7 @@ export function init(ctx) {
   }
   function noGemini() {
     const limit = !!ctx.aiKey();
-    sheet(`<h3>📷 Add from a screenshot</h3>
+    sheet(`<h3><svg class=i aria-hidden=true><use href=icons.svg#camera /></svg> Add from a screenshot</h3>
       <p>${limit ? "Gemini's free limit is used up for now, so I can't read pictures right now." : "Reading a screenshot needs a free Gemini key, which you can connect on the Discover tab."}</p>
       <p class="muted small">${S.trip?.driveFolder ? "Your picture goes to Gemini once to read the place names; the original is kept in the trip’s Google Drive folder." : "Your picture is never saved anywhere. It goes to Gemini once to read the place names and is then dropped."}</p>
       <div class="cap-actions"><button type="button" class="primary" data-action="bridgeOpen" data-close>Send to Claude instead</button><button type="button" data-close>Close</button></div>`);
@@ -135,14 +135,14 @@ export function init(ctx) {
       if (!n) return;
       if (!S.aiUser) { await caches.delete("share-inbox"); return toast("Reading screenshots is only set up for accounts with Gemini or Claude, so this one wasn't added.", 6000); }
       if (!canRead()) { await caches.delete("share-inbox"); return noGemini(); }
-      sheet(`<h3>📷 You shared ${n > 1 ? n + " screenshots" : "a screenshot"}</h3>
+      sheet(`<h3><svg class=i aria-hidden=true><use href=icons.svg#camera /></svg> You shared ${n > 1 ? n + " screenshots" : "a screenshot"}</h3>
         <p>Read ${n > 1 ? "them" : "it"} and add the places to “${esc(S.trip.name)}”?</p>
         <p class="muted small">The picture goes to Gemini once${S.trip.driveFolder ? " and a copy is saved in the trip’s Drive folder" : " and is not saved"}.</p>
         <div class="cap-actions"><button type="button" class="primary" data-action="captureShared" data-id="read">Read ${n > 1 ? "them" : "it"}</button><button type="button" data-action="captureShared" data-id="skip">Not now</button></div>`);
     } catch (e) { console.warn("shared pictures", e); }
   }
 
-  ctx.slot("addBar", () => !S.aiUser ? "" : `<button class="icon" data-action="capturePick" title="Add places from a screenshot" data-label="From a screenshot" data-sub="Read places off a photo">📷</button>`);
+  ctx.slot("addBar", () => !S.aiUser ? "" : `<button class="icon" data-action="capturePick" title="Add places from a screenshot" data-label="From a screenshot" data-sub="Read places off a photo"><svg class=i aria-hidden=true><use href=icons.svg#camera /></svg></button>`);
   ctx.action("capturePick", () => !S.aiUser ? null : (canRead() ? pick(ctx.drive?.warm()) : noGemini()));
   ctx.action("captureShared", async (btn, id) => {
     ctx.$modal.close();

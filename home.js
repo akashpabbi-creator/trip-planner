@@ -22,14 +22,14 @@ const CSS = `
 .hm-list .hm-ic { width: 26px; text-align: center; font-size: 20px; flex: none; }
 .hm-sub { margin: 0 0 6px; }
 .home-group { margin: 18px 0 0; }
-.home-group > h3 { margin: 0 0 8px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-details.home-group > summary { cursor: pointer; list-style: none; margin: 0 0 8px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.home-group > h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+details.home-group > summary { cursor: pointer; list-style: none; margin: 0 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 details.home-group > summary::-webkit-details-marker { display: none; }
 details.home-group > summary::after { content: " ▾"; }
 details.home-group[open] > summary::after { content: " ▴"; }
-.trip-cards.compact .trip-card { background: var(--panel); color: var(--ink); display: grid; grid-template-columns: 96px 1fr; align-items: stretch; }
+.trip-cards.compact .trip-card { background: var(--panel); color: var(--ink); display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: stretch; }
 .trip-cards.compact .tc-img { height: auto; min-height: 84px; }
-.trip-cards.compact .tc-body { padding: 10px 56px 10px 14px; display: grid; gap: 2px; align-content: center; }
+.trip-cards.compact .tc-body { padding: 10px 56px 10px 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: center; }
 .trip-cards.compact .tc-title { font-size: 17px; }
 .tc-status { font-size: 13px; font-weight: 700; color: var(--accent); }
 .tc-status.past { color: var(--muted); }
@@ -82,13 +82,13 @@ export function card(t) {
     <button class="trip-card" data-action="open" data-id="${esc(t.id)}">
       <div class="tc-img" ${cover ? `style="background-image:url('${cssUrl(cover)}')"` : ""}></div>
       <div class="tc-body">
-        <div class="tc-title">${esc(t.name)}${pinned(t) ? `<span class="tc-pin" title="Pinned" aria-label="Pinned">📌</span>` : ""}</div>
+        <div class="tc-title">${esc(t.name)}${pinned(t) ? `<span class="tc-pin" title="Pinned" aria-label="Pinned"><svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg></span>` : ""}</div>
         <div class="tc-status ${groupOf(t) === "past" ? "past" : ""}">${esc(status(t))}</div>
         <div class="muted small">${esc(t.destination || "")}${t.startDate ? " · " + fmtDay(new Date(t.startDate + "T00:00")) : ""} · ${plural(nDays(t), "day")}</div>
         <div class="tc-foot"><span class="avs">${(t.members || []).slice(0, 4).map((m) => `<span class="av" title="${esc(t.memberNames?.[m] || m)}">${esc(firstName(t.memberNames?.[m] || m).slice(0, 1).toUpperCase())}</span>`).join("")}</span><span class="muted small">${t.updatedAt ? "Updated " + ago(t.updatedAt) : ""}</span></div>
       </div>
     </button>
-    <button type="button" class="tc-more" data-action="tripMenu" data-id="${esc(t.id)}" aria-haspopup="dialog" aria-label="More options for ${esc(t.name)}" title="More options">⋯</button>
+    <button type="button" class="tc-more" data-action="tripMenu" data-id="${esc(t.id)}" aria-haspopup="dialog" aria-label="More options for ${esc(t.name)}" title="More options"><svg class=i aria-hidden=true><use href=icons.svg#more /></svg></button>
   </div>`;
 }
 
@@ -273,13 +273,13 @@ function openMenu(id) {
   menuFor = id;
   const owner = t.owner === S.me.email;
   const items = [
-    ["rename", "✏️", "Rename"],
-    ["cover", "🖼️", "Change cover"],
-    ["invite", "👥", "Invite"],
-    ["pin", "📌", pinned(t) ? "Unpin from top" : "Pin to top"],
-    ["duplicate", "📄", "Duplicate"],
-    ["clear", "🧹", "Clear all days"],
-    owner ? ["delete", "🗑️", "Delete trip", true] : ["leave", "🚪", "Leave trip", true],
+    ["rename", "<svg class=i aria-hidden=true><use href=icons.svg#edit /></svg>", "Rename"],
+    ["cover", "<svg class=i aria-hidden=true><use href=icons.svg#image /></svg>", "Change cover"],
+    ["invite", "<svg class=i aria-hidden=true><use href=icons.svg#people /></svg>", "Invite"],
+    ["pin", "<svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg>", pinned(t) ? "Unpin from top" : "Pin to top"],
+    ["duplicate", "<svg class=i aria-hidden=true><use href=icons.svg#note /></svg>", "Duplicate"],
+    ["clear", "<svg class=i aria-hidden=true><use href=icons.svg#broom /></svg>", "Clear all days"],
+    owner ? ["delete", "<svg class=i aria-hidden=true><use href=icons.svg#trash /></svg>", "Delete trip", true] : ["leave", "<svg class=i aria-hidden=true><use href=icons.svg#door /></svg>", "Leave trip", true],
   ];
   $form.onsubmit = (e) => e.preventDefault();
   $form.innerHTML = `<h3>${esc(t.name)}</h3>

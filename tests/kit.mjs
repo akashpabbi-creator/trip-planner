@@ -22,7 +22,8 @@ const URL0 = `http://127.0.0.1:${PORT}/`;
 
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log((c ? "  ok   " : "  FAIL ") + msg); };
-const b = await chromium.launch();
+import { freezeClock } from "./_clock.mjs";
+const b = freezeClock(await chromium.launch());
 const errors = [];
 const calls = []; // external rate lookups
 const mode = { frank: "ok", er: "ok" };

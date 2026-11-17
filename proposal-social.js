@@ -4,7 +4,7 @@
 let C = null; // ctx, set by init
 
 const KINDS = ["changes", "proposal"];
-const VOTES = [["up", "👍", "Good idea"], ["down", "👎", "Not for us"]];
+const VOTES = [["up", "<svg class=i aria-hidden=true><use href=icons.svg#thumb-up /></svg>", "Good idea"], ["down", "<svg class=i aria-hidden=true><use href=icons.svg#thumb-down /></svg>", "Not for us"]];
 const initial = (email) => C.firstName(C.nameOf(email)).slice(0, 1).toUpperCase();
 const votesOf = (obj, key) => obj?.votes?.[key] || {};
 
@@ -40,7 +40,7 @@ export function summary(obj, members) {
   const me = C.S.me.email, others = (members || []).filter((m) => m !== me);
   const parts = [];
   const all = votesOf(obj, "all");
-  const overall = others.filter((m) => all[m]).map((m) => `${C.who(m)} ${all[m] === "up" ? "👍" : "👎"}`);
+  const overall = others.filter((m) => all[m]).map((m) => `${C.who(m)} ${all[m] === "up" ? "<svg class=i aria-hidden=true><use href=icons.svg#thumb-up /></svg>" : "<svg class=i aria-hidden=true><use href=icons.svg#thumb-down /></svg>"}`);
   if (overall.length) parts.push(overall.join(", "));
   const keys = Object.keys(obj.votes || {}).filter((k) => k !== "all");
   const n = keys.filter((k) => others.some((m) => obj.votes[k]?.[m])).length;
