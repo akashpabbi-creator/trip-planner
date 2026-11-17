@@ -50,7 +50,9 @@ try {
   await p.click("[data-group=Past] summary");
   ok((await txt("[data-group=Past] .tc-status"))[0].startsWith("Ended 4 weeks ago"), "past status: " + (await txt("[data-group=Past] .tc-status")));
   const h = (await p.locator("[data-group='Coming up'] .trip-card").first().boundingBox()).height;
-  ok(h < 130, "compact card height " + Math.round(h));
+  ok(h > 200 && h < 320, "coming up trips are cover cards, height " + Math.round(h));
+  const hr = (await p.locator("[data-group=Planning] .trip-card").first().boundingBox()).height;
+  ok(hr < 100, "planning trips are quiet rows, height " + Math.round(hr));
   ok(await p.locator(".tc-foot .av").count() >= 5, "member initials shown");
   ok(await p.locator("[data-home-hint]").count() === 1, "hint shown");
   await p.click("[data-action=hideHomeHint]");

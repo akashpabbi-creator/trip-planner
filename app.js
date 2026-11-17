@@ -546,7 +546,8 @@ function viewSignIn() {
 function viewHome() {
   const trips = homeMod.list(S.trips);
   return `<section class="home">
-    <div class="home-head"><h2>Your trips</h2><button class="primary" data-action="newTrip">+ New trip</button></div>
+    <div class="home-head"><h2>Your trips</h2></div>
+    <button class="home-fab" data-action="newTrip"><svg class=i aria-hidden=true><use href=icons.svg#plus /></svg>New trip</button>
     ${trips.length ? "" : `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>`}
     ${homeMod.view(S.trips)}
   </section>`;
