@@ -59,6 +59,8 @@ const addStop = (p, x) => p.evaluate(async (x) => {
   const c = window.__tripCtx, S = c.S;
   return S.store.addItem(S.tripId, { title: "Stop", category: "sight", location: "", description: "", image: "", siteName: "", dayId: null, order: 0, time: "", durationMin: 60, cost: 0, mustDo: false, notes: "", addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), ...c.stampMe(), ...x });
 }, x);
+// Stop actions live in the stop sheet: open it for a stop, then press its Edit.
+const editStop = (p, id) => p.evaluate((id) => { const c = window.__tripCtx; c.S.sheet = { kind: "stop", id }; c.render(); document.querySelector(`.ssheet [data-action=editItem][data-id="${id}"]`).click(); c.S.sheet = null; c.render(); }, id);
 const dayId = (p, i) => p.evaluate((i) => window.__tripCtx.S.trip.days[i].id, i);
 const closeModal = async (p) => { await p.keyboard.press("Escape"); await p.waitForTimeout(150); };
 
@@ -142,13 +144,14 @@ try {
   ok((await toastText(a)) === "Give it a name" && (await modalOpen(a)), "new stop with a blank title is refused");
   await closeModal(a);
   const keepId = (await items(a)).find((i) => i.title === "Keep me").id;
-  await a.evaluate((id) => window.__tripCtx.$modal.open || document.querySelector(`[data-action=editItem][data-id="${id}"]`).click(), keepId);
+  await editStop(a, keepId);
   await a.waitForSelector("#modalForm [name=title]");
   await a.fill("#modalForm [name=title]", "  ");
   await a.click("#modalForm button[value=ok]");
   await a.waitForTimeout(200);
   ok((await toastText(a)) === "Give it a name" && (await modalOpen(a)) && (await items(a)).some((i) => i.title === "Keep me"), "edit stop with a blank title is refused");
   await closeModal(a);
+  await a.evaluate(() => { window.__tripCtx.S.sheet = null; window.__tripCtx.render(); });
 
   /* ---- 3. fewer days */
   console.log("3. shrinking the trip");
@@ -197,7 +200,7 @@ try {
 
   /* ---- 4. stale forms */
   console.log("4. stale edit forms keep the partner's changes");
-  await a.evaluate((id) => document.querySelector(`[data-action=editItem][data-id="${id}"]`).click(), keepId);
+  await editStop(a, keepId);
   await a.waitForSelector("#modalForm [name=title]");
   await a.evaluate(async (id) => { const S = window.__tripCtx.S; await S.store.updateItem(S.tripId, id, { notes: "Partner note", cost: 500, updatedBy: "bea@demo", updatedAt: Date.now() }); }, keepId);
   await a.fill("#modalForm [name=title]", "Keep me (renamed)");
@@ -205,7 +208,7 @@ try {
   await a.waitForTimeout(300);
   const kept = (await items(a)).find((i) => i.id === keepId);
   ok(kept.title === "Keep me (renamed)" && kept.notes === "Partner note" && kept.cost === 500, "editing one field leaves the partner's notes and cost alone");
-  await a.evaluate((id) => document.querySelector(`[data-action=editItem][data-id="${id}"]`).click(), keepId);
+  await editStop(a, keepId);
   await a.waitForSelector("#modalForm [name=title]");
   await a.evaluate(async (id) => { const S = window.__tripCtx.S; await S.store.updateItem(S.tripId, id, { updatedAt: 111 }); }, keepId);
   await a.click("#modalForm button[value=ok]");

@@ -61,7 +61,7 @@ try {
     const c = window.__tripCtx, S = c.S;
     return S.store.addItem(S.tripId, { title: "Colosseum", category: "sight", location: "Rome", description: "", image: "", siteName: "", url: "", time: "", cost: 0, mustDo: false, notes: "", durationMin: 60, addedBy: S.me.email, addedByName: S.me.name, addedAt: Date.now(), dayId: S.trip.days[0].id, order: 1, ...c.stampMe() });
   });
-  await p.waitForSelector("[data-action=editItem]");
+  await p.waitForSelector(".stop-row");
   await p.waitForFunction(async () => (await new Promise((r) => setTimeout(r, 600)), true));
   ok((await itemsJson(tripId)).length === 1, "online: stop reached the server");
 
@@ -71,7 +71,9 @@ try {
   ok(true, "context offline (navigator.onLine false)");
 
   // (a) Save pop-up closes quickly and the change shows
-  await p.click("[data-action=editItem]");
+  await p.click(".stop-row");
+  await p.click(".ssheet [data-action=editItem]");
+  await p.evaluate(() => { window.__tripCtx.S.sheet = null; window.__tripCtx.render(); });
   await p.fill("#modalForm [name=title]", "Colosseum EDITED");
   const t0 = Date.now();
   await p.click("#modalForm button[value=ok]");
