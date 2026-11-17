@@ -42,7 +42,11 @@ await p.click("[data-action=signin]");
 
 const home = () => p.$(".trip-card, [data-action=newTrip]").then(async () => (await p.$(".tab-body")) === null);
 const inTrip = async () => !!(await p.$(".tab-body"));
-const back = async () => { await p.goBack(); await p.waitForTimeout(600); };
+// The app registers a history entry for a sheet or dialog from a 0ms timer (syncLayers in app.js). A Back sent before that timer
+// ran pops the trip entry instead of the sheet, which is what a person can never do but a script can. Waiting for a timer queued
+// after it (same delay, so it fires later) means every pending registration has run before Back is pressed.
+const settle = () => p.evaluate(() => new Promise((r) => setTimeout(r, 0)));
+const back = async () => { await settle(); await p.goBack(); await p.waitForTimeout(600); };
 async function makeTrip(name) {
   await p.click("[data-action=newTrip]");
   await p.fill("[name=name]", name);
