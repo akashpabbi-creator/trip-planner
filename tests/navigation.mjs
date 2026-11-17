@@ -49,6 +49,7 @@ try {
 
   // Back from a dialog closes only the dialog.
   await p.click("[data-action=addOpen]");
+  await p.waitForSelector(".add-wrap.open", { timeout: 5000 }).catch(() => {});
   ok(await p.$eval(".add-wrap", (e) => e.classList.contains("open")), "Add sheet opens");
   await back();
   ok(!(await p.$eval(".add-wrap", (e) => e.classList.contains("open"))) && (await inTrip()), "Back closes the Add sheet and stays in the trip");

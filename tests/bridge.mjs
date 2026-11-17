@@ -125,7 +125,6 @@ try {
   const btns = await p.$$eval("#modalForm .bq", (els) => els.map((e) => e.textContent.trim()));
   ok(btns.join("|") === "Review our plan|Plan our empty days|Top places & vegetarian restaurants", "quick buttons: " + btns.join(" | ") + " (no Handle our requests without an ask)");
   ok(/Copy instead/.test(await p.textContent("#modalForm")) && /Make it permanent/.test(await p.textContent("#modalForm")), "Copy instead and the permanent tip are there");
-  await p.screenshot({ path: "/mnt/project-files/trip-planner-build/shots/claude-one-tap.png" });
   const lastOpen = async (n) => { await p.waitForFunction((k) => window.__opened.length === k, n, { timeout: 5000 }); return p.evaluate(() => ({ url: window.__opened.at(-1), copied: window.__copied })); };
   await p.click("#modalForm .bq >> text=Review our plan");
   let o = await lastOpen(1);
