@@ -14,4 +14,4 @@ jobs:
           sudo mkdir -p /opt/node-tools && sudo chown "$USER" /opt/node-tools
           npm i --prefix /opt/node-tools playwright@1
           npx --prefix /opt/node-tools playwright install --with-deps chromium
-      - run: for i in 1 2 3 4 5 6; do echo "=== run $i"; node tests/navigation.mjs 2>&1 | grep -v "^  ok" ; done
+      - run: for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo "=== run $i"; node tests/navigation.mjs 2>&1 | grep -v "^  ok" ; done
