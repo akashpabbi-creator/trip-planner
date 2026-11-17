@@ -56,9 +56,14 @@ try {
   ok(!(await p.$eval(".add-wrap", (e) => e.classList.contains("open"))) && (await inTrip()), "Back closes the Add sheet and stays in the trip");
 
   // Add sheet, then a dialog from a tile: Back closes the dialog, then the trip is still open.
+  const hist = (l) => p.evaluate((l) => console.log(l) || JSON.stringify({ l, len: history.length, hash: location.hash, layers: 0, more: window.__tripCtx.S.moreOpen }), l);
+  console.log("  dbg", await hist("before more"));
   await p.click("[data-action=moreToggle]");
+  await p.waitForTimeout(300);
+  console.log("  dbg", await hist("more open"));
   ok(await p.$(".more-back") !== null, "More menu opens");
   await back();
+  console.log("  dbg", await hist("after back"), await p.evaluate(() => navigator.userAgent));
   ok((await p.$(".more-back")) === null && (await inTrip()), "Back closes the More menu and stays in the trip");
 
   await p.click("[data-action=addOpen]");
