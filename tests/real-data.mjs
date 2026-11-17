@@ -7,12 +7,18 @@ import { readLink } from "../linkinfo.js";
 
 // Wikimedia asks scripts to identify themselves; browsers send their own headers.
 const realFetch = globalThis.fetch;
-let calls = 0;
+let calls = 0, throttled = 0;
 globalThis.fetch = async (u, o = {}) => {
-  calls++;
-  const r = await realFetch(u, { ...o, headers: { "User-Agent": "trip-planner-tests/1.0 (github.com/akashpabbi-creator/trip-planner)", ...(o.headers || {}) } });
-  if (!r.ok) console.log(`  ⚠️ HTTP ${r.status} ${r.headers.get("retry-after") ? "retry-after " + r.headers.get("retry-after") + " " : ""}${String(u).slice(0, 140)}`);
-  return r;
+  // Shared CI runners hit Wikimedia's rate limit often. Wait out 429s here (up to 4 tries) so the app code
+  // sees a normal answer; real failures (404, 500, wrong content) are never retried.
+  for (let k = 0; ; k++) {
+    calls++;
+    const r = await realFetch(u, { ...o, headers: { "User-Agent": "trip-planner-tests/1.0 (github.com/akashpabbi-creator/trip-planner)", ...(o.headers || {}) } });
+    if (!r.ok) console.log(`  ⚠️ HTTP ${r.status} ${r.headers.get("retry-after") ? "retry-after " + r.headers.get("retry-after") + " " : ""}${String(u).slice(0, 140)}`);
+    if (r.status !== 429 || k >= 3) return r;
+    throttled++;
+    await new Promise((ok) => setTimeout(ok, Math.min(60, Number(r.headers.get("retry-after")) || 5) * 1000));
+  }
 };
 
 const TRANSPORT = /\b(airport|aeroporto|airlines?|airways|wizz|ryanair|easyjet|indigo|terminal|railway|train station|stazione|termini|bus station|bus stand|metro station|ferry|car rental|car hire|taxi|shinkansen)\b/i;
@@ -28,9 +34,7 @@ let fails = 0;
 const fail = (msg) => { fails++; console.log("  ❌ " + msg); };
 const ok = (msg) => console.log("  ✅ " + msg);
 
-for (const c of CASES) {
-  // One trip at a time, like a person using the app; Wikimedia rate-limits bursts.
-  if (c !== CASES[0]) await new Promise((r) => setTimeout(r, 20000));
+async function runCase(c) {
   console.log(`\n=== ${c.destination}, ${c.days} days`);
   const trip = { destination: c.destination, startDate: "", currency: "INR", days: Array.from({ length: c.days }, (_, i) => ({ id: "d" + i })) };
   const d = await loadDestination(trip);
@@ -39,7 +43,7 @@ for (const c of CASES) {
   const famous = [...L].filter((l) => l.type === "see").sort((a, b) => (b.fame || 0) - (a.fame || 0)).slice(0, 8);
   console.log("  best-known sights: " + famous.map((l) => `${l.name} (${l.fame || 0})`).join(", "));
   console.log(`  requests so far: ${calls}`);
-  if (!L.length) { fail("the travel guide returned nothing"); continue; }
+  if (!L.length) { fail("the travel guide returned nothing"); return; }
   console.log(`  guide: ${L.length} listings from ${d.guide.source}; cities: ${[...new Set(L.map((l) => l.city).filter(Boolean))].join(", ") || "-"}`);
   const bad = L.filter((l) => TRANSPORT.test(l.name));
   bad.length ? fail(`transport in guide: ${bad.map((l) => l.name).join(", ")}`) : ok("no transport listings in the guide");
@@ -60,6 +64,20 @@ for (const c of CASES) {
   tp.length ? fail(`transport in plan: ${tp.map((x) => x.listing.name).join(", ")}`) : ok("no transport in the plan");
   for (const re of c.expect) re.test(names) ? ok(`plan has ${re}`) : fail(`plan is missing ${re}`);
   if (c.cities && new Set(bases.map((b) => b.base)).size < c.cities) fail(`expected at least ${c.cities} cities, got ${[...new Set(bases.map((b) => b.base))].join(", ") || "none"}`);
+}
+for (const c of CASES) {
+  // One trip at a time, like a person using the app; Wikimedia rate-limits bursts.
+  if (c !== CASES[0]) await new Promise((r) => setTimeout(r, 20000));
+  // If a case fails while Wikimedia was throttling us, the guide data may be thin: wait and read it again (twice at most).
+  // A case that fails without any throttling, or still fails after the retries, counts as a real failure.
+  for (let attempt = 1; ; attempt++) {
+    const f0 = fails, t0 = throttled;
+    await runCase(c);
+    if (fails === f0 || throttled === t0 || attempt >= 3) break;
+    console.log(`  ↻ ${fails - f0} check(s) failed while Wikimedia throttled ${throttled - t0} request(s); waiting 60s and reading ${c.destination} again (attempt ${attempt + 1} of 3)`);
+    fails = f0;
+    await new Promise((r) => setTimeout(r, 60000));
+  }
 }
 
 // Covers only (no loadDestination, to limit requests): a small hill town where Wikivoyage has no banner and Wikipedia has only maps.
