@@ -17,7 +17,7 @@ for (const f of mine) {
     r = spawnSync("node", [join(here, f)], { encoding: "utf8", timeout: 600000, maxBuffer: 1 << 26 });
     const secs = Math.round((Date.now() - t0) / 1000);
     if (r.status === 0) { console.log(`PASS ${f} (${secs}s)`); break; }
-    console.log(`${attempt === 1 ? "RETRY" : "FAIL "} ${f} (${secs}s)\n${(r.stdout || "").split("\n").filter((l) => /FAIL|Error|exception/.test(l)).slice(0, 12).join("\n")}${(r.stderr || "").slice(-600)}`);
+    console.log(`${attempt === 1 ? "RETRY" : "FAIL "} ${f} (${secs}s)\n${(r.stdout || "").split("\n").filter((l) => /FAIL|Error|exception|\.mjs:\d+|waiting for/.test(l)).slice(0, 12).join("\n")}${(r.stderr || "").slice(-600)}`);
   }
   if (r.status !== 0) failed.push(f);
 }

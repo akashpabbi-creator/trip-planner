@@ -31,7 +31,7 @@ await p.click("[data-action=signin]");
 
 const home = () => p.$(".trip-card, [data-action=newTrip]").then(async () => (await p.$(".tab-body")) === null);
 const inTrip = async () => !!(await p.$(".tab-body"));
-const back = async () => { await p.goBack(); await p.waitForTimeout(250); };
+const back = async () => { await p.goBack(); await p.waitForTimeout(600); };
 async function makeTrip(name) {
   await p.click("[data-action=newTrip]");
   await p.fill("[name=name]", name);
