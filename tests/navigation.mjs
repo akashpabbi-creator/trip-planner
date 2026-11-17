@@ -127,7 +127,7 @@ try {
   ok(!(await inTrip()), "Back from a trip goes to Your trips");
 } catch (e) {
   fails++;
-  console.log("  FAIL exception", e.message);
+  console.log("  FAIL exception", e.stack, await p.evaluate(() => JSON.stringify({ hash: location.hash, tab: window.__tripCtx?.S.tab, trip: !!window.__tripCtx?.S.trip, txt: document.querySelector("#app")?.innerText.slice(0, 100) })).catch(() => ""));
 }
 ok(errors.length === 0, "no page errors" + (errors.length ? ": " + errors[0] : ""));
 await b.close();
