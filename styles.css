@@ -625,7 +625,7 @@ main, .trip, .tab-body { min-width: 0; }
 .tabs-desk .t-ic svg { width: 18px; height: 18px; }
 .count { font-size: 11px; }
 @media (max-width: 700px) {
-  main { padding: 0 12px 104px; }
+  main { padding: 0 12px calc(112px + env(safe-area-inset-bottom)); }
   .presence > * { display: none; }
   .hero-inner { min-height: 232px; padding: 12px; }
   .hero h1 { font-size: clamp(30px, 9vw, 36px); }
@@ -826,7 +826,7 @@ body.in-trip .topbar { display: none; }
 .dstrip { top: var(--tb, 56px); }
 
 /* bottom bar: Plan, Ideas, +, Map, Trip */
-.tabs-bar .bar-plus { flex: none; width: 52px; height: 52px; min-height: 0; margin: -14px 6px 0; padding: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); box-shadow: 0 6px 18px rgba(39,71,212,.35); display: grid; place-items: center; align-self: flex-start; border: 0; }
+.tabs-bar .bar-plus { flex: none; width: 48px; height: 48px; min-height: 0; margin: 0 8px; padding: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); box-shadow: 0 3px 10px rgba(39,71,212,.35); display: grid; place-items: center; align-self: center; border: 0; }
 .tabs-bar .bar-plus .i { width: 26px; height: 26px; }
 .tabs-bar .bar-plus[aria-expanded=true] { transform: rotate(45deg); }
 
