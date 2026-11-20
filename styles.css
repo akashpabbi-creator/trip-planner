@@ -913,3 +913,58 @@ body.in-trip .topbar { display: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
 }
+
+/* ---------------- tablets (701 to 1099 px, e.g. Galaxy Tab S9+ upright or in split screen) ----------------
+   Same navigation as the phone: bottom bar (Plan, Ideas, +, Map, Trip) and the + sheet, with the content kept in one centred column.
+   From 1100 px the side menu takes over. */
+@media (min-width: 701px) and (max-width: 1099px) {
+  .tabs.tabs-desk { display: none; }
+  .tabs.tabs-bar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; margin: 0; gap: 0; justify-content: center; align-items: center;
+    padding: 6px max(8px, calc((100vw - 640px) / 2)) max(8px, env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(14px); border-top: 1px solid var(--line);
+  }
+  .tabs-bar button { flex-direction: column; gap: 3px; flex: 1; min-width: 0; position: relative; min-height: 56px; padding: 2px 0; font-size: 12px; font-weight: 600; color: var(--muted); border-radius: 0; }
+  .tabs-bar button.on { background: none; color: var(--accent); box-shadow: none; }
+  .tabs-bar .t-ic { width: 64px; height: 32px; border-radius: 99px; display: grid; place-items: center; }
+  .tabs-bar button.on .t-ic { background: var(--accent-soft); }
+  .tabs-bar .bar-plus { flex: none; width: 56px; height: 56px; margin: 0 14px; }
+  .tabs-bar .bar-plus .t-ic, .tabs-bar .bar-plus.on .t-ic { width: auto; height: auto; background: none; }
+  .tabs-bar .count { position: absolute; top: 0; right: auto; left: calc(50% + 8px); font-size: 10px; font-weight: 700; padding: 0 5px; background: var(--accent); color: var(--accent-ink); }
+  .tabs-bar .count.warnc { background: var(--t-check-line); color: var(--t-check-strong); }
+  main { padding: 4px 16px calc(112px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+  /* the + opens a bottom sheet, like on a phone, centred and no wider than a dialog */
+  .add-plus { display: grid; }
+  .add-wrap { display: block; margin: 0; max-width: none; }
+  .sheet-back { display: block; position: fixed; inset: 0; z-index: 39; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .2s; }
+  .add-wrap.open .sheet-back { opacity: 1; pointer-events: auto; }
+  .add-sheet { display: block; position: fixed; left: 50%; bottom: 0; width: min(560px, 100vw); z-index: 40; background: var(--panel); border-radius: 26px 26px 0 0; padding: 10px 18px calc(26px + env(safe-area-inset-bottom)); box-shadow: 0 -10px 40px rgba(0,0,0,.35); transform: translate(-50%, 105%); visibility: hidden; transition: transform .22s ease, visibility 0s .22s; }
+  .add-wrap.open .add-sheet { transform: translate(-50%, 0); visibility: visible; transition: transform .22s ease; }
+  .add-sheet .grab { display: block; width: 40px; height: 4px; border-radius: 9px; background: var(--line); margin: 0 auto 14px; }
+  .add-sheet h3 { display: block; margin: 0 0 4px; font-size: 19px; font-weight: 700; }
+  .add-sheet > p { display: block; margin: 0 0 12px; }
+  .add-sheet .as-link { margin: 0 0 12px; }
+  .add-sheet .add-link { background: var(--panel-2); border: 1px solid var(--line); box-shadow: none; height: 52px; }
+  .add-sheet .add-link input { font-size: 16px; }
+  .add-sheet .add-link button.primary { min-height: 40px; padding: 6px 16px; }
+  .as-clip { display: flex !important; }
+  .as-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .as-grid button.icon { align-self: stretch; justify-content: flex-start; width: auto; height: auto; box-shadow: none; display: flex; flex-direction: column; align-items: flex-start; border-radius: 16px; background: var(--panel-2); border: 1px solid var(--line); padding: 14px; font-size: 22px; line-height: 1.3; white-space: normal; text-align: left; }
+  .as-grid button.icon::after { content: attr(data-label); order: 1; margin-top: 6px; font-size: 14px; font-weight: 700; color: var(--ink); }
+  .as-grid button.icon::before { content: attr(data-sub); order: 2; font-size: 12px; font-weight: 400; color: var(--muted); }
+  .hub-back { display: inline-flex; }
+  .day .c-by { display: none; }
+}
+
+/* touch screens of any size: finger-sized controls (a computer with a mouse keeps the compact ones) */
+@media (pointer: coarse) and (min-width: 701px) {
+  .btn-s, .rx { min-height: 40px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; }
+  .btn-s { padding: 4px 14px; }
+  button.link, .leg-btn, .c-links .al-link, .chip, .k-row .k-x, .rx-del, .smart-banner.quiet, .checks > summary { min-height: 40px; }
+  .checks > summary { display: flex; align-items: center; }
+  .c-meta a, .leg-map, .bk-meta a { padding: 9px 0; margin: -9px 0; }
+  .k-row input[type=checkbox] { width: 22px; height: 22px; }
+  .tabs-desk button { min-height: 44px; }
+}

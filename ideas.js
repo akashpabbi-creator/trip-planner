@@ -74,7 +74,7 @@ const CSS = `
 .as-clip.on { display: flex; }
 .as-clip .i { width: 18px; height: 18px; flex: none; }
 .as-clip span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (min-width: 701px) { .as-clip { display: none !important; } }
+@media (min-width: 1100px) { .as-clip { display: none !important; } }
 `;
 
 const cap = (x) => (x ? x[0].toUpperCase() + x.slice(1) : x);
@@ -254,7 +254,7 @@ export async function onAddOpen(C) {
     box2.dispatchEvent(new Event("input", { bubbles: true }));
     return;
   }
-  if (matchMedia("(max-width: 700px)").matches) box2.focus({ preventScroll: true });
+  if (matchMedia("(max-width: 1099px)").matches) box2.focus({ preventScroll: true });
 }
 
 export function init(ctx) {
