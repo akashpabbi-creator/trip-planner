@@ -10,9 +10,12 @@ service cloud.firestore {
     // Gemini and Claude are for accounts that have an aiUsers doc (made by hand in the console).
     function aiUser() { return signedIn() && exists(/databases/$(database)/documents/aiUsers/$(me())); }
 
+    // Only approved people (a creators doc, or an AI user/admin) may start new trips. Everyone else can join trips by invite link.
+    function creator() { return signedIn() && (exists(/databases/$(database)/documents/creators/$(me())) || aiUser()); }
+
     match /trips/{tripId} {
       allow read: if signedIn() && me() in resource.data.members;
-      allow create: if signedIn() && request.resource.data.owner == me()
+      allow create: if creator() && request.resource.data.owner == me()
                     && request.resource.data.members == [me()];
       allow update: if signedIn() && request.resource.data.owner == resource.data.owner && (
         // The owner can change anything, but stays on the trip.
@@ -42,6 +45,11 @@ service cloud.firestore {
     // Is this account allowed Gemini and Claude? Each account can only look at its own doc.
     match /aiUsers/{email} {
       allow get: if signedIn() && me() == email;
+    }
+    // Who may create trips. An account can look at its own doc; admins (AI users) can list, add and remove.
+    match /creators/{email} {
+      allow get: if signedIn() && (me() == email || aiUser());
+      allow list, create, update, delete: if aiUser();
     }
     // An AI user's Gemini key and Claude link tokens. Nobody else can read or write it.
     match /private/{email} {
