@@ -89,7 +89,7 @@ export function view(h) {
           ${w.length ? `<p class="small muted">${t.weather.kind === "forecast" ? "Forecast" : "Same dates last year"}: ${Math.min(...w.map((d) => d.min))}–${Math.max(...w.map((d) => d.max))}°C over ${plural(w.length, "day")}.</p>` : ""}</div>
       </details>
       ${row(h, { icon: "heart", label: "Preferences", status: "Pace, food, stay and interests", action: "editProfile" })}
-      ${S.aiUser ? row(h, { icon: "sparkle", label: "Connect Claude", status: "Link this trip to your Claude project", action: "bridgeOpen" }) + row(h, { icon: "plug", label: "Connector", status: "Use Trips from Claude or Gemini", action: "connectorOpen" }) + row(h, { icon: "robot", label: "Gemini key", status: h.hasKey() ? "Connected" : "Free, optional", action: "aiSettings" }) : ""}
+      ${S.aiUser ? row(h, { icon: "people", label: "Who can create trips", status: "Approved people; others join by invite", action: "creators" }) + row(h, { icon: "sparkle", label: "Connect Claude", status: "Link this trip to your Claude project", action: "bridgeOpen" }) + row(h, { icon: "plug", label: "Connector", status: "Use Trips from Claude or Gemini", action: "connectorOpen" }) + row(h, { icon: "robot", label: "Gemini key", status: h.hasKey() ? "Connected" : "Free, optional", action: "aiSettings" }) : ""}
       ${row(h, { icon: "clock", label: "Activity and undo", status: chgN ? plural(chgN, "change") + " waiting" : st.activity, tab: "changes", count: chgN || 0, warn: chgN > 0 })}
       ${row(h, { icon: "note", label: "Itinerary", status: "Print, copy, calendar", tab: "itinerary" })}
       ${row(h, { icon: "folder", label: "Drive folder", status: "Where the final plan is saved", tab: "kit", scroll: "drive-folder" })}

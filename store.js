@@ -193,6 +193,23 @@ async function firebaseStore(config) {
         return (await fs.getDocFromCache(fs.doc(db, "aiUsers", email)).catch(() => null))?.exists() || false; // offline: what we saw last time
       }
     },
+    // Creators: an `creators/{email}` doc lets that account create trips. Admins (AI users) manage the list and always count as creators.
+    async isCreator(email) {
+      try {
+        return (await fs.getDoc(fs.doc(db, "creators", email))).exists();
+      } catch (e) {
+        if (e.code === "permission-denied") return false;
+        return (await fs.getDocFromCache(fs.doc(db, "creators", email)).catch(() => null))?.exists() || false; // offline: what we saw last time
+      }
+    },
+    watchCreators: (cb, onErr) => fs.onSnapshot(fs.collection(db, "creators"), (s) => cb(s.docs.map((d) => ({ email: d.id, ...d.data() }))), onErr),
+    addCreator: (email, by) => fs.setDoc(fs.doc(db, "creators", email), { on: true, by, at: Date.now() }),
+    removeCreator: (email) => fs.deleteDoc(fs.doc(db, "creators", email)),
+    async ensureCreator(email) { // an admin's own doc, written the first time they open the hub
+      const ref = fs.doc(db, "creators", email);
+      if (!(await fs.getDoc(ref)).exists()) await fs.setDoc(ref, { on: true, by: email, at: Date.now() });
+    },
+
     watchPrivate: (email, cb) => fs.onSnapshot(fs.doc(db, "private", email), (d) => cb(d.exists() ? d.data() : {}), (e) => { console.warn("private", e.message); cb({}); }),
     updatePrivate: (email, patch) => fs.setDoc(fs.doc(db, "private", email), patch, { merge: true }),
 
@@ -393,6 +410,16 @@ function demoStore() {
       try { off ||= localStorage.getItem("tripplanner-demo-noai") === "1"; } catch {}
       return !off;
     },
+    // Demo: everyone can create trips unless `?nocreate` or localStorage["tripplanner-demo-nocreator"] = "1".
+    async isCreator() {
+      let off = new URLSearchParams(location.search).has("nocreate");
+      try { off ||= localStorage.getItem("tripplanner-demo-nocreator") === "1"; } catch {}
+      return !off;
+    },
+    watchCreators: (cb) => listen(() => cb(Object.entries(state.creators || {}).map(([email, v]) => ({ email, ...v })))),
+    async addCreator(email, by) { state = load(); (state.creators ||= {})[email] = { on: true, by, at: Date.now() }; save(); },
+    async removeCreator(email) { state = load(); delete (state.creators ||= {})[email]; save(); },
+    async ensureCreator(email) { state = load(); (state.creators ||= {})[email] ||= { on: true, by: email, at: Date.now() }; save(); },
     watchPrivate: (email, cb) => listen(() => cb(structuredClone(state.private[email] || {}))),
     async updatePrivate(email, patch) {
       state = load();

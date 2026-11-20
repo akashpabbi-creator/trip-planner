@@ -48,6 +48,8 @@ const rest = async (path) => (await fetch(`${FS}/${path}`, { headers: { Authoriz
 const tripJson = async (id) => rest("trips/" + id);
 const itemsJson = async (id) => (await rest(`trips/${id}/items`)).documents || [];
 try {
+  // Only approved people can create trips: seed the test user as one.
+  await fetch(`${FS}/creators?documentId=akash@example.com`, { method: "POST", headers: { Authorization: "Bearer owner", "Content-Type": "application/json" }, body: JSON.stringify({ fields: { on: { booleanValue: true } } }) });
   await p.goto(URL0);
   await p.click("[data-action=signin]");
   await p.click("[data-action=newTrip]");

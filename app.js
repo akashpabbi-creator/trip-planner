@@ -543,12 +543,15 @@ function viewSignIn() {
   </section>`;
 }
 
+// Only approved people (creators/{email}, or an AI user) start trips; everyone else joins by invite link.
+const canCreate = () => S.creator === true;
+
 function viewHome() {
   const trips = homeMod.list(S.trips);
   return `<section class="home">
     <div class="home-head"><h2>Your trips</h2></div>
-    <button class="home-fab" data-action="newTrip"><svg class=i aria-hidden=true><use href=icons.svg#plus /></svg>New trip</button>
-    ${trips.length ? "" : `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>`}
+    ${canCreate() ? `<button class="home-fab" data-action="newTrip"><svg class=i aria-hidden=true><use href=icons.svg#plus /></svg>New trip</button>` : ""}
+    ${trips.length ? "" : S.creator === false ? `<p class="empty">This is a private app. Ask the person planning your trip for an invite link.</p>` : canCreate() ? `<p class="empty">No trips yet. Create one, then invite your partner by email.</p>` : ""}
     ${homeMod.view(S.trips)}
   </section>`;
 }
@@ -1398,6 +1401,38 @@ function editProfile() {
 }
 
 /* ---------------------------------------------------------------------- AI */
+// Who can create trips (admins only): the list lives in creators/{email}.
+function creatorsOpen() {
+  if (!S.aiUser) return;
+  let list = [], unsub = null;
+  const paint = () => {
+    const el = $form.querySelector("[data-creators]");
+    if (!el) return unsub?.();
+    el.innerHTML = list.length ? list.sort((a, b) => a.email.localeCompare(b.email)).map((c) => `<li><span>${esc(c.email)}${c.email === S.me.email ? ' <small class="muted">(you)</small>' : ""}</span>${c.email === S.me.email ? "" : `<button type="button" class="btn-s danger" data-rm="${esc(c.email)}">Remove</button>`}</li>`).join("") : `<li class="muted small">Just you for now.</li>`;
+  };
+  $form.innerHTML = `<h3>Who can create trips</h3>
+    <p class="muted small">These people can start new trips. Anyone else who signs in can only join trips they are invited to.</p>
+    <ul class="creators-list" data-creators></ul>
+    <label>Add an email<input name="email" type="email" autocomplete="off" placeholder="name@gmail.com" data-cr-email></label>
+    <div class="m-actions"><button type="button" data-close>Done</button><button type="button" class="primary" data-cr-add>Add</button></div>`;
+  $form.querySelector("[data-close]").onclick = () => $modal.close();
+  $form.onsubmit = (e) => { e.preventDefault(); $form.querySelector("[data-cr-add]").click(); };
+  const add = async () => {
+    const inp = $form.querySelector("[data-cr-email]"), email = inp.value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast("Enter a full email address.");
+    try { await S.store.addCreator(email, S.me.email); inp.value = ""; toast(`${email} can now create trips.`); } catch (e) { toast(friendlyError(e).text); }
+  };
+  $form.querySelector("[data-cr-add]").onclick = add;
+  $form.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-rm]");
+    if (!b) return;
+    try { await S.store.removeCreator(b.dataset.rm); toast(`${b.dataset.rm} can no longer create trips.`); } catch (er) { toast(friendlyError(er).text); }
+  });
+  unsub = S.store.watchCreators((l) => { list = l; paint(); }, () => {});
+  $modal.addEventListener("close", () => unsub?.(), { once: true });
+  $modal.showModal();
+  syncLayers();
+}
 function aiSettings() {
   if (!S.aiUser) return;
   const cur = S.priv?.ai || {};
@@ -1683,6 +1718,7 @@ function tripFormProblem(f) {
   return "";
 }
 async function newTrip() {
+  if (!canCreate()) return toast("Only approved people can start a trip. Ask for an invite link instead.");
   openModal(tripForm(), async (f) => {
     const bad = tripFormProblem(f);
     if (bad) return toast(bad), false;
@@ -2611,6 +2647,7 @@ document.addEventListener("click", async (e) => {
         return touchTrip();
       }
       case "aiSettings": return aiSettings();
+      case "creators": return creatorsOpen();
       case "aiPicks": return runAiPicks();
       case "aiReview": return runAiReview();
       case "aiApply": return applyAi(+id);
@@ -2751,6 +2788,7 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, chang
     privUnsub?.();
     privUnsub = null;
     S.aiUser = false;
+    S.creator = null; // unknown until the creators doc has been looked up
     S.priv = null;
     if (!u) {
       stopTrip();
@@ -2779,10 +2817,18 @@ for (const m of [mapMod, alongMod, socialMod, captureMod, kitMod, undoMod, chang
       console.error(e);
       toast("Couldn't load trips: " + e.message);
     });
+    // Only accounts with a creators doc (or an aiUsers doc) can start trips.
+    S.store.isCreator(u.email).then((yes) => {
+      if (S.me?.email !== u.email) return;
+      S.creator = S.creator || !!yes;
+      render();
+    }).catch(() => { if (S.me?.email === u.email && S.creator === null) { S.creator = false; render(); } });
     // Only accounts with an aiUsers doc get Gemini and Claude.
     S.store.aiUser(u.email).then((yes) => {
       if (S.me?.email !== u.email || !yes) return;
       S.aiUser = true;
+      S.creator = true;
+      S.store.ensureCreator(u.email).catch(() => {});
       privUnsub = S.store.watchPrivate(u.email, (p) => { S.priv = p || {}; emit("priv"); migrateAi(); render(); });
       render();
     }).catch(() => {});

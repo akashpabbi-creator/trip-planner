@@ -327,7 +327,7 @@ function openMenu(id) {
     ["cover", "<svg class=i aria-hidden=true><use href=icons.svg#image /></svg>", "Change cover"],
     ["invite", "<svg class=i aria-hidden=true><use href=icons.svg#people /></svg>", "Invite"],
     ["pin", "<svg class=i aria-hidden=true><use href=icons.svg#pushpin /></svg>", pinned(t) ? "Unpin from top" : "Pin to top"],
-    ["duplicate", "<svg class=i aria-hidden=true><use href=icons.svg#note /></svg>", "Duplicate"],
+    ...(S.creator === true ? [["duplicate", "<svg class=i aria-hidden=true><use href=icons.svg#note /></svg>", "Duplicate"]] : []),
     ["clear", "<svg class=i aria-hidden=true><use href=icons.svg#broom /></svg>", "Clear all days"],
     owner ? ["delete", "<svg class=i aria-hidden=true><use href=icons.svg#trash /></svg>", "Delete trip", true] : ["leave", "<svg class=i aria-hidden=true><use href=icons.svg#door /></svg>", "Leave trip", true],
   ];
