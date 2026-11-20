@@ -46,7 +46,7 @@ body.stop-dragging { cursor: grabbing; }
 .stop-undo[hidden] { display: none; }
 .stop-undo span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stop-undo button { flex: none; min-height: 40px; padding: 0 16px; border-radius: 99px; border: 0; background: var(--bg); color: var(--ink); font-weight: 700; }
-@media (min-width: 880px) {
+@media (min-width: 701px) {
   .ssheet { left: 50%; right: auto; width: 560px; transform: translateX(-50%); bottom: 24px; border-radius: 28px; max-height: 84vh; animation: none; }
   .stop-undo { bottom: 24px; }
 }
